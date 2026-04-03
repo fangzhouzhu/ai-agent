@@ -6,6 +6,10 @@ import styles from './ChatArea.module.css'
 interface Props {
   messages: Message[]
   isLoading: boolean
+  onCopyMessage: (message: Message) => void
+  onEditUserMessage: (messageId: string, content: string) => void
+  onDeleteMessage: (messageId: string) => void
+  onRegenerateMessage: (messageId: string) => void
 }
 
 const WelcomeScreen: React.FC = () => (
@@ -34,11 +38,18 @@ const WelcomeScreen: React.FC = () => (
   </div>
 )
 
-const ChatArea: React.FC<Props> = ({ messages, isLoading }) => {
+const ChatArea: React.FC<Props> = ({
+  messages,
+  isLoading,
+  onCopyMessage,
+  onEditUserMessage,
+  onDeleteMessage,
+  onRegenerateMessage,
+}) => {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' })
   }, [messages, isLoading])
 
   return (
@@ -49,7 +60,15 @@ const ChatArea: React.FC<Props> = ({ messages, isLoading }) => {
         ) : (
           <div className={styles.messages}>
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isLoading={isLoading}
+                onCopy={onCopyMessage}
+                onEdit={onEditUserMessage}
+                onDelete={onDeleteMessage}
+                onRegenerate={onRegenerateMessage}
+              />
             ))}
             {isLoading && messages[messages.length - 1]?.role === 'user' && (
               <div className={styles.thinkingWrapper}>

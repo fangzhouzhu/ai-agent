@@ -148,10 +148,12 @@ export const searchFilesTool = tool(
   },
 );
 
-export const allTools: DynamicStructuredTool[] = [
+export const fileTools: DynamicStructuredTool[] = [
   readFileTool,
   writeFileTool,
   listDirectoryTool,
   deleteFileTool,
   searchFilesTool,
 ];
+
+export const allTools = fileTools;

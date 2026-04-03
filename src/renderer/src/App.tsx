@@ -23,6 +23,9 @@ const App: React.FC = () => {
   const [currentModel, setCurrentModel] = useState('qwen2.5:7b')
 
   const streamingMsgIdRef = useRef<string | null>(null)
+  const tokenQueueRef = useRef('')
+  const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const typingTargetRef = useRef<{ convId: string; msgId: string } | null>(null)
 
   // 初始化：从文件加载索引
   useEffect(() => {
@@ -134,25 +137,281 @@ const App: React.FC = () => {
     await window.electronAPI.setModel(model)
   }, [])
 
-  // 中断请求
-  const handleAbort = useCallback(() => {
-    window.electronAPI.abortChat()
-  }, [])
-
-  // 更新单条消息
-  const updateMessage = useCallback((convId: string, msgId: string, update: Partial<Message>) => {
+  const appendToStreamingMessage = useCallback((convId: string, msgId: string, text: string) => {
+    if (!text) return
     setConversations((prev) =>
       prev.map((c) =>
         c.id === convId
           ? {
               ...c,
-              messages: c.messages.map((m) => (m.id === msgId ? { ...m, ...update } : m)),
-              updatedAt: Date.now(),
+              messages: c.messages.map((m) =>
+                m.id === msgId ? { ...m, content: m.content + text } : m
+              ),
             }
           : c
       )
     )
   }, [])
+
+  const flushTypingStep = useCallback(
+    (convId: string, msgId: string) => {
+      const pending = tokenQueueRef.current
+      if (!pending) {
+        if (typingTimerRef.current) {
+          clearInterval(typingTimerRef.current)
+          typingTimerRef.current = null
+        }
+        return
+      }
+
+      // 队列积压时自动提速，避免看起来“卡在后面慢慢打”。
+      const charsPerStep =
+        pending.length > 240 ? 48 : pending.length > 120 ? 24 : pending.length > 60 ? 12 : 4
+      const chunk = pending.slice(0, charsPerStep)
+      tokenQueueRef.current = pending.slice(charsPerStep)
+      appendToStreamingMessage(convId, msgId, chunk)
+    },
+    [appendToStreamingMessage]
+  )
+
+  const ensureTypingLoop = useCallback(
+    (convId: string, msgId: string) => {
+      typingTargetRef.current = { convId, msgId }
+      if (typingTimerRef.current) return
+
+      typingTimerRef.current = setInterval(() => {
+        const target = typingTargetRef.current
+        if (!target) return
+        flushTypingStep(target.convId, target.msgId)
+      }, 12)
+    },
+    [flushTypingStep]
+  )
+
+  const enqueueToken = useCallback(
+    (convId: string, msgId: string, token: string) => {
+      if (!token) return
+      tokenQueueRef.current += token
+      ensureTypingLoop(convId, msgId)
+    },
+    [ensureTypingLoop]
+  )
+
+  const flushAllQueuedTokens = useCallback((convId: string, msgId: string) => {
+    if (!tokenQueueRef.current) return
+    const rest = tokenQueueRef.current
+    tokenQueueRef.current = ''
+    appendToStreamingMessage(convId, msgId, rest)
+  }, [appendToStreamingMessage])
+
+  const resetTokenBuffer = useCallback(() => {
+    tokenQueueRef.current = ''
+    typingTargetRef.current = null
+    if (typingTimerRef.current) {
+      clearInterval(typingTimerRef.current)
+      typingTimerRef.current = null
+    }
+  }, [])
+
+  // 中断请求
+  const handleAbort = useCallback(() => {
+    window.electronAPI.abortChat()
+  }, [])
+
+  const handleCopyMessage = useCallback(async (message: Message) => {
+    try {
+      await navigator.clipboard.writeText(message.content || '')
+    } catch (err) {
+      console.error('复制失败', err)
+    }
+  }, [])
+
+  const handleEditUserMessage = useCallback(
+    (messageId: string, content: string) => {
+      if (!activeId) return
+      setConversations((prev) => {
+        const updated = prev.map((c) => {
+          if (c.id !== activeId) return c
+          const nextTitle =
+            c.messages.find((m) => m.role === 'user')?.id === messageId
+              ? generateTitle(content)
+              : c.title
+          return {
+            ...c,
+            title: nextTitle,
+            messages: c.messages.map((m) =>
+              m.id === messageId ? { ...m, content } : m
+            ),
+            updatedAt: Date.now(),
+          }
+        })
+        const updatedConv = updated.find((c) => c.id === activeId)
+        if (updatedConv) persistConversation(updatedConv)
+        return updated
+      })
+    },
+    [activeId, persistConversation]
+  )
+
+  const handleDeleteMessage = useCallback(
+    (messageId: string) => {
+      if (!activeId) return
+      setConversations((prev) => {
+        const updated = prev.map((c) => {
+          if (c.id !== activeId) return c
+          const nextMessages = c.messages.filter((m) => m.id !== messageId)
+          const firstUser = nextMessages.find((m) => m.role === 'user')
+          return {
+            ...c,
+            title: firstUser ? generateTitle(firstUser.content) : '新对话',
+            messages: nextMessages,
+            updatedAt: Date.now(),
+          }
+        })
+        const updatedConv = updated.find((c) => c.id === activeId)
+        if (updatedConv) persistConversation(updatedConv)
+        return updated
+      })
+    },
+    [activeId, persistConversation]
+  )
+
+  const handleRegenerateMessage = useCallback(
+    async (messageId: string) => {
+      if (isLoading || !activeId) return
+
+      const targetConv = conversations.find((c) => c.id === activeId)
+      if (!targetConv) return
+
+      const aiIndex = targetConv.messages.findIndex(
+        (m) => m.id === messageId && m.role === 'assistant'
+      )
+      if (aiIndex < 0) return
+
+      let userIndex = -1
+      for (let i = aiIndex - 1; i >= 0; i--) {
+        if (targetConv.messages[i].role === 'user') {
+          userIndex = i
+          break
+        }
+      }
+      if (userIndex < 0) return
+
+      const userMsg = targetConv.messages[userIndex]
+      const baseMessages = targetConv.messages.slice(0, userIndex + 1)
+      const history = baseMessages.slice(0, -1).map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }))
+
+      const aiMsgId = uuidv4()
+      const nextAiMsg: Message = {
+        id: aiMsgId,
+        role: 'assistant',
+        content: '',
+        isStreaming: true,
+        toolCalls: [],
+        toolResults: [],
+      }
+
+      resetTokenBuffer()
+      streamingMsgIdRef.current = aiMsgId
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeId
+            ? {
+                ...c,
+                messages: [...baseMessages, nextAiMsg],
+                updatedAt: Date.now(),
+              }
+            : c
+        )
+      )
+
+      setIsLoading(true)
+
+      const removeToken = window.electronAPI.onToken((token) => {
+        if (streamingMsgIdRef.current !== aiMsgId) return
+        enqueueToken(activeId, aiMsgId, token)
+      })
+
+      const removeToolCall = window.electronAPI.onToolCall(({ toolName, input }) => {
+        if (streamingMsgIdRef.current !== aiMsgId) return
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === aiMsgId
+                      ? { ...m, toolCalls: [...(m.toolCalls ?? []), { toolName, input }] }
+                      : m
+                  ),
+                }
+              : c
+          )
+        )
+      })
+
+      const removeToolResult = window.electronAPI.onToolResult(({ toolName, result }) => {
+        if (streamingMsgIdRef.current !== aiMsgId) return
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === aiMsgId
+                      ? { ...m, toolResults: [...(m.toolResults ?? []), { toolName, result }] }
+                      : m
+                  ),
+                }
+              : c
+          )
+        )
+      })
+
+      const finalize = (errorUpdate?: Partial<Message>) => {
+        flushAllQueuedTokens(activeId, aiMsgId)
+        setConversations((prev) => {
+          const updated = prev.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === aiMsgId ? { ...m, isStreaming: false, ...errorUpdate } : m
+                  ),
+                  updatedAt: Date.now(),
+                }
+              : c
+          )
+          const updatedConv = updated.find((c) => c.id === activeId)
+          if (updatedConv) persistConversation(updatedConv)
+          return updated
+        })
+        setIsLoading(false)
+        cleanup()
+      }
+
+      const removeDone = window.electronAPI.onDone(() => finalize())
+      const removeError = window.electronAPI.onError((err) =>
+        finalize({ content: `错误：${err}`, isError: true })
+      )
+
+      const cleanup = () => {
+        removeToken()
+        removeToolCall()
+        removeToolResult()
+        removeDone()
+        removeError()
+        resetTokenBuffer()
+        streamingMsgIdRef.current = null
+      }
+
+      await window.electronAPI.sendMessage(history, userMsg.content, useAgent)
+    },
+    [isLoading, activeId, conversations, persistConversation, useAgent, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+  )
 
   // 发送消息
   const handleSend = useCallback(
@@ -182,6 +441,7 @@ const App: React.FC = () => {
         toolResults: [],
       }
 
+      resetTokenBuffer()
       streamingMsgIdRef.current = aiMsgId
 
       const targetConv = conversations.find((c) => c.id === convId)
@@ -210,18 +470,7 @@ const App: React.FC = () => {
 
       const removeToken = window.electronAPI.onToken((token) => {
         if (streamingMsgIdRef.current !== aiMsgId) return
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === convId
-              ? {
-                  ...c,
-                  messages: c.messages.map((m) =>
-                    m.id === aiMsgId ? { ...m, content: m.content + token } : m
-                  ),
-                }
-              : c
-          )
-        )
+        enqueueToken(convId, aiMsgId, token)
       })
 
       const removeToolCall = window.electronAPI.onToolCall(({ toolName, input }) => {
@@ -261,6 +510,7 @@ const App: React.FC = () => {
       })
 
       const finalize = (errorUpdate?: Partial<Message>) => {
+        flushAllQueuedTokens(convId, aiMsgId)
         setConversations((prev) => {
           const updated = prev.map((c) =>
             c.id === convId
@@ -293,12 +543,13 @@ const App: React.FC = () => {
         removeToolResult()
         removeDone()
         removeError()
+        resetTokenBuffer()
         streamingMsgIdRef.current = null
       }
 
       await window.electronAPI.sendMessage(history, text, agentMode)
     },
-    [isLoading, activeId, conversations, updateMessage, persistConversation]
+    [isLoading, activeId, conversations, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   return (
@@ -324,6 +575,10 @@ const App: React.FC = () => {
         <ChatArea
           messages={activeConversation?.messages ?? []}
           isLoading={isLoading || (activeConversation !== null && !activeConversation.loaded)}
+          onCopyMessage={handleCopyMessage}
+          onEditUserMessage={handleEditUserMessage}
+          onDeleteMessage={handleDeleteMessage}
+          onRegenerateMessage={handleRegenerateMessage}
         />
 
         <InputBar

@@ -24,6 +24,17 @@ import {
 // 当前请求的 AbortController 和 WebContents 引用
 let currentAbortController: AbortController | null = null;
 let currentWebContents: Electron.WebContents | null = null;
+
+function shouldUseAgentTools(message: string): boolean {
+  const text = message.toLowerCase();
+
+  // 仅在明显需要工具时走 Agent，降低普通问答首字延迟。
+  const toolIntentRegex =
+    /(读取文件|读文件|写文件|删除文件|列出目录|搜索文件|当前时间|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|delete file|list directory|search files|time|calculate|calculator|unit convert|currency|weather|web search|fetch)/;
+
+  return toolIntentRegex.test(text);
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -79,7 +90,8 @@ ipcMain.handle(
     const { signal } = controller;
 
     try {
-      if (useAgent) {
+      const useTools = useAgent && shouldUseAgentTools(message);
+      if (useTools) {
         await chatWithAgent(
           history,
           message,
@@ -201,5 +213,3 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
-
-console.log("主进程已启动");

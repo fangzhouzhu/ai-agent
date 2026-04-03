@@ -4,14 +4,14 @@ import {
   AIMessage,
   SystemMessage,
 } from "@langchain/core/messages";
-import { allTools } from "./tools/fileTools";
+import { allTools } from "./tools";
 
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
 }
 
-let currentModel = "qcwind/qwen2.5-7B-instruct-Q4_K_M";
+let currentModel = "qwen2.5:3b";
 
 export function setModel(modelName: string): void {
   currentModel = modelName;
@@ -28,6 +28,23 @@ function buildLLM(streaming = false): ChatOllama {
     streaming,
     // verbose: true, // 在主进程终端打印请求/响应详情
   });
+}
+
+function extractResponseText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "text" in item) {
+          const text = (item as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
 }
 
 // 获取可用的 Ollama 模型列表
@@ -49,15 +66,24 @@ function toLC(msg: ChatMessage) {
   return new SystemMessage(msg.content);
 }
 
-const SYSTEM_PROMPT = `你是一个智能助手，可以帮助用户对话、分析问题，以及操作本地文件系统。
+const SYSTEM_PROMPT = `你是一个智能助手，可以帮助用户对话、分析问题、联网查询信息，以及操作本地文件系统。
 你拥有以下工具：
 - read_file: 读取文件内容
 - write_file: 写入文件
 - list_directory: 列出目录内容
 - delete_file: 删除文件
 - search_files: 按文件名搜索文件
+- get_current_time: 获取当前日期和时间
+- calculator: 计算数学表达式
+- unit_convert: 进行单位换算
+- clipboard_copy: 复制文本到系统剪贴板
+- web_search: 联网搜索公开网页信息
+- fetch_url: 抓取网页标题和正文摘要
+- get_weather_current: 查询当前天气
+- currency_convert: 进行汇率换算
 
-当用户需要操作文件时，优先使用对应的工具。回答尽量简洁清晰，使用 Markdown 格式。`;
+当用户需要操作文件、查询时间、做数学计算、单位换算、复制文本、联网获取信息、抓取网页内容、查询天气、汇率换算时，优先使用对应的工具。
+回答尽量简洁清晰，使用 Markdown 格式。`;
 
 // 带工具的流式聊天（Agent 模式）
 export async function chatWithAgent(
@@ -70,6 +96,7 @@ export async function chatWithAgent(
 ): Promise<string> {
   const llm = buildLLM(false);
   const llmWithTools = llm.bindTools(allTools);
+  const streamingLLM = buildLLM(true);
 
   const messages = [
     new SystemMessage(SYSTEM_PROMPT),
@@ -78,6 +105,7 @@ export async function chatWithAgent(
   ];
 
   let fullResponse = "";
+  let hasToolCalls = false;
 
   // 最多 5 轮工具调用
   for (let i = 0; i < 5; i++) {
@@ -86,6 +114,7 @@ export async function chatWithAgent(
     const response = await llmWithTools.invoke(messages, { signal });
 
     if (response.tool_calls && response.tool_calls.length > 0) {
+      hasToolCalls = true;
       messages.push(response);
 
       for (const toolCall of response.tool_calls) {
@@ -105,20 +134,19 @@ export async function chatWithAgent(
         } as any);
       }
     } else {
-      // 无工具调用，流式输出最终回复
-      const streamingLLM = buildLLM(true);
-      const streamMessages = messages.concat([]);
-
-      const stream = await streamingLLM.stream(streamMessages, { signal });
-      for await (const chunk of stream) {
-        signal?.throwIfAborted();
-        const token = typeof chunk.content === "string" ? chunk.content : "";
-        if (token) {
-          onToken(token);
-          fullResponse += token;
-        }
-      }
+      // 无工具调用，使用流式输出
       break;
+    }
+  }
+
+  // 流式输出最终结果
+  const stream = await streamingLLM.stream(messages, { signal });
+  for await (const chunk of stream) {
+    signal?.throwIfAborted();
+    const token = typeof chunk.content === "string" ? chunk.content : "";
+    if (token) {
+      onToken(token);
+      fullResponse += token;
     }
   }
 

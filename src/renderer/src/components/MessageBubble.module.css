@@ -43,7 +43,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .bubble {
@@ -77,6 +77,16 @@
 .userText {
   font-family: inherit;
   font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ececec;
+  margin: 0;
+}
+
+.assistantText {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
   color: #ececec;
@@ -135,6 +145,105 @@
   color: #6dbb8a;
   font-family: monospace;
   font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transform: translateY(-2px);
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.wrapper:hover .actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.userWrapper .actions {
+  justify-content: flex-end;
+}
+
+.assistantWrapper .actions {
+  justify-content: flex-start;
+}
+
+.actionBtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 0;
+  background: transparent;
+  color: #9a9a9a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.actionBtn:hover {
+  background: #232323;
+  border-color: #3a3a3a;
+  color: #e5e5e5;
+}
+
+.actionBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dangerBtn {
+  color: #b88f8f;
+}
+
+.dangerBtn:hover {
+  color: #ff8b8b;
+  border-color: #5a3434;
+  background: #2a1b1b;
+}
+
+.actionBtn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.editBox {
+  border: 1px solid #3b3b3b;
+  border-radius: 10px;
+  background: #1c1c1c;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editInput {
+  width: 100%;
+  min-height: 70px;
+  max-height: 180px;
+  resize: vertical;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #111;
+  color: #f1f1f1;
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.editInput:focus {
+  border-color: #5d89ff;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* 打字光标 */

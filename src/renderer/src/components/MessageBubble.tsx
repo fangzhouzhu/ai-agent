@@ -9,6 +9,11 @@ import styles from './MessageBubble.module.css'
 
 interface Props {
   message: Message
+  isLoading: boolean
+  onCopy: (message: Message) => void
+  onEdit: (messageId: string, content: string) => void
+  onDelete: (messageId: string) => void
+  onRegenerate: (messageId: string) => void
 }
 
 const ToolCallBadge: React.FC<{ toolName: string; input: unknown; result?: string }> = ({
@@ -36,15 +41,66 @@ const ToolCallBadge: React.FC<{ toolName: string; input: unknown; result?: strin
   </div>
 )
 
-const MessageBubble: React.FC<Props> = ({ message }) => {
+const CopyIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+  </svg>
+)
+
+const EditIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5z" />
+  </svg>
+)
+
+const DeleteIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 6h18" />
+    <path d="M8 6V4h8v2" />
+    <path d="M19 6l-1 14H6L5 6" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
+  </svg>
+)
+
+const RegenerateIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+    <path d="M21 3v6h-6" />
+  </svg>
+)
+
+const MessageBubble: React.FC<Props> = ({
+  message,
+  isLoading,
+  onCopy,
+  onEdit,
+  onDelete,
+  onRegenerate,
+}) => {
   const isUser = message.role === 'user'
   const cursorRef = useRef<HTMLSpanElement>(null)
+  const [isEditing, setIsEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(message.content)
+
+  useEffect(() => {
+    setDraft(message.content)
+  }, [message.content])
 
   useEffect(() => {
     if (!message.isStreaming && cursorRef.current) {
       cursorRef.current.style.display = 'none'
     }
   }, [message.isStreaming])
+
+  const handleSave = () => {
+    const next = draft.trim()
+    if (!next) return
+    onEdit(message.id, next)
+    setIsEditing(false)
+  }
 
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
@@ -67,7 +123,38 @@ const MessageBubble: React.FC<Props> = ({ message }) => {
         {/* 消息内容 */}
         <div className={`${styles.bubble} ${isUser ? styles.userBubble : styles.aiBubble} ${message.isError ? styles.errorBubble : ''}`}>
           {isUser ? (
-            <pre className={styles.userText}>{message.content}</pre>
+            isEditing ? (
+              <div className={styles.editBox}>
+                <textarea
+                  className={styles.editInput}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  disabled={isLoading}
+                />
+                <div className={styles.editActions}>
+                  <button
+                    className={styles.actionBtn}
+                    onClick={() => {
+                      setDraft(message.content)
+                      setIsEditing(false)
+                    }}
+                    disabled={isLoading}
+                  >
+                    取消
+                  </button>
+                  <button className={styles.actionBtn} onClick={handleSave} disabled={isLoading || !draft.trim()}>
+                    保存
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <pre className={styles.userText}>{message.content}</pre>
+            )
+          ) : message.isStreaming ? (
+            <pre className={styles.assistantText}>
+              {message.content || ' '}
+              <span ref={cursorRef} className={styles.cursor} />
+            </pre>
           ) : (
             <div className="markdown-body">
               <ReactMarkdown
@@ -95,15 +182,40 @@ const MessageBubble: React.FC<Props> = ({ message }) => {
               >
                 {message.content || ' '}
               </ReactMarkdown>
-              {message.isStreaming && (
-                <span ref={cursorRef} className={styles.cursor} />
-              )}
             </div>
           )}
         </div>
+
+        {!isEditing && (
+          <div className={styles.actions}>
+            <button className={styles.actionBtn} onClick={() => onCopy(message)} title="复制消息" aria-label="复制消息">
+              <CopyIcon />
+            </button>
+            {isUser ? (
+              <>
+                <button className={styles.actionBtn} onClick={() => setIsEditing(true)} disabled={isLoading} title="编辑消息" aria-label="编辑消息">
+                  <EditIcon />
+                </button>
+                <button
+                  className={`${styles.actionBtn} ${styles.dangerBtn}`}
+                  onClick={() => onDelete(message.id)}
+                  disabled={isLoading}
+                  title="删除消息"
+                  aria-label="删除消息"
+                >
+                  <DeleteIcon />
+                </button>
+              </>
+            ) : (
+              <button className={styles.actionBtn} onClick={() => onRegenerate(message.id)} disabled={isLoading} title="重新生成" aria-label="重新生成">
+                <RegenerateIcon />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-export default MessageBubble
+export default React.memo(MessageBubble)

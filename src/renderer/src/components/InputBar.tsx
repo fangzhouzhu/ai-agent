@@ -64,7 +64,6 @@ const InputBar: React.FC<Props> = ({ onSend, onAbort, isLoading, useAgent, onTog
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder={useAgent ? '输入消息，或告诉我操作哪个文件...' : '输入消息...'}
-            disabled={isLoading}
             rows={1}
           />
           {isLoading ? (

@@ -18,7 +18,6 @@ function getConvDir(): string {
 
 const INDEX_FILE = () => join(getDataDir(), "index.json");
 const ACTIVE_FILE = () => join(getDataDir(), "active.json");
-
 export interface ConvMeta {
   id: string;
   title: string;
