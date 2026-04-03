@@ -1,0 +1,146 @@
+.container {
+  padding: 12px 20px 20px;
+  background: #212121;
+}
+
+.inner {
+  max-width: 840px;
+  margin: 0 auto;
+  background: #2f2f2f;
+  border: 1px solid #3a3a3a;
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.inner:focus-within {
+  border-color: #555;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 0;
+}
+
+.agentToggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #888;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.agentToggle:hover {
+  border-color: #555;
+  color: #ccc;
+}
+
+.agentActive {
+  background: #1a2a3a;
+  border-color: #3a6a9a;
+  color: #7ab4f5;
+}
+
+.hint {
+  font-size: 11px;
+  color: #555;
+}
+
+.inputRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ececec;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: none;
+  min-height: 24px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.textarea::placeholder {
+  color: #555;
+}
+
+.textarea:disabled {
+  opacity: 0.6;
+}
+
+.sendBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: #19c37d;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.sendBtn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sendBtn:hover:not(:disabled) {
+  background: #16a86a;
+  transform: scale(1.05);
+}
+
+.sendBtn:disabled {
+  background: #333;
+  cursor: not-allowed;
+  color: #555;
+}
+
+/* 停止按钮 */
+.stopBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #555;
+  background: #2a2a2a;
+  color: #ccc;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.stopBtn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.stopBtn:hover {
+  background: #3a3a3a;
+  border-color: #ff7070;
+  color: #ff7070;
+  transform: scale(1.05);
+}

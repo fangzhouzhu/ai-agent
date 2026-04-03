@@ -1,0 +1,192 @@
+.sidebar {
+  width: 260px;
+  min-width: 220px;
+  max-width: 300px;
+  background: #171717;
+  border-right: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.logo {
+  font-size: 14px;
+  font-weight: 600;
+  color: #eee;
+}
+
+.newBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.newBtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.newBtn:hover {
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #444;
+}
+
+/* 模型选择 */
+.modelSection {
+  padding: 10px 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.modelLabel {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.modelSelect {
+  width: 100%;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #ccc;
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23888' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 14px;
+  padding-right: 24px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modelSelect:focus {
+  border-color: #555;
+}
+
+/* 会话列表 */
+.section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.sectionTitle {
+  font-size: 11px;
+  color: #555;
+  padding: 4px 8px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.empty {
+  padding: 12px 8px;
+  font-size: 12px;
+  color: #555;
+  text-align: center;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.item:hover {
+  background: #2a2a2a;
+}
+
+.item:hover .deleteBtn {
+  opacity: 1;
+}
+
+.active {
+  background: #2a2a2a;
+}
+
+.itemIcon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.itemTitle {
+  flex: 1;
+  font-size: 13px;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active .itemTitle {
+  color: #fff;
+}
+
+.deleteBtn {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.deleteBtn:hover {
+  background: #444;
+  color: #ff7070;
+}
+
+/* 底部 */
+.footer {
+  border-top: 1px solid #2a2a2a;
+  padding: 12px;
+}
+
+.footerInfo {
+  font-size: 11px;
+  color: #555;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
