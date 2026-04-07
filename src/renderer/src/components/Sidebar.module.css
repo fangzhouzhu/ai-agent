@@ -50,43 +50,20 @@
   border-color: #444;
 }
 
-/* 模型选择 */
+/* 自动模型路由 */
 .modelSection {
   padding: 10px 12px;
   border-bottom: 1px solid #2a2a2a;
 }
 
-.modelLabel {
-  display: block;
-  font-size: 11px;
-  color: #666;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.modelSelect {
-  width: 100%;
-  background: #1e1e1e;
-  border: 1px solid #333;
+.routingNote {
+  font-size: 10px;
+  color: #7a7a7a;
+  line-height: 1.5;
+  background: #1d1d1d;
+  border: 1px solid #2d2d2d;
   border-radius: 6px;
-  color: #ccc;
-  font-size: 12px;
   padding: 6px 8px;
-  cursor: pointer;
-  outline: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23888' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  background-size: 14px;
-  padding-right: 24px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.modelSelect:focus {
-  border-color: #555;
 }
 
 /* 会话列表 */
@@ -181,6 +158,10 @@
 .footer {
   border-top: 1px solid #2a2a2a;
   padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .footerInfo {
@@ -189,4 +170,26 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.settingsBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #1b1b1b;
+  color: #bdbdbd;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.settingsBtn:hover {
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #4c6fff;
 }

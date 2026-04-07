@@ -8,9 +8,7 @@ interface Props {
   onSelect: (id: string) => void
   onNew: () => void
   onDelete: (id: string) => void
-  models: string[]
-  currentModel: string
-  onModelChange: (model: string) => void
+  onOpenSettings: () => void
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -19,9 +17,7 @@ const Sidebar: React.FC<Props> = ({
   onSelect,
   onNew,
   onDelete,
-  models,
-  currentModel,
-  onModelChange
+  onOpenSettings,
 }) => {
   return (
     <div className={styles.sidebar}>
@@ -36,24 +32,10 @@ const Sidebar: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* 模型选择 */}
       <div className={styles.modelSection}>
-        <label className={styles.modelLabel}>模型</label>
-        <select
-          className={styles.modelSelect}
-          value={currentModel}
-          onChange={(e) => onModelChange(e.target.value)}
-        >
-          {models.length === 0 ? (
-            <option value={currentModel}>{currentModel}</option>
-          ) : (
-            models.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))
-          )}
-        </select>
+        <div className={styles.routingNote}>
+          已开启智能模型路由：普通聊天、复杂任务、文档问答会自动匹配更合适的本地或在线模型，可在左下角设置中调整。
+        </div>
       </div>
 
       {/* 会话列表 */}
@@ -91,8 +73,15 @@ const Sidebar: React.FC<Props> = ({
       {/* 底部信息 */}
       <div className={styles.footer}>
         <div className={styles.footerInfo}>
-          <span>🟢 Ollama 本地运行</span>
+          <span>🟢 本地 / 在线模型</span>
         </div>
+        <button
+          className={styles.settingsBtn}
+          onClick={onOpenSettings}
+          title="模型配置"
+        >
+          ⚙
+        </button>
       </div>
     </div>
   )

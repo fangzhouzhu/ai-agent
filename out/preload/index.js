@@ -2,7 +2,7 @@
 const electron = require("electron");
 const api = {
   // 发送聊天消息
-  sendMessage: (history, message, useAgent) => electron.ipcRenderer.invoke("chat:send", { history, message, useAgent }),
+  sendMessage: (history, message, useAgent, fileIds = []) => electron.ipcRenderer.invoke("chat:send", { history, message, useAgent, fileIds }),
   // 流式 token
   onToken: (callback) => {
     const handler = (_, token) => callback(token);
@@ -21,6 +21,12 @@ const api = {
     electron.ipcRenderer.on("chat:tool-result", handler);
     return () => electron.ipcRenderer.removeListener("chat:tool-result", handler);
   },
+  // 当前回复所用模型与路由场景
+  onModelInfo: (callback) => {
+    const handler = (_, data) => callback(data);
+    electron.ipcRenderer.on("chat:model-info", handler);
+    return () => electron.ipcRenderer.removeListener("chat:model-info", handler);
+  },
   // 完成通知
   onDone: (callback) => {
     const handler = () => callback();
@@ -37,8 +43,31 @@ const api = {
   listModels: () => electron.ipcRenderer.invoke("models:list"),
   setModel: (modelName) => electron.ipcRenderer.invoke("models:set", modelName),
   getModel: () => electron.ipcRenderer.invoke("models:get"),
+  setChatModel: (modelName) => electron.ipcRenderer.invoke("models:set-chat", modelName),
+  getChatModel: () => electron.ipcRenderer.invoke("models:get-chat"),
+  setAgentModel: (modelName) => electron.ipcRenderer.invoke("models:set-agent", modelName),
+  getAgentModel: () => electron.ipcRenderer.invoke("models:get-agent"),
+  setRagModel: (modelName) => electron.ipcRenderer.invoke("models:set-rag", modelName),
+  getRagModel: () => electron.ipcRenderer.invoke("models:get-rag"),
+  getModelConfig: () => electron.ipcRenderer.invoke("settings:get-model-config"),
+  saveModelConfig: (config) => electron.ipcRenderer.invoke("settings:save-model-config", config),
+  testOnlineApi: (online, model) => electron.ipcRenderer.invoke("settings:test-online", { online, model }),
+  // 本地 Skills
+  listSkills: () => electron.ipcRenderer.invoke("skills:list"),
+  saveSkills: (skills) => electron.ipcRenderer.invoke("skills:save", skills),
   // 中断当前请求
   abortChat: () => electron.ipcRenderer.send("chat:abort"),
+  // ---- RAG API ----
+  rag: {
+    pickFiles: () => electron.ipcRenderer.invoke("rag:pick-files"),
+    list: () => electron.ipcRenderer.invoke("rag:list"),
+    remove: (id) => electron.ipcRenderer.invoke("rag:remove", id),
+    onStatus: (callback) => {
+      const handler = (_, data) => callback(data);
+      electron.ipcRenderer.on("rag:status", handler);
+      return () => electron.ipcRenderer.removeListener("rag:status", handler);
+    }
+  },
   // ---- 存储 API ----
   storage: {
     // 获取所有对话元数据列表（轻量，用于侧边栏）

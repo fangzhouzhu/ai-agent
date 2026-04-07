@@ -18,13 +18,103 @@ export type StoredMessage = {
   content: string;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
+  modelInfo?: { model: string; scene: string };
+  ragContextId?: string;
   isError?: boolean;
+};
+
+export type ModelRouteInfo = {
+  model: string;
+  scene: string;
+  skill?: string;
+};
+
+export type RagFileMeta = {
+  id: string;
+  name: string;
+  path: string;
+  chunks: number;
+  uploadedAt: number;
+};
+
+export type RagStatus = {
+  status: "idle" | "processing" | "completed" | "error";
+  message: string;
+  current?: number;
+  total?: number;
+  fileName?: string;
+};
+
+export type ModelProvider = "ollama" | "openai-compatible";
+export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
+
+export type SkillConfig = {
+  id: string;
+  name: string;
+  description: string;
+  keywords: string[];
+  systemPrompt: string;
+  enabled: boolean;
+  preferredScene: SkillPreferredScene;
+  priority: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type RouteModelSetting = {
+  provider: ModelProvider;
+  model: string;
+};
+
+export type OnlineProviderSettings = {
+  name?: string;
+  provider?: string;
+  baseUrl?: string;
+  apiKey?: string;
+};
+
+export type OnlineProviderProfile = {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl: string;
+  apiKey: string;
+  chatModel?: string;
+  agentModel?: string;
+  ragModel?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type FullModelConfig = {
+  chatModel?: string;
+  agentModel?: string;
+  ragModel?: string;
+  chatProvider?: ModelProvider;
+  agentProvider?: ModelProvider;
+  ragProvider?: ModelProvider;
+  online?: OnlineProviderSettings;
+  onlineProfiles?: OnlineProviderProfile[];
+  activeOnlineProfileId?: string | null;
+};
+
+export type OnlineApiTestResult = {
+  ok: boolean;
+  message: string;
+  models: string[];
+  latencyMs?: number;
+  balanceInfo?: string;
+  testedAt?: number;
 };
 
 const api = {
   // 发送聊天消息
-  sendMessage: (history: ChatMessage[], message: string, useAgent: boolean) =>
-    ipcRenderer.invoke("chat:send", { history, message, useAgent }),
+  sendMessage: (
+    history: ChatMessage[],
+    message: string,
+    useAgent: boolean,
+    fileIds: string[] = [],
+  ) => ipcRenderer.invoke("chat:send", { history, message, useAgent, fileIds }),
 
   // 流式 token
   onToken: (callback: (token: string) => void) => {
@@ -58,6 +148,14 @@ const api = {
     return () => ipcRenderer.removeListener("chat:tool-result", handler);
   },
 
+  // 当前回复所用模型与路由场景
+  onModelInfo: (callback: (data: ModelRouteInfo) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: ModelRouteInfo) =>
+      callback(data);
+    ipcRenderer.on("chat:model-info", handler);
+    return () => ipcRenderer.removeListener("chat:model-info", handler);
+  },
+
   // 完成通知
   onDone: (callback: () => void) => {
     const handler = () => callback();
@@ -77,9 +175,47 @@ const api = {
   listModels: () => ipcRenderer.invoke("models:list"),
   setModel: (modelName: string) => ipcRenderer.invoke("models:set", modelName),
   getModel: () => ipcRenderer.invoke("models:get"),
+  setChatModel: (modelName: string) =>
+    ipcRenderer.invoke("models:set-chat", modelName),
+  getChatModel: () => ipcRenderer.invoke("models:get-chat"),
+  setAgentModel: (modelName: string) =>
+    ipcRenderer.invoke("models:set-agent", modelName),
+  getAgentModel: () => ipcRenderer.invoke("models:get-agent"),
+  setRagModel: (modelName: string) =>
+    ipcRenderer.invoke("models:set-rag", modelName),
+  getRagModel: () => ipcRenderer.invoke("models:get-rag"),
+  getModelConfig: (): Promise<FullModelConfig> =>
+    ipcRenderer.invoke("settings:get-model-config"),
+  saveModelConfig: (config: FullModelConfig): Promise<FullModelConfig> =>
+    ipcRenderer.invoke("settings:save-model-config", config),
+  testOnlineApi: (
+    online: OnlineProviderSettings,
+    model?: string,
+  ): Promise<OnlineApiTestResult> =>
+    ipcRenderer.invoke("settings:test-online", { online, model }),
+
+  // 本地 Skills
+  listSkills: (): Promise<SkillConfig[]> => ipcRenderer.invoke("skills:list"),
+  saveSkills: (skills: SkillConfig[]): Promise<SkillConfig[]> =>
+    ipcRenderer.invoke("skills:save", skills),
 
   // 中断当前请求
   abortChat: () => ipcRenderer.send("chat:abort"),
+
+  // ---- RAG API ----
+  rag: {
+    pickFiles: (): Promise<RagFileMeta[]> =>
+      ipcRenderer.invoke("rag:pick-files"),
+    list: (): Promise<RagFileMeta[]> => ipcRenderer.invoke("rag:list"),
+    remove: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("rag:remove", id),
+    onStatus: (callback: (data: RagStatus) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: RagStatus) =>
+        callback(data);
+      ipcRenderer.on("rag:status", handler);
+      return () => ipcRenderer.removeListener("rag:status", handler);
+    },
+  },
 
   // ---- 存储 API ----
   storage: {

@@ -27,50 +27,123 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&nbsp;/g, " ");
 }
 
+function stripCdata(text: string): string {
+  return text.replace(/^<!\[CDATA\[|\]\]>$/g, "");
+}
+
+async function searchWithDuckDuckGo(
+  query: string,
+  limit: number,
+): Promise<string> {
+  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "Mozilla/5.0",
+      "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`DuckDuckGo HTTP ${res.status}`);
+  }
+
+  const html = await res.text();
+  const matches = [
+    ...html.matchAll(
+      /<a[^>]*class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>([\s\S]*?)<\/a>/g,
+    ),
+  ];
+
+  if (matches.length === 0) {
+    throw new Error("DuckDuckGo 未返回可解析结果");
+  }
+
+  const results = matches.slice(0, limit).map((match, index) => {
+    const rawUrl = match[1];
+    const title = stripHtml(match[2]);
+    const decodedUrl = (() => {
+      try {
+        const parsed = new URL(rawUrl, "https://html.duckduckgo.com");
+        return parsed.searchParams.get("uddg") || rawUrl;
+      } catch {
+        return rawUrl;
+      }
+    })();
+
+    return `${index + 1}. ${title}\n${decodedUrl}`;
+  });
+
+  return `搜索关键词: ${query}\n\n${results.join("\n\n")}`;
+}
+
+async function searchWithBing(query: string, limit: number): Promise<string> {
+  const url = `https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "Mozilla/5.0",
+      "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Bing HTTP ${res.status}`);
+  }
+
+  const xml = await res.text();
+  const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)]
+    .slice(0, limit)
+    .map((match, index) => {
+      const item = match[1];
+      const title = normalizeText(
+        decodeHtmlEntities(
+          stripCdata(
+            (item.match(/<title>([\s\S]*?)<\/title>/)?.[1] || "").trim(),
+          ),
+        ),
+      );
+      const link = decodeHtmlEntities(
+        (item.match(/<link>([\s\S]*?)<\/link>/)?.[1] || "").trim(),
+      );
+      const description = normalizeText(
+        decodeHtmlEntities(
+          stripHtml(
+            stripCdata(
+              (
+                item.match(/<description>([\s\S]*?)<\/description>/)?.[1] || ""
+              ).trim(),
+            ),
+          ),
+        ),
+      );
+
+      return title
+        ? `${index + 1}. ${title}\n${link}${description ? `\n${description}` : ""}`
+        : null;
+    })
+    .filter((entry): entry is string => Boolean(entry));
+
+  if (items.length === 0) {
+    throw new Error("Bing 未返回可解析结果");
+  }
+
+  return `搜索关键词: ${query}\n\n${items.join("\n\n")}`;
+}
+
 export const webSearchTool = tool(
   async ({ query, maxResults }) => {
+    const limit = Math.min(Math.max(maxResults ?? 5, 1), 10);
+
     try {
-      const limit = Math.min(Math.max(maxResults ?? 5, 1), 10);
-      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      const res = await fetch(url, {
-        headers: {
-          "user-agent": "Mozilla/5.0",
-        },
-      });
-
-      if (!res.ok) {
-        return `联网搜索失败: HTTP ${res.status}`;
+      return await searchWithDuckDuckGo(query, limit);
+    } catch (duckError: any) {
+      try {
+        const fallback = await searchWithBing(query, limit);
+        return `${fallback}\n\n[说明] 默认搜索源暂时不可达，已自动切换到 Bing。`;
+      } catch (bingError: any) {
+        return `联网搜索失败: 默认搜索源（DuckDuckGo）不可达，备用搜索源（Bing）也不可达。DuckDuckGo: ${duckError?.message || "未知错误"}；Bing: ${bingError?.message || "未知错误"}`;
       }
-
-      const html = await res.text();
-      const matches = [
-        ...html.matchAll(
-          /<a[^>]*class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>([\s\S]*?)<\/a>/g,
-        ),
-      ];
-
-      if (matches.length === 0) {
-        return `未找到与“${query}”相关的搜索结果`;
-      }
-
-      const results = matches.slice(0, limit).map((match, index) => {
-        const rawUrl = match[1];
-        const title = stripHtml(match[2]);
-        const decodedUrl = (() => {
-          try {
-            const parsed = new URL(rawUrl, "https://html.duckduckgo.com");
-            return parsed.searchParams.get("uddg") || rawUrl;
-          } catch {
-            return rawUrl;
-          }
-        })();
-
-        return `${index + 1}. ${title}\n${decodedUrl}`;
-      });
-
-      return `搜索关键词: ${query}\n\n${results.join("\n\n")}`;
-    } catch (e: any) {
-      return `联网搜索失败: ${e.message}`;
     }
   },
   {

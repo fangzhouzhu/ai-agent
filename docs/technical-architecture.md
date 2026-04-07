@@ -1,198 +1,247 @@
-# AI Agent 技术架构设计
+# AI Agent 技术架构设计（当前实现）
 
-## 1. 目标与范围
+## 1. 文档说明
 
-本文档用于说明当前仓库中本地桌面 AI 助手的技术架构。
-该项目是一个基于 Electron 的桌面应用，包含 React 渲染层、Electron 主进程编排层、本地文件工具能力和本地会话持久化能力。
+本文档基于当前代码实现重新生成，覆盖以下能力：
+
+- Electron 桌面应用架构
+- 本地与在线模型双通道
+- 自动路由（普通对话 / Agent 工具 / RAG）
+- 本地 Skills 配置与路由干预
+- RAG 文档上传、索引、检索问答
+- 会话与设置本地持久化
 
 ## 2. 高层架构
 
 ```mermaid
 flowchart LR
-  U[用户] --> R[渲染进程 React UI]
-  R -->|contextBridge API| P[预加载层]
-  P -->|IPC invoke/on| M[主进程]
-  M -->|对话/模型操作| O[Ollama HTTP API]
-  M -->|工具调用| F[本地文件系统]
-  M -->|会话读写| S[本地 JSON 存储]
-  M -->|流式事件| P
-  P --> R
+  U[用户] --> R[Renderer React]
+  R --> P[Preload contextBridge]
+  P -->|IPC| M[Main Process]
+
+  M --> A[Agent Orchestrator]
+  A --> O[Ollama 本地模型]
+  A --> C[OpenAI-Compatible 在线模型]
+  A --> T[Tools 工具层]
+  A --> G[RAG 检索层]
+
+  T --> FS[本地文件系统]
+  T --> WEB[联网搜索/抓取/天气/汇率]
+
+  G --> VS[MemoryVectorStore]
+  G --> EMB[Ollama Embeddings]
+
+  M --> S[Storage JSON]
+  S --> D[(userData/ai-agent)]
 ```
 
 ## 3. 技术栈
 
-- 桌面运行时：Electron 33
-- 构建系统：electron-vite + Vite 5
+- 运行时：Electron 33
+- 构建：electron-vite + Vite 5
 - 前端：React 18 + TypeScript
-- LLM 编排：LangChain（`@langchain/ollama`、`@langchain/core`）
-- 本地模型服务：Ollama（HTTP `http://localhost:11434`）
-- 参数校验：Zod（工具 schema）
-- 本地持久化：Electron `userData` 目录下的 JSON 文件
+- LLM 编排：LangChain
+- 本地模型：Ollama（默认 http://localhost:11434）
+- 在线模型：OpenAI-Compatible Chat Completions
+- 向量检索：MemoryVectorStore + OllamaEmbeddings
+- 文档解析：pdf-parse、mammoth
+- 参数校验：zod
+- 持久化：JSON 文件（Electron userData）
 
-参考文件：
+## 4. 目录与模块
 
-- `package.json`
-- `electron.vite.config.ts`
+- Main 进程
+  - src/main/index.ts：IPC 路由、窗口管理、消息编排入口
+  - src/main/agent.ts：模型调用与对话编排（chat / agent / rag）
+  - src/main/openaiCompatible.ts：在线模型请求、流式、测试、余额
+  - src/main/rag.ts：文档解析、切分、向量索引、相似检索
+  - src/main/storage.ts：会话/模型设置/skills 存储
+  - src/main/skills.ts：skills 匹配与提示词构造
+  - src/main/tools/\*：文件、系统、网络工具
 
-## 4. 功能能力矩阵
+- 预加载层
+  - src/preload/index.ts：contextBridge 暴露安全 API
 
-| 功能能力       | 用户可见行为                     | 主要实现                                                                                  |
-| -------------- | -------------------------------- | ----------------------------------------------------------------------------------------- |
-| 流式对话       | 助手内容按 token 实时返回        | `src/main/index.ts` 的 IPC `chat:send`；`src/main/agent.ts` 的 `chatStream`               |
-| Agent 工具模式 | LLM 可调用文件工具并返回工具轨迹 | `src/main/agent.ts` 的 `chatWithAgent`；`src/main/tools/fileTools.ts`                     |
-| 请求中断       | 停止当前生成                     | `src/main/index.ts` 的 IPC `chat:abort`；`AbortController`                                |
-| 模型管理       | 获取/切换当前 Ollama 模型        | `src/main/index.ts` 的 `models:*`；`src/main/agent.ts` 的 `fetchOllamaModels`/`setModel`  |
-| 会话持久化     | 历史列表、懒加载、保存与删除     | `src/main/storage.ts`；渲染层状态同步位于 `src/renderer/src/App.tsx`                      |
-| 工具调用可视化 | 在聊天 UI 展示工具输入与结果     | IPC `chat:tool-call`、`chat:tool-result`；`src/renderer/src/components/MessageBubble.tsx` |
+- 渲染层
+  - src/renderer/src/App.tsx：全局状态、聊天流程、设置中心
+  - src/renderer/src/components/\*：Sidebar / ChatArea / InputBar / MessageBubble
+  - src/renderer/src/types/conversation.ts：会话与消息类型
 
-## 5. 进程职责划分
+## 5. 核心能力设计
 
-### 5.1 主进程
+### 5.1 模型与路由
 
-文件：`src/main/index.ts`
+系统维护三条场景路由：
 
-- 创建 `BrowserWindow`，并通过 `contextIsolation: true`、`nodeIntegration: false` 加固运行时配置。
-- 注册聊天、模型、存储相关 IPC 处理器。
-- 维护 `currentAbortController` 与 `currentWebContents`，用于取消请求和资源清理。
+- chat：普通对话
+- agent：复杂任务与工具调用
+- rag：文档问答
 
-文件：`src/main/agent.ts`
+每条路由都可独立配置：
 
-- 管理模型生命周期（`currentModel`、`setModel`、`getModel`）。
-- 将渲染层历史消息转换为 LangChain 消息结构。
-- 提供两种对话模式：
-  - `chatStream`：无工具调用的直接流式输出。
-  - `chatWithAgent`：最多 5 轮工具调用循环，随后输出最终流式回复。
-- 通过回调上报工具调用与工具结果，用于 UI 侧展示。
+- provider：ollama 或 openai-compatible
+- model：该路由的模型名
 
-文件：`src/main/tools/fileTools.ts`
+自动路由策略位于 src/main/index.ts：
 
-- 定义 5 个带 Zod schema 的 LangChain 工具：
-  - `read_file`
-  - `write_file`
-  - `list_directory`
-  - `delete_file`
-  - `search_files`
-- 暴露 `allTools`，供模型绑定使用。
+- 有 fileIds 时优先走 RAG
+- 命中工具意图时走 Agent
+- 复杂任务可走高级模型
+- 其余走普通对话
 
-文件：`src/main/storage.ts`
+### 5.2 实时问题处理
 
-- 将会话元数据和消息持久化到 JSON 文件。
-- 维护索引文件（`index.json`）、活跃会话（`active.json`）以及单会话消息文件（`conversations/<id>.json`）。
+针对“今天是哪天/当前日期/星期几/现在几点”等实时问题：
 
-### 5.2 预加载层
+- 单独意图识别 shouldUseRealtimeTool
+- 强制优先进入工具路径
+- 会隔离旧 history，避免历史上下文污染时间回答
+- 系统提示词附带运行时当前时间参考，并要求必要时调用 get_current_time
 
-文件：`src/preload/index.ts`
+### 5.3 Skills 本地配置
 
-- 通过 `contextBridge` 暴露受限的 `electronAPI`。
-- 提供 invoke 类接口（`sendMessage`、`listModels`、存储调用）和事件订阅（`onToken`、`onDone`、`onError`、工具事件）。
-- 作为渲染层访问主进程特权能力的唯一桥接层。
+Skills 数据结构（存于 settings.json）：
 
-### 5.3 渲染进程
+- id, name, description
+- keywords
+- systemPrompt
+- enabled
+- preferredScene: auto/chat/agent/rag
+- priority
 
-文件：`src/renderer/src/App.tsx`
+匹配逻辑位于 src/main/skills.ts：
 
-- 维护应用级状态：会话列表、当前会话、加载状态、模式开关、模型列表与当前模型。
-- 启动时从本地存储恢复历史与上次活跃会话。
-- 在切换会话时对消息进行懒加载。
-- 管理发送生命周期：
-  - 添加用户消息与流式助手占位消息。
-  - 注册流式/工具/错误/完成事件监听。
-  - 触发 IPC `sendMessage`。
-  - 在完成或错误时收尾并持久化。
+- 支持关键词匹配
+- 支持显式技能名命中（例如 #技能名）
+- 支持优先级排序
+- 匹配后会注入技能提示词，并可影响路由场景
 
-配套 UI 组件：
+### 5.4 RAG 文档问答
 
-- `src/renderer/src/components/Sidebar.tsx`：会话切换/删除 + 模型选择。
-- `src/renderer/src/components/InputBar.tsx`：输入、模式切换、发送/中断。
-- `src/renderer/src/components/ChatArea.tsx`：欢迎态、滚动、加载态展示。
-- `src/renderer/src/components/MessageBubble.tsx`：Markdown 渲染、代码高亮、工具轨迹展示。
+RAG 流程位于 src/main/rag.ts + src/main/agent.ts：
 
-## 6. 核心数据模型
+1. 上传文件（txt/md/pdf/docx/csv/json/ts/js）
+2. 文本抽取 + 切块（chunkSize 900 / overlap 150）
+3. 使用 nomic-embed-text 生成向量
+4. 存入 MemoryVectorStore（当前为内存索引）
+5. 查询时按 fileIds 检索相关片段
+6. 将片段拼接到系统上下文完成回答
 
-渲染层领域模型（`src/renderer/src/types/conversation.ts`）：
+RAG 上下文隔离：
 
-- `Message`：角色与内容，附带可选工具轨迹、流式状态、错误状态。
-- `Conversation`：元数据 + 内存消息 + 懒加载标记。
-- 包含消息创建、标题生成、存储转换等辅助函数。
+- 前端消息带 ragContextId
+- 切换文件集后生成新的 contextId
+- 避免旧文件内容干扰新文件问答
 
-主进程/预加载共享存储模型（`src/main/storage.ts`、`src/preload/index.ts`）：
+### 5.5 工具体系
 
-- `ConvMeta`：`id`、`title`、`createdAt`、`updatedAt`。
-- `StoredMessage`：持久化消息，包含可选 `toolCalls`、`toolResults`、`isError`。
+工具集合由 src/main/tools/index.ts 汇总，三类能力：
 
-## 7. 运行时流程
+- 文件工具：read_file / write_file / list_directory / delete_file / search_files
+- 系统工具：get_current_time / calculator / unit_convert / clipboard_copy
+- 网络工具：web_search / fetch_url / get_weather_current / currency_convert
 
-### 7.1 流式聊天（不使用工具）
+在线模型工具调用通过 openaiCompatible.ts 中的工具 schema 与本地工具执行结果回填实现。
 
-1. 渲染层调用 `electronAPI.sendMessage(history, message, false)`。
-2. 主进程在 IPC `chat:send` 中调用 `chatStream`。
-3. `chatStream` 通过 LangChain 从 Ollama 流式获取 token。
-4. 主进程持续发送 `chat:token`，结束后发送 `chat:done`。
-5. 渲染层完成助手消息并持久化会话。
+### 5.6 在线模型通道
 
-### 7.2 Agent 聊天（启用工具）
+在线 provider 采用 OpenAI-Compatible 协议：
 
-1. 渲染层调用 `electronAPI.sendMessage(history, message, true)`。
-2. 主进程调用 `chatWithAgent`。
-3. 模型返回中可能包含 `tool_calls`。
-4. 对每次工具调用：
-   - 主进程发送 `chat:tool-call`。
-   - 执行 `allTools` 中匹配工具。
-   - 发送 `chat:tool-result`。
-   - 将工具结果追加回模型上下文。
-5. 当不再需要工具时，主进程输出最终流式回复（`chat:token`），并发送 `chat:done`。
+- 支持 baseUrl + apiKey + model
+- 支持 API 测试（连通性、模型列表、耗时）
+- 部分 provider 支持余额信息（如 OpenRouter credits）
+- 支持在线预设保存、切换、删除
 
-### 7.3 中断流程
+## 6. IPC 与事件
 
-1. 渲染层发送 `chat:abort`。
-2. 主进程主动发送 `chat:done` 并中止当前 controller。
-3. 渲染层将流式消息标记完成，并清理监听器。
+主要 IPC（Main <-> Renderer）：
 
-## 8. 持久化设计
+- 聊天
+  - chat:send
+  - chat:abort
+  - 事件：chat:token / chat:tool-call / chat:tool-result / chat:model-info / chat:done / chat:error
 
-- 根目录：`<userData>/ai-agent`。
-- 文件结构：
-  - `index.json`：会话元数据列表。
-  - `active.json`：当前活跃会话 ID。
-  - `conversations/<id>.json`：该会话的消息列表。
-- 行为规则：
-  - 元数据按 `updatedAt` 倒序排列。
-  - 持久化消息时会排除仅用于流式过程的临时状态。
+- 模型与设置
+  - models:list / models:get-_ / models:set-_
+  - settings:get-model-config
+  - settings:save-model-config
+  - settings:test-online
 
-## 9. 安全与风险说明
+- Skills
+  - skills:list
+  - skills:save
 
-- 现有安全控制：
-  - 已开启 `contextIsolation`。
-  - 已关闭 `nodeIntegration`。
-  - 渲染层无法直接访问 Node API。
-- 主要风险点：
-  - 文件工具当前没有工作区级沙箱边界。
-  - `delete_file` 与 `write_file` 可影响进程权限可达的任意路径。
-  - 尚未提供敏感路径的显式 allowlist/denylist 策略。
+- RAG
+  - rag:pick-files
+  - rag:list
+  - rag:remove
+  - 事件：rag:status
 
-## 10. 可扩展性建议
+- 存储
+  - storage:list / load / save / update-meta / delete
+  - storage:get-active / storage:set-active
 
-- 增加工具沙箱策略：
-  - 将工具操作限制在配置的工作区根目录内。
-  - 增加路径规范化，并拦截敏感系统目录。
-- 增加结构化可观测性：
-  - 记录工具调用指标、耗时与错误分类。
-- 增加测试体系：
-  - 为 `storage.ts` 与文件工具路径校验补充单元测试。
-  - 为 IPC 事件顺序（`token/tool/done/error`）补充集成测试。
-- 增强弹性：
-  - 为 Ollama 连接增加超时与重试策略。
-  - 在模型列表为空时提供更友好的降级提示。
+## 7. 持久化设计
 
-## 11. 部署与运行命令
+存储根目录：
 
-- 开发：`npm run dev`
-- 构建：`npm run build`
-- 类型检查：`npm run typecheck`
+- <userData>/ai-agent
 
-## 12. 架构演进方向（可选）
+核心文件：
 
-- 在主进程引入领域服务分层：
-  - `ChatService`、`ModelService`、`StorageService`、`ToolPolicyService`。
-- 将 IPC 通道常量抽离为共享契约模块。
-- 增加带版本号的存储 schema 与迁移机制。
+- index.json：会话元数据索引
+- active.json：当前活跃会话 ID
+- conversations/<id>.json：会话消息
+- settings.json：模型路由、在线配置、skills
+
+说明：
+
+- 会话消息持久化包含工具轨迹、modelInfo、ragContextId
+- RAG 向量索引当前不落盘，应用重启后需重新上传文档
+
+## 8. 设置中心（Renderer）
+
+设置弹窗已拆分为两个页签：
+
+- 模型配置：场景路由、本地模型、在线 API 与预设、API Test
+- Skills 配置：技能列表、启停、优先级、关键词、提示词、优先路由
+
+滚动策略：
+
+- 仅内容区滚动（modalBody）
+- 头部与页签固定
+
+## 9. 安全与边界
+
+已启用：
+
+- contextIsolation: true
+- nodeIntegration: false
+- 仅通过 preload 暴露受限 API
+- 外链统一 shell.openExternal
+
+待加强：
+
+- 文件工具目录沙箱（当前可访问进程权限范围）
+- 更细粒度的操作审计与风险拦截
+- RAG 索引持久化与加密策略
+
+## 10. 运行与构建
+
+- 开发：npm run dev
+- 调试主进程：npm run dev:inspect
+- 类型检查：npm run typecheck
+- 构建：npm run build
+
+## 11. 已知限制
+
+- RAG 索引在内存中，重启后失效
+- 在线 provider 余额查询并非所有服务都支持
+- 当前未引入统一日志中心与指标面板
+
+## 12. 后续建议
+
+- 增加向量索引落盘（按文件哈希增量更新）
+- 增加工具权限策略（工作区 allowlist）
+- 增加端到端回归用例（路由/工具/实时日期/RAG）
+- 将 IPC 协议与类型提取为共享契约层

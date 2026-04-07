@@ -18,6 +18,7 @@ function getConvDir(): string {
 
 const INDEX_FILE = () => join(getDataDir(), "index.json");
 const ACTIVE_FILE = () => join(getDataDir(), "active.json");
+const SETTINGS_FILE = () => join(getDataDir(), "settings.json");
 export interface ConvMeta {
   id: string;
   title: string;
@@ -31,7 +32,54 @@ export interface StoredMessage {
   content: string;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
+  modelInfo?: { model: string; scene: string; skill?: string };
+  ragContextId?: string;
   isError?: boolean;
+}
+
+export type ModelProvider = "ollama" | "openai-compatible";
+export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
+
+export interface SkillConfig {
+  id: string;
+  name: string;
+  description: string;
+  keywords: string[];
+  systemPrompt: string;
+  enabled: boolean;
+  preferredScene: SkillPreferredScene;
+  priority: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OnlineProviderSettings {
+  name?: string;
+  provider?: string;
+  baseUrl?: string;
+  apiKey?: string;
+}
+
+export interface OnlineProviderProfile extends Required<OnlineProviderSettings> {
+  id: string;
+  chatModel?: string;
+  agentModel?: string;
+  ragModel?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ModelSettings {
+  chatModel?: string;
+  agentModel?: string;
+  ragModel?: string;
+  chatProvider?: ModelProvider;
+  agentProvider?: ModelProvider;
+  ragProvider?: ModelProvider;
+  online?: OnlineProviderSettings;
+  onlineProfiles?: OnlineProviderProfile[];
+  activeOnlineProfileId?: string | null;
+  skills?: SkillConfig[];
 }
 
 function readJSON<T>(filePath: string, fallback: T): T {
@@ -112,4 +160,24 @@ export function getActiveId(): string | null {
 
 export function setActiveId(id: string | null): void {
   writeJSON(ACTIVE_FILE(), { id });
+}
+
+// ---- 模型配置 ----
+
+export function getModelSettings(): ModelSettings {
+  return readJSON<ModelSettings>(SETTINGS_FILE(), {});
+}
+
+export function saveModelSettings(settings: ModelSettings): void {
+  const prev = getModelSettings();
+  writeJSON(SETTINGS_FILE(), { ...prev, ...settings });
+}
+
+export function getSkills(): SkillConfig[] {
+  const settings = getModelSettings();
+  return Array.isArray(settings.skills) ? settings.skills : [];
+}
+
+export function saveSkills(skills: SkillConfig[]): void {
+  saveModelSettings({ skills });
 }

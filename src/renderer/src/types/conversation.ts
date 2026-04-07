@@ -1,11 +1,19 @@
 import { v4 as uuidv4 } from "uuid";
 
+export interface MessageModelInfo {
+  model: string;
+  scene: string;
+  skill?: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
+  modelInfo?: MessageModelInfo;
+  ragContextId?: string;
   isStreaming?: boolean;
   isError?: boolean;
 }
@@ -61,6 +69,8 @@ export function toStoredMessage(m: Message) {
     content: m.content,
     toolCalls: m.toolCalls,
     toolResults: m.toolResults,
+    modelInfo: m.modelInfo,
+    ragContextId: m.ragContextId,
     isError: m.isError,
   };
 }

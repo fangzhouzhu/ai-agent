@@ -4,47 +4,241 @@ import {
   AIMessage,
   SystemMessage,
 } from "@langchain/core/messages";
+import { listRagFiles, retrieveRelevantChunks } from "./rag";
 import { allTools } from "./tools";
+import {
+  OPENAI_COMPATIBLE_TOOLS,
+  invokeOpenAICompatibleChat,
+  streamOpenAICompatibleChat,
+  type CompatibleMessage,
+} from "./openaiCompatible";
+import { buildSkillPrompt } from "./skills";
+import type {
+  ModelProvider,
+  ModelSettings,
+  OnlineProviderProfile,
+  OnlineProviderSettings,
+  SkillConfig,
+} from "./storage";
 
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
 }
 
-let currentModel = "qwen2.5:3b";
+type RouteKey = "chat" | "agent" | "rag";
 
+type RouteConfig = {
+  provider: ModelProvider;
+  model: string;
+};
+
+type ModelConfig = {
+  chat: RouteConfig;
+  agent: RouteConfig;
+  rag: RouteConfig;
+  online: Required<OnlineProviderSettings>;
+  onlineProfiles: OnlineProviderProfile[];
+  activeOnlineProfileId: string | null;
+};
+
+const DEFAULT_ONLINE_SETTINGS: Required<OnlineProviderSettings> = {
+  name: "默认在线配置",
+  provider: "OpenAI",
+  baseUrl: "https://api.openai.com/v1",
+  apiKey: "",
+};
+
+const modelConfig: ModelConfig = {
+  chat: { provider: "ollama", model: "qwen2.5:3b" },
+  agent: { provider: "ollama", model: "qwen2.5:3b" },
+  rag: { provider: "ollama", model: "qwen2.5:3b" },
+  online: { ...DEFAULT_ONLINE_SETTINGS },
+  onlineProfiles: [],
+  activeOnlineProfileId: null,
+};
+
+function pickPreferredModel(
+  models: string[],
+  matchers: RegExp[],
+): string | null {
+  for (const matcher of matchers) {
+    const found = models.find((model) => matcher.test(model));
+    if (found) return found;
+  }
+  return models[0] ?? null;
+}
+
+function autoConfigureModels(models: string[]): void {
+  const textModels = models.filter((model) => !/embed/i.test(model));
+  if (textModels.length === 0) return;
+
+  const chatCandidate =
+    pickPreferredModel(textModels, [
+      /qwen.*(1\.5b|3b)|phi|mini|small|gemma.*2b/i,
+      /(1\.5b|2b|3b)/i,
+    ]) ?? textModels[0];
+
+  const advancedCandidate =
+    pickPreferredModel(textModels, [
+      /7b|8b|14b|32b|70b|coder|instruct|deepseek|llama3|qwq/i,
+      /qwen/i,
+    ]) ?? chatCandidate;
+
+  if (
+    modelConfig.chat.provider === "ollama" &&
+    !textModels.includes(modelConfig.chat.model)
+  ) {
+    modelConfig.chat.model = chatCandidate;
+  }
+
+  if (
+    modelConfig.agent.provider === "ollama" &&
+    !textModels.includes(modelConfig.agent.model)
+  ) {
+    modelConfig.agent.model = advancedCandidate;
+  }
+
+  if (
+    modelConfig.rag.provider === "ollama" &&
+    !textModels.includes(modelConfig.rag.model)
+  ) {
+    modelConfig.rag.model = advancedCandidate;
+  }
+}
+
+export function applyModelSettings(settings: ModelSettings): void {
+  if (settings.chatModel) modelConfig.chat.model = settings.chatModel;
+  if (settings.agentModel) modelConfig.agent.model = settings.agentModel;
+  if (settings.ragModel) modelConfig.rag.model = settings.ragModel;
+
+  if (settings.chatProvider) modelConfig.chat.provider = settings.chatProvider;
+  if (settings.agentProvider)
+    modelConfig.agent.provider = settings.agentProvider;
+  if (settings.ragProvider) modelConfig.rag.provider = settings.ragProvider;
+
+  if (settings.online) {
+    modelConfig.online = {
+      ...modelConfig.online,
+      ...settings.online,
+    };
+  }
+
+  if (Array.isArray(settings.onlineProfiles)) {
+    modelConfig.onlineProfiles = settings.onlineProfiles;
+  }
+
+  if ("activeOnlineProfileId" in settings) {
+    modelConfig.activeOnlineProfileId = settings.activeOnlineProfileId ?? null;
+  }
+}
+
+export function getModelSettingsSnapshot(): ModelSettings {
+  return {
+    chatModel: modelConfig.chat.model,
+    agentModel: modelConfig.agent.model,
+    ragModel: modelConfig.rag.model,
+    chatProvider: modelConfig.chat.provider,
+    agentProvider: modelConfig.agent.provider,
+    ragProvider: modelConfig.rag.provider,
+    online: { ...modelConfig.online },
+    onlineProfiles: [...modelConfig.onlineProfiles],
+    activeOnlineProfileId: modelConfig.activeOnlineProfileId,
+  };
+}
+
+export function setChatModel(modelName: string): void {
+  modelConfig.chat.model = modelName;
+}
+
+export function getChatModel(): string {
+  return modelConfig.chat.model;
+}
+
+export function setAgentModel(modelName: string): void {
+  modelConfig.agent.model = modelName;
+}
+
+export function getAgentModel(): string {
+  return modelConfig.agent.model;
+}
+
+export function setRagModel(modelName: string): void {
+  modelConfig.rag.model = modelName;
+}
+
+export function getRagModel(): string {
+  return modelConfig.rag.model;
+}
+
+export function getChatProvider(): ModelProvider {
+  return modelConfig.chat.provider;
+}
+
+export function getAgentProvider(): ModelProvider {
+  return modelConfig.agent.provider;
+}
+
+export function getRagProvider(): ModelProvider {
+  return modelConfig.rag.provider;
+}
+
+export function describeRouteModel(routeKey: RouteKey): string {
+  const route = modelConfig[routeKey];
+  if (route.provider === "ollama") {
+    return `${route.model} · Ollama`;
+  }
+
+  const activeProfile = modelConfig.onlineProfiles.find(
+    (profile) => profile.id === modelConfig.activeOnlineProfileId,
+  );
+  const providerLabel =
+    activeProfile?.name || modelConfig.online.provider || "在线 API";
+
+  return `${providerLabel} · ${route.model}`;
+}
+
+export function getOnlineSettings(): OnlineProviderSettings {
+  return { ...modelConfig.online };
+}
+
+// 保持向后兼容：旧的单模型接口默认映射到聊天模型
 export function setModel(modelName: string): void {
-  currentModel = modelName;
+  setChatModel(modelName);
 }
 
 export function getModel(): string {
-  return currentModel;
+  return getChatModel();
 }
 
-function buildLLM(streaming = false): ChatOllama {
+function buildLLM(modelName: string, streaming = false): ChatOllama {
   return new ChatOllama({
-    model: currentModel,
+    model: modelName,
     baseUrl: "http://localhost:11434",
     streaming,
-    // verbose: true, // 在主进程终端打印请求/响应详情
   });
 }
 
-function extractResponseText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (item && typeof item === "object" && "text" in item) {
-          const text = (item as { text?: unknown }).text;
-          return typeof text === "string" ? text : "";
-        }
-        return "";
-      })
-      .join("");
+async function streamFromOllama(
+  modelName: string,
+  messages: Array<HumanMessage | AIMessage | SystemMessage>,
+  onToken: (token: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const llm = buildLLM(modelName, true);
+  let fullResponse = "";
+  const stream = await llm.stream(messages, { signal });
+
+  for await (const chunk of stream) {
+    signal?.throwIfAborted();
+    const token = typeof chunk.content === "string" ? chunk.content : "";
+    if (token) {
+      onToken(token);
+      fullResponse += token;
+    }
   }
-  return "";
+
+  return fullResponse;
 }
 
 // 获取可用的 Ollama 模型列表
@@ -53,20 +247,36 @@ export async function fetchOllamaModels(): Promise<string[]> {
     const res = await fetch("http://localhost:11434/api/tags");
     if (!res.ok) return [];
     const data = (await res.json()) as { models: { name: string }[] };
-    return data.models.map((m) => m.name);
+    const models = data.models.map((m) => m.name);
+    autoConfigureModels(models);
+    return models;
   } catch {
     return [];
   }
 }
 
-// 将历史消息转换为 LangChain 格式
 function toLC(msg: ChatMessage) {
   if (msg.role === "user") return new HumanMessage(msg.content);
   if (msg.role === "assistant") return new AIMessage(msg.content);
   return new SystemMessage(msg.content);
 }
 
-const SYSTEM_PROMPT = `你是一个智能助手，可以帮助用户对话、分析问题、联网查询信息，以及操作本地文件系统。
+function toCompatibleMessage(msg: ChatMessage): CompatibleMessage {
+  return {
+    role: msg.role,
+    content: msg.content,
+  };
+}
+
+function parseToolArguments(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw || "{}") as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+const BASE_SYSTEM_PROMPT = `你是一个智能助手，可以帮助用户对话、分析问题、联网查询信息，以及操作本地文件系统。
 你拥有以下工具：
 - read_file: 读取文件内容
 - write_file: 写入文件
@@ -85,6 +295,25 @@ const SYSTEM_PROMPT = `你是一个智能助手，可以帮助用户对话、分
 当用户需要操作文件、查询时间、做数学计算、单位换算、复制文本、联网获取信息、抓取网页内容、查询天气、汇率换算时，优先使用对应的工具。
 回答尽量简洁清晰，使用 Markdown 格式。`;
 
+function buildRuntimeContextPrompt(): string {
+  const now = new Date();
+  const display = new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "full",
+    timeStyle: "medium",
+    timeZone: "Asia/Shanghai",
+  }).format(now);
+
+  return `当前系统时间参考：${display}（Asia/Shanghai），ISO：${now.toISOString()}。
+如果用户询问“今天是哪天 / 今天几号 / 星期几 / 现在几点 / 当前日期”等实时问题，必须优先依据这个时间参考或调用 get_current_time 工具回答，不能凭训练记忆猜测。`;
+}
+
+function buildSystemPrompt(skill?: SkillConfig | null): string {
+  const skillPrompt = buildSkillPrompt(skill);
+  return [BASE_SYSTEM_PROMPT, buildRuntimeContextPrompt(), skillPrompt]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 // 带工具的流式聊天（Agent 模式）
 export async function chatWithAgent(
   history: ChatMessage[],
@@ -93,28 +322,86 @@ export async function chatWithAgent(
   onToolCall: (toolName: string, input: unknown) => void,
   onToolResult: (toolName: string, result: string) => void,
   signal?: AbortSignal,
+  skill?: SkillConfig | null,
 ): Promise<string> {
-  const llm = buildLLM(false);
-  const llmWithTools = llm.bindTools(allTools);
-  const streamingLLM = buildLLM(true);
+  const route = modelConfig.agent;
 
+  if (route.provider === "openai-compatible") {
+    const messages: CompatibleMessage[] = [
+      { role: "system", content: buildSystemPrompt(skill) },
+      ...history.map(toCompatibleMessage),
+      { role: "user", content: userMessage },
+    ];
+
+    for (let i = 0; i < 5; i++) {
+      signal?.throwIfAborted();
+      const response = await invokeOpenAICompatibleChat({
+        settings: modelConfig.online,
+        model: route.model,
+        messages,
+        tools: OPENAI_COMPATIBLE_TOOLS,
+        signal,
+      });
+
+      if (response.toolCalls.length > 0) {
+        messages.push({
+          role: "assistant",
+          content: response.content || "",
+          tool_calls: response.toolCalls,
+        });
+
+        for (const toolCall of response.toolCalls) {
+          signal?.throwIfAborted();
+          const tool = allTools.find(
+            (item) => item.name === toolCall.function.name,
+          );
+          if (!tool) continue;
+
+          const args = parseToolArguments(toolCall.function.arguments);
+          onToolCall(toolCall.function.name, args);
+          const result = await tool.invoke(args);
+          const resultStr = String(result);
+          onToolResult(toolCall.function.name, resultStr);
+
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: resultStr,
+          });
+        }
+
+        continue;
+      }
+
+      if (response.content) {
+        onToken(response.content);
+        return response.content;
+      }
+    }
+
+    return streamOpenAICompatibleChat({
+      settings: modelConfig.online,
+      model: route.model,
+      messages,
+      onToken,
+      signal,
+    });
+  }
+
+  const llm = buildLLM(route.model, false);
+  const llmWithTools = llm.bindTools(allTools);
   const messages = [
-    new SystemMessage(SYSTEM_PROMPT),
+    new SystemMessage(buildSystemPrompt(skill)),
     ...history.map(toLC),
     new HumanMessage(userMessage),
   ];
 
-  let fullResponse = "";
-  let hasToolCalls = false;
-
-  // 最多 5 轮工具调用
   for (let i = 0; i < 5; i++) {
     signal?.throwIfAborted();
 
     const response = await llmWithTools.invoke(messages, { signal });
 
     if (response.tool_calls && response.tool_calls.length > 0) {
-      hasToolCalls = true;
       messages.push(response);
 
       for (const toolCall of response.tool_calls) {
@@ -134,23 +421,71 @@ export async function chatWithAgent(
         } as any);
       }
     } else {
-      // 无工具调用，使用流式输出
       break;
     }
   }
 
-  // 流式输出最终结果
-  const stream = await streamingLLM.stream(messages, { signal });
-  for await (const chunk of stream) {
-    signal?.throwIfAborted();
-    const token = typeof chunk.content === "string" ? chunk.content : "";
-    if (token) {
-      onToken(token);
-      fullResponse += token;
-    }
+  return streamFromOllama(route.model, messages, onToken, signal);
+}
+
+// 基于已上传文档的 RAG 流式问答
+export async function chatWithRag(
+  history: ChatMessage[],
+  userMessage: string,
+  fileIds: string[],
+  onToken: (token: string) => void,
+  signal?: AbortSignal,
+  skill?: SkillConfig | null,
+): Promise<string> {
+  const route = modelConfig.rag;
+  const chunks = await retrieveRelevantChunks(fileIds, userMessage);
+  const activeFileNames = listRagFiles()
+    .filter((file) => fileIds.includes(file.id))
+    .map((file) => file.name);
+
+  const contextText = chunks.length
+    ? chunks
+        .map(
+          (chunk) =>
+            `【片段 ${chunk.index}｜${chunk.source}】\n${chunk.content}`,
+        )
+        .join("\n\n")
+    : "未检索到可用文档片段。";
+
+  const scopedHistory = history.filter((msg) => msg.role === "user").slice(-4);
+  const fileScopeText = activeFileNames.length
+    ? activeFileNames.join("、")
+    : "当前没有激活的文档";
+
+  const skillPrompt = buildSkillPrompt(skill);
+  const ragPrompt = `你是一个文档分析助手。当前有效文档仅限：${fileScopeText}。
+请优先依据“检索上下文”回答问题，并尽量给出简洁结论。
+如果用户之前聊过其他文件、旧版本文件或已移除的文件，你必须忽略那些历史内容，不能沿用旧文件信息。
+如果上下文不足以支持结论，请明确说明“在当前已上传文件中未找到明确依据”，不要编造内容。${skillPrompt ? `\n\n${skillPrompt}` : ""}`;
+
+  if (route.provider === "openai-compatible") {
+    return streamOpenAICompatibleChat({
+      settings: modelConfig.online,
+      model: route.model,
+      messages: [
+        { role: "system", content: ragPrompt },
+        { role: "system", content: `检索上下文：\n${contextText}` },
+        ...scopedHistory.map(toCompatibleMessage),
+        { role: "user", content: userMessage },
+      ],
+      onToken,
+      signal,
+    });
   }
 
-  return fullResponse;
+  const messages = [
+    new SystemMessage(ragPrompt),
+    new SystemMessage(`检索上下文：\n${contextText}`),
+    ...scopedHistory.map(toLC),
+    new HumanMessage(userMessage),
+  ];
+
+  return streamFromOllama(route.model, messages, onToken, signal);
 }
 
 // 普通流式聊天（无工具）
@@ -159,24 +494,34 @@ export async function chatStream(
   userMessage: string,
   onToken: (token: string) => void,
   signal?: AbortSignal,
+  modelName = modelConfig.chat.model,
+  provider: ModelProvider = modelConfig.chat.provider,
+  skill?: SkillConfig | null,
 ): Promise<string> {
-  const llm = buildLLM(true);
+  const route: RouteConfig = {
+    provider,
+    model: modelName || modelConfig.chat.model,
+  };
+
+  if (route.provider === "openai-compatible") {
+    return streamOpenAICompatibleChat({
+      settings: modelConfig.online,
+      model: route.model,
+      messages: [
+        { role: "system", content: buildSystemPrompt(skill) },
+        ...history.map(toCompatibleMessage),
+        { role: "user", content: userMessage },
+      ],
+      onToken,
+      signal,
+    });
+  }
 
   const messages = [
-    new SystemMessage(SYSTEM_PROMPT),
+    new SystemMessage(buildSystemPrompt(skill)),
     ...history.map(toLC),
     new HumanMessage(userMessage),
   ];
 
-  let fullResponse = "";
-  const stream = await llm.stream(messages, { signal });
-  for await (const chunk of stream) {
-    signal?.throwIfAborted();
-    const token = typeof chunk.content === "string" ? chunk.content : "";
-    if (token) {
-      onToken(token);
-      fullResponse += token;
-    }
-  }
-  return fullResponse;
+  return streamFromOllama(route.model, messages, onToken, signal);
 }
