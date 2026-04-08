@@ -1,4 +1,5 @@
 .container {
+  position: relative;
   flex: 1;
   overflow: hidden;
   display: flex;
@@ -22,56 +23,80 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  min-height: 400px;
+  min-height: 420px;
   text-align: center;
-  padding: 40px;
+  padding: 40px 24px;
 }
 
 .welcomeIcon {
-  font-size: 56px;
-  margin-bottom: 16px;
+  display: none;
+}
+
+.welcomeBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #334155;
+  background: #161b26;
+  color: #9fb0c7;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  margin-bottom: 14px;
 }
 
 .welcomeTitle {
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 700;
-  color: #fff;
+  color: #f7f7f8;
   margin-bottom: 10px;
 }
 
 .welcomeSubtitle {
+  max-width: 560px;
   font-size: 14px;
-  color: #888;
-  margin-bottom: 32px;
+  line-height: 1.7;
+  color: #9ca3af;
+  margin-bottom: 28px;
 }
 
 .features {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
   gap: 12px;
-  max-width: 360px;
+  max-width: 520px;
   width: 100%;
 }
 
 .feature {
-  background: #2a2a2a;
-  border: 1px solid #333;
-  border-radius: 10px;
-  padding: 14px 18px;
+  background: #222326;
+  border: 1px solid #34363b;
+  border-radius: 12px;
+  padding: 14px 16px;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #ccc;
-  transition: background 0.2s;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
 }
 
 .feature:hover {
-  background: #333;
+  background: #2a2c31;
+  border-color: #454a54;
 }
 
-.feature span:first-child {
-  font-size: 20px;
+.feature strong {
+  font-size: 13px;
+  color: #f3f4f6;
+}
+
+.feature span {
+  font-size: 12px;
+  color: #a1a1aa;
+  line-height: 1.6;
 }
 
 /* 思考中动画 */
@@ -102,6 +127,37 @@
 
 .thinkingDots span:nth-child(3) {
   animation-delay: 0.4s;
+}
+
+.scrollToBottomBtn {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #3d4b68;
+  border-radius: 50%;
+  background: rgba(18, 23, 34, 0.92);
+  color: #edf3ff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  z-index: 2;
+}
+
+.scrollToBottomBtn:hover {
+  border-color: #6283ff;
+  background: rgba(26, 32, 46, 0.98);
+}
+
+.scrollToBottomIcon {
+  font-size: 18px;
+  line-height: 1;
+  transform: translateY(1px);
 }
 
 @keyframes bounce {

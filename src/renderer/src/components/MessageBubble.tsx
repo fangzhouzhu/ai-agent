@@ -17,6 +17,7 @@ interface Props {
 }
 
 const TOOL_META: Record<string, { icon: string; label: string }> = {
+  get_current_time: { icon: '🕒', label: '当前时间' },
   get_weather_current: { icon: '🌤', label: '天气查询' },
   currency_convert: { icon: '💱', label: '汇率换算' },
   web_search: { icon: '🔎', label: '联网搜索' },
@@ -137,6 +138,18 @@ function renderResultPreview(toolName: string, result: string) {
               {item.link && <div className={styles.searchResultLink}>{item.link}</div>}
             </div>
           ))}
+        </div>
+      )
+    }
+  }
+
+  if (toolName === 'calculator') {
+    const matched = trimmed.match(/^计算结果[:：]\s*(.+?)\s*=\s*(.+)$/)
+    if (matched) {
+      return (
+        <div className={styles.fileActionCard}>
+          <div className={styles.fileActionTitle}>计算结果</div>
+          <div className={styles.fileActionPath}>{matched[1]} = {matched[2]}</div>
         </div>
       )
     }
@@ -292,7 +305,8 @@ const ToolProcessPanel: React.FC<{
   toolCalls: NonNullable<Message['toolCalls']>
   toolResults: NonNullable<Message['toolResults']>
   isStreaming: boolean
-}> = ({ toolCalls, toolResults, isStreaming }) => {
+  scene?: string
+}> = ({ toolCalls, toolResults, isStreaming, scene }) => {
   const [expanded, setExpanded] = React.useState(isStreaming)
 
   useEffect(() => {
@@ -304,14 +318,36 @@ const ToolProcessPanel: React.FC<{
   }, [isStreaming])
 
   const steps = React.useMemo<ToolTraceStep[]>(() => {
+    const analysisSummary =
+      scene === '复杂任务'
+        ? '正在分步骤分析问题，并判断是否需要调用工具辅助完成。'
+        : scene === 'RAG'
+          ? '正在结合已上传文档进行检索与整理。'
+          : '已判断当前问题需要借助工具来获取更可靠的信息。'
+
     const traceSteps: ToolTraceStep[] = [
       {
         id: 'analysis',
         title: '分析请求',
-        summary: '已判断当前问题需要借助工具来获取更可靠的信息。',
+        summary: analysisSummary,
         status: 'done',
       },
     ]
+
+    if (toolCalls.length === 0) {
+      traceSteps.push({
+        id: 'thinking',
+        title: scene === 'RAG' ? '检索上下文' : '思考处理中',
+        summary: isStreaming
+          ? scene === 'RAG'
+            ? '正在检索相关片段并组织回答…'
+            : '正在理解问题并规划处理步骤…'
+          : scene === 'RAG'
+            ? '已完成上下文整理。'
+            : '已完成问题分析。',
+        status: isStreaming ? 'running' : 'done',
+      })
+    }
 
     toolCalls.forEach((toolCall, index) => {
       const meta = TOOL_META[toolCall.toolName] ?? { icon: '⚙', label: toolCall.toolName }
@@ -337,7 +373,14 @@ const ToolProcessPanel: React.FC<{
     traceSteps.push({
       id: 'final',
       title: '整理最终回答',
-      summary: isStreaming ? '正在整合工具结果并生成回复…' : '已完成回复整理。',
+      summary:
+        toolCalls.length > 0
+          ? isStreaming
+            ? '正在整合工具结果并生成回复…'
+            : '已完成回复整理。'
+          : isStreaming
+            ? '正在生成回复内容…'
+            : '已完成回复生成。',
       status: isStreaming ? 'running' : 'done',
     })
 
@@ -353,7 +396,7 @@ const ToolProcessPanel: React.FC<{
       >
         <span className={styles.processTitleWrap}>
           <span className={styles.processIcon}>{isStreaming ? '🧠' : '🪄'}</span>
-          <span className={styles.processTitle}>工具执行过程</span>
+          <span className={styles.processTitle}>思考与执行过程</span>
           <span className={styles.processCount}>{steps.length} 步</span>
         </span>
         <span className={styles.processToggle} aria-hidden="true">
@@ -498,6 +541,11 @@ const MessageBubble: React.FC<Props> = ({
     setIsEditing(false)
   }
 
+  const shouldShowProcessPanel =
+    !isUser &&
+    ((message.toolCalls?.length ?? 0) > 0 ||
+      ['Agent/工具', '复杂任务', 'RAG'].includes(message.modelInfo?.scene ?? ''))
+
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
       {/* 头像 */}
@@ -507,11 +555,12 @@ const MessageBubble: React.FC<Props> = ({
 
       <div className={styles.content}>
         {/* 工具执行过程 */}
-        {!isUser && (message.toolCalls?.length ?? 0) > 0 && (
+        {shouldShowProcessPanel && (
           <ToolProcessPanel
             toolCalls={message.toolCalls ?? []}
             toolResults={message.toolResults ?? []}
             isStreaming={Boolean(message.isStreaming)}
+            scene={message.modelInfo?.scene}
           />
         )}
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { Message } from '../types/conversation'
 import MessageBubble from './MessageBubble'
 import styles from './ChatArea.module.css'
@@ -14,25 +14,28 @@ interface Props {
 
 const WelcomeScreen: React.FC = () => (
   <div className={styles.welcome}>
-    <div className={styles.welcomeIcon}>🤖</div>
-    <h1 className={styles.welcomeTitle}>AI Agent</h1>
-    <p className={styles.welcomeSubtitle}>基于 Ollama 的本地智能助手，支持文件操作与内容分析</p>
+    <div className={styles.welcomeIcon}>�</div>
+    <div className={styles.welcomeBadge}>Local Workspace</div>
+    <h1 className={styles.welcomeTitle}>开始一个新会话</h1>
+    <p className={styles.welcomeSubtitle}>
+      在这里可以处理文档、调用工具、切换模型，完成日常整理与分析工作。
+    </p>
     <div className={styles.features}>
       <div className={styles.feature}>
-        <span>💬</span>
-        <span>自然语言对话</span>
+        <strong>对话整理</strong>
+        <span>总结、改写、问答</span>
       </div>
       <div className={styles.feature}>
-        <span>📁</span>
-        <span>读写本地文件</span>
+        <strong>文档分析</strong>
+        <span>上传文件后提取重点</span>
       </div>
       <div className={styles.feature}>
-        <span>🔍</span>
-        <span>文件内容分析</span>
+        <strong>工具操作</strong>
+        <span>文件、搜索、计算等</span>
       </div>
       <div className={styles.feature}>
-        <span>⚡</span>
-        <span>完全本地运行</span>
+        <strong>模型切换</strong>
+        <span>本地与在线预设可选</span>
       </div>
     </div>
   </div>
@@ -47,14 +50,39 @@ const ChatArea: React.FC<Props> = ({
   onRegenerateMessage,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef(true)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+
+  const updateScrollState = useCallback(() => {
+    const container = scrollRef.current
+    if (!container) return
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight
+    const nearBottom = distanceFromBottom < 120
+
+    isNearBottomRef.current = nearBottom
+    setShowScrollToBottom(messages.length > 0 && !nearBottom)
+  }, [messages.length])
+
+  const handleScrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' })
-  }, [messages, isLoading])
+    if (isNearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({
+        behavior: isLoading ? 'auto' : 'smooth',
+        block: 'end',
+      })
+    }
+    updateScrollState()
+  }, [messages, isLoading, updateScrollState])
 
   return (
     <div className={styles.container}>
-      <div className={styles.scroll}>
+      <div ref={scrollRef} className={styles.scroll} onScroll={updateScrollState}>
         {messages.length === 0 ? (
           <WelcomeScreen />
         ) : (
@@ -81,6 +109,18 @@ const ChatArea: React.FC<Props> = ({
         )}
         <div ref={bottomRef} />
       </div>
+
+      {showScrollToBottom && (
+        <button
+          type="button"
+          className={styles.scrollToBottomBtn}
+          onClick={handleScrollToBottom}
+          title="滚动到最新消息"
+          aria-label="滚动到最新消息"
+        >
+          <span className={styles.scrollToBottomIcon}>↓</span>
+        </button>
+      )}
     </div>
   )
 }

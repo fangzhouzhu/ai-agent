@@ -135,7 +135,6 @@ const InputBar: React.FC<Props> = ({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
-            disabled={isRagProcessing}
           />
           {isLoading ? (
             <button className={styles.stopBtn} onClick={onAbort} title="停止生成">

@@ -242,6 +242,34 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, "");
 }
 
+function limitMessages(
+  messages: CompatibleMessage[],
+  maxNonSystemMessages = 8,
+): CompatibleMessage[] {
+  const systemMessages = messages.filter((item) => item.role === "system");
+  const nonSystemMessages = messages.filter((item) => item.role !== "system");
+
+  if (nonSystemMessages.length <= maxNonSystemMessages) {
+    return messages;
+  }
+
+  const containsToolChain = nonSystemMessages.some(
+    (item) =>
+      item.role === "tool" ||
+      (item.role === "assistant" && item.tool_calls?.length),
+  );
+
+  if (containsToolChain) {
+    return messages;
+  }
+
+  return [...systemMessages, ...nonSystemMessages.slice(-maxNonSystemMessages)];
+}
+
+function getProviderHint(settings: OnlineProviderSettings): string {
+  return `${settings.provider || ""} ${settings.baseUrl || ""}`.toLowerCase();
+}
+
 function ensureOnlineSettings(
   settings: OnlineProviderSettings,
   model?: string,
@@ -285,6 +313,24 @@ async function extractErrorMessage(response: Response): Promise<string> {
   } catch {
     return raw || `HTTP ${response.status}`;
   }
+}
+
+function withProviderErrorHint(
+  message: string,
+  settings: OnlineProviderSettings,
+  model: string,
+): string {
+  const providerHint = getProviderHint(settings);
+  const isZhipu =
+    providerHint.includes("智谱") || providerHint.includes("bigmodel");
+  const balanceLikeError =
+    /(余额不足|insufficient\s*balance|quota|bill|credit)/i.test(message);
+
+  if (isZhipu && balanceLikeError) {
+    return `${message}\n提示：智谱在 Agent 模式下会附带工具描述和上下文，消耗会比普通聊天高。建议优先将 Agent 模型切换为 \`glm-4-flash\` 或 \`glm-4-air\`，避免使用 \`glm-4-plus\` 这类更高成本模型。`;
+  }
+
+  return message;
 }
 
 async function tryFetchBalance(
@@ -338,22 +384,43 @@ export async function invokeOpenAICompatibleChat(options: {
 }): Promise<{ content: string; toolCalls: CompatibleToolCall[] }> {
   const { settings, model, messages, tools, signal } = options;
   const resolved = ensureOnlineSettings(settings, model);
+  const hasTools = Boolean(tools && tools.length > 0);
+  const hasActiveToolMessages = messages.some(
+    (item) =>
+      item.role === "tool" ||
+      (item.role === "assistant" && item.tool_calls?.length),
+  );
+  const trimmedMessages = hasActiveToolMessages
+    ? messages
+    : limitMessages(messages, hasTools ? 8 : 10);
+  const providerHint = getProviderHint(settings);
+  const isZhipu =
+    providerHint.includes("智谱") || providerHint.includes("bigmodel");
+  const maxTokens = hasTools ? (isZhipu ? 1024 : 1400) : isZhipu ? 1200 : 1800;
 
   const response = await fetch(`${resolved.baseUrl}/chat/completions`, {
     method: "POST",
     headers: buildHeaders(resolved.apiKey),
     body: JSON.stringify({
       model: resolved.model,
-      messages,
+      messages: trimmedMessages,
       tools,
+      tool_choice: hasTools ? "auto" : undefined,
       stream: false,
       temperature: 0.2,
+      max_tokens: maxTokens,
     }),
     signal,
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response));
+    throw new Error(
+      withProviderErrorHint(
+        await extractErrorMessage(response),
+        settings,
+        resolved.model,
+      ),
+    );
   }
 
   const data = (await response.json()) as {
@@ -381,21 +448,32 @@ export async function streamOpenAICompatibleChat(options: {
 }): Promise<string> {
   const { settings, model, messages, onToken, signal } = options;
   const resolved = ensureOnlineSettings(settings, model);
+  const providerHint = getProviderHint(settings);
+  const isZhipu =
+    providerHint.includes("智谱") || providerHint.includes("bigmodel");
+  const trimmedMessages = limitMessages(messages, 10);
 
   const response = await fetch(`${resolved.baseUrl}/chat/completions`, {
     method: "POST",
     headers: buildHeaders(resolved.apiKey),
     body: JSON.stringify({
       model: resolved.model,
-      messages,
+      messages: trimmedMessages,
       stream: true,
       temperature: 0.3,
+      max_tokens: isZhipu ? 1200 : 1800,
     }),
     signal,
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response));
+    throw new Error(
+      withProviderErrorHint(
+        await extractErrorMessage(response),
+        settings,
+        resolved.model,
+      ),
+    );
   }
 
   if (!response.body) {

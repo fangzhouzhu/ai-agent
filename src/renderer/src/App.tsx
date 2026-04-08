@@ -156,8 +156,19 @@ const onlineProviderPresets: Record<string, string> = {
   DeepSeek: 'https://api.deepseek.com/v1',
   Moonshot: 'https://api.moonshot.cn/v1',
   SiliconFlow: 'https://api.siliconflow.cn/v1',
+  '智谱 AI': 'https://open.bigmodel.cn/api/paas/v4',
   OpenRouter: 'https://openrouter.ai/api/v1',
   Custom: '',
+}
+
+const providerModelPresets: Record<string, string[]> = {
+  OpenAI: ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1'],
+  DeepSeek: ['deepseek-chat', 'deepseek-reasoner'],
+  Moonshot: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  SiliconFlow: ['Qwen/Qwen2.5-72B-Instruct', 'deepseek-ai/DeepSeek-V3'],
+  '智谱 AI': ['glm-4-flash', 'glm-4-plus', 'glm-4-air', 'glm-4-airx', 'glm-4v-flash'],
+  OpenRouter: ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet', 'google/gemini-2.0-flash-001'],
+  Custom: [],
 }
 
 function createEmptySkill(): SkillConfig {
@@ -213,6 +224,7 @@ const App: React.FC = () => {
   })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
 
+  const ragFilesRef = useRef<RagFileMeta[]>([])
   const streamingMsgIdRef = useRef<string | null>(null)
   const tokenQueueRef = useRef('')
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -266,6 +278,7 @@ const App: React.FC = () => {
       }
 
       setRagFiles(uploaded)
+      ragFilesRef.current = uploaded
       await refreshModelConfig()
     }
     init()
@@ -277,7 +290,7 @@ const App: React.FC = () => {
 
       if (data.status === 'processing') {
         setIsRagProcessing(true)
-      } else {
+      } else if (data.status === 'error' || data.status === 'idle') {
         setIsRagProcessing(false)
       }
     })
@@ -606,22 +619,25 @@ const App: React.FC = () => {
 
   const selectableModels = models.filter((model) => !/embed/i.test(model))
   const hasEmbeddingModel = models.some((model) => /nomic-embed-text/i.test(model))
-  const onlineModelCandidates = Array.from(
-    new Set(
-      [
-        ...apiTestState.models,
-        ...draftModelConfig.onlineProfiles.flatMap((profile) =>
-          [profile.chatModel, profile.agentModel, profile.ragModel].filter(
-            (model): model is string => Boolean(model)
-          )
-        ),
-      ].filter(Boolean)
-    )
-  )
   const activeOnlineProfile =
     draftModelConfig.onlineProfiles.find(
       (item) => item.id === draftModelConfig.activeOnlineProfileId
     ) ?? null
+  const onlineModelCandidates = Array.from(
+    new Set(
+      [
+        ...(providerModelPresets[draftModelConfig.online.provider] ?? []),
+        ...apiTestState.models,
+        ...draftModelConfig.onlineProfiles
+          .filter((profile) => profile.provider === draftModelConfig.online.provider)
+          .flatMap((profile) =>
+            [profile.chatModel, profile.agentModel, profile.ragModel].filter(
+              (model): model is string => Boolean(model)
+            )
+          ),
+      ].filter((model): model is string => Boolean(model))
+    )
+  )
   const sortedDraftSkills = [...draftSkills].sort(
     (a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt
   )
@@ -642,10 +658,12 @@ const App: React.FC = () => {
       setRagFiles((prev) => {
         const merged = new Map(prev.map((file) => [file.id, file]))
         uploaded.forEach((file) => merged.set(file.id, file))
-        return [...merged.values()].sort((a, b) => b.uploadedAt - a.uploadedAt)
+        const nextFiles = [...merged.values()].sort((a, b) => b.uploadedAt - a.uploadedAt)
+        ragFilesRef.current = nextFiles
+        return nextFiles
       })
       setIsRagProcessing(false)
-      setRagStatusText('')
+      setRagStatusText('文档分析完成，可以开始提问。')
     } catch (error) {
       const message = error instanceof Error ? error.message : '文档上传失败'
       setIsRagProcessing(false)
@@ -659,7 +677,11 @@ const App: React.FC = () => {
       const removed = await window.electronAPI.rag.remove(id)
       if (removed) {
         setRagContextId(uuidv4())
-        setRagFiles((prev) => prev.filter((file) => file.id !== id))
+        setRagFiles((prev) => {
+          const nextFiles = prev.filter((file) => file.id !== id)
+          ragFilesRef.current = nextFiles
+          return nextFiles
+        })
       }
     } catch (error) {
       console.error('移除文档失败', error)
@@ -964,7 +986,7 @@ const App: React.FC = () => {
         history,
         userMsg.content,
         useAgent,
-        ragFiles.map((file) => file.id)
+        ragFilesRef.current.map((file) => file.id)
       )
     },
     [isLoading, isRagProcessing, activeId, conversations, persistConversation, useAgent, ragFiles, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
@@ -987,7 +1009,8 @@ const App: React.FC = () => {
         )
       }
 
-      const activeRagContextId = ragFiles.length > 0 ? ragContextId : undefined
+      const currentRagFiles = ragFilesRef.current
+      const activeRagContextId = currentRagFiles.length > 0 ? ragContextId : undefined
       const userMsg: Message = {
         ...createMessage('user', text),
         ragContextId: activeRagContextId,
@@ -1132,7 +1155,7 @@ const App: React.FC = () => {
         history,
         text,
         agentMode,
-        ragFiles.map((file) => file.id)
+        currentRagFiles.map((file) => file.id)
       )
     },
     [isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
@@ -1221,9 +1244,9 @@ const App: React.FC = () => {
               <div className={styles.modalLabel}>场景路由</div>
               <div className={styles.routeGrid}>
                 {([
-                  { key: 'chat', label: '普通聊天', hint: '适合日常问答、轻量交流', placeholder: 'gpt-4o-mini / deepseek-chat' },
-                  { key: 'agent', label: '复杂任务 / Agent', hint: '适合代码、分析、工具调用', placeholder: 'gpt-4.1 / deepseek-chat' },
-                  { key: 'rag', label: '文档问答 / RAG', hint: '适合上传文件后的检索问答', placeholder: 'gpt-4o-mini / deepseek-chat' },
+                  { key: 'chat', label: '普通聊天', hint: '适合日常问答、轻量交流', placeholder: 'gpt-4o-mini / deepseek-chat / glm-4-flash' },
+                  { key: 'agent', label: '复杂任务 / Agent', hint: '适合代码、分析、工具调用', placeholder: 'gpt-4.1 / deepseek-chat / glm-4-plus' },
+                  { key: 'rag', label: '文档问答 / RAG', hint: '适合上传文件后的检索问答', placeholder: 'gpt-4o-mini / deepseek-chat / glm-4-flash' },
                 ] as const).map((item) => {
                   const route = draftModelConfig[item.key]
                   const isOnline = route.provider === 'openai-compatible'
@@ -1240,38 +1263,144 @@ const App: React.FC = () => {
                           value={route.provider}
                           onChange={(e) => {
                             const provider = e.target.value as ModelProvider
+
+                            if (provider === 'ollama') {
+                              updateDraftRoute(item.key, {
+                                provider,
+                                model:
+                                  selectableModels.includes(route.model)
+                                    ? route.model
+                                    : (selectableModels[0] ?? ''),
+                              })
+                              return
+                            }
+
+                            const fallbackProfileId =
+                              draftModelConfig.activeOnlineProfileId ??
+                              draftModelConfig.onlineProfiles[0]?.id ??
+                              null
+                            const fallbackProfile = draftModelConfig.onlineProfiles.find(
+                              (profile) => profile.id === fallbackProfileId
+                            )
+
+                            if (fallbackProfileId) {
+                              applyOnlineProfile(fallbackProfileId)
+                            }
+
+                            const suggestedModels = Array.from(
+                              new Set(
+                                [
+                                  ...(providerModelPresets[
+                                    fallbackProfile?.provider ?? draftModelConfig.online.provider
+                                  ] ?? []),
+                                  ...apiTestState.models,
+                                  fallbackProfile?.chatModel,
+                                  fallbackProfile?.agentModel,
+                                  fallbackProfile?.ragModel,
+                                ].filter((model): model is string => Boolean(model))
+                              )
+                            )
+
+                            const preferredModel =
+                              item.key === 'chat'
+                                ? fallbackProfile?.chatModel
+                                : item.key === 'agent'
+                                  ? fallbackProfile?.agentModel
+                                  : fallbackProfile?.ragModel
+
                             updateDraftRoute(item.key, {
                               provider,
-                              model:
-                                provider === 'ollama'
-                                  ? selectableModels.includes(route.model)
-                                    ? route.model
-                                    : (selectableModels[0] ?? '')
-                                  : route.model,
+                              model: preferredModel || route.model || suggestedModels[0] || '',
                             })
                           }}
                         >
                           <option value="ollama">本地 Ollama</option>
-                          <option value="openai-compatible">在线 API</option>
+                          <option value="openai-compatible">在线预设</option>
                         </select>
                       </label>
 
-                      <label className={styles.fieldItem}>
-                        <span>{isOnline ? '在线模型名' : '本地模型'}</span>
-                        {isOnline ? (
-                          <>
-                            <input
-                              className={styles.fieldInput}
-                              list="online-model-suggestions"
+                      {isOnline ? (
+                        <>
+                          <label className={styles.fieldItem}>
+                            <span>在线预设</span>
+                            <select
+                              className={styles.fieldSelect}
+                              value={draftModelConfig.activeOnlineProfileId ?? ''}
+                              onChange={(e) => {
+                                const profileId = e.target.value
+                                if (!profileId) return
+
+                                const profile = draftModelConfig.onlineProfiles.find(
+                                  (item) => item.id === profileId
+                                )
+                                applyOnlineProfile(profileId)
+
+                                const suggestedModels = Array.from(
+                                  new Set(
+                                    [
+                                      ...(providerModelPresets[
+                                        profile?.provider ?? draftModelConfig.online.provider
+                                      ] ?? []),
+                                      ...apiTestState.models,
+                                      profile?.chatModel,
+                                      profile?.agentModel,
+                                      profile?.ragModel,
+                                    ].filter((model): model is string => Boolean(model))
+                                  )
+                                )
+
+                                const preferredModel =
+                                  item.key === 'chat'
+                                    ? profile?.chatModel
+                                    : item.key === 'agent'
+                                      ? profile?.agentModel
+                                      : profile?.ragModel
+
+                                updateDraftRoute(item.key, {
+                                  provider: 'openai-compatible',
+                                  model: preferredModel || suggestedModels[0] || route.model,
+                                })
+                              }}
+                              disabled={draftModelConfig.onlineProfiles.length === 0}
+                            >
+                              {draftModelConfig.onlineProfiles.length === 0 ? (
+                                <option value="">请先创建在线预设</option>
+                              ) : (
+                                draftModelConfig.onlineProfiles.map((profile) => (
+                                  <option key={`profile-${profile.id}`} value={profile.id}>
+                                    {profile.name} · {profile.provider}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </label>
+
+                          <label className={styles.fieldItem}>
+                            <span>可用模型</span>
+                            <select
+                              className={styles.fieldSelect}
                               value={route.model}
                               onChange={(e) => updateDraftRoute(item.key, { model: e.target.value })}
-                              placeholder={item.placeholder}
-                            />
+                              disabled={onlineModelCandidates.length === 0}
+                            >
+                              {Array.from(new Set([...onlineModelCandidates, route.model].filter(Boolean))).length === 0 ? (
+                                <option value="">先选择预设或执行 API Test</option>
+                              ) : (
+                                Array.from(new Set([...onlineModelCandidates, route.model].filter(Boolean))).map((model) => (
+                                  <option key={`${item.key}-online-${model}`} value={model}>
+                                    {model}
+                                  </option>
+                                ))
+                              )}
+                            </select>
                             <span className={styles.fieldHint}>
-                              请输入该场景要使用的远程模型名。
+                              从当前预设和可用模型列表中直接选择，无需手动输入。
                             </span>
-                          </>
-                        ) : (
+                          </label>
+                        </>
+                      ) : (
+                        <label className={styles.fieldItem}>
+                          <span>本地模型</span>
                           <>
                             <select
                               className={styles.fieldSelect}
@@ -1293,8 +1422,8 @@ const App: React.FC = () => {
                               从已安装的 Ollama 模型中选择默认值。
                             </span>
                           </>
-                        )}
-                      </label>
+                        </label>
+                      )}
                     </div>
                   )
                 })}
@@ -1408,7 +1537,7 @@ const App: React.FC = () => {
               </div>
 
               <div className={styles.hintCard}>
-                支持 OpenAI、DeepSeek、Moonshot、SiliconFlow、OpenRouter 等兼容 OpenAI Chat Completions 的服务；支持保存多个预设并一键切换，密钥仅保存在本机。
+                支持 OpenAI、DeepSeek、Moonshot、SiliconFlow、智谱 AI、OpenRouter 等兼容 OpenAI Chat Completions 的服务；创建并保存预设后，上方场景路由可直接选择该预设并从模型列表中切换，无需手动输入。密钥仅保存在本机。
               </div>
 
               {draftModelConfig.onlineProfiles.length > 0 && (

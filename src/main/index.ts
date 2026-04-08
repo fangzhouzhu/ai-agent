@@ -63,6 +63,15 @@ function shouldUseRealtimeTool(message: string): boolean {
   return realtimeIntentRegex.test(text);
 }
 
+function shouldUseCalculatorTool(message: string): boolean {
+  const compact = message.trim().replace(/[＝=？?\s]/g, "");
+  return (
+    Boolean(compact) &&
+    /^[0-9+\-*/%^().,]+$/.test(compact) &&
+    /[+\-*/%^]/.test(compact)
+  );
+}
+
 function shouldUseAdvancedModel(message: string): boolean {
   const text = message.toLowerCase();
   const advancedIntentRegex =

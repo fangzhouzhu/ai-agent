@@ -17,6 +17,10 @@ export interface RagFileMeta {
 
 type RagEntry = RagFileMeta & {
   store: MemoryVectorStore;
+  docs: Array<{
+    pageContent: string;
+    metadata: Record<string, unknown>;
+  }>;
 };
 
 const embeddings = new OllamaEmbeddings({
@@ -97,6 +101,10 @@ export async function ingestFile(filePath: string): Promise<RagFileMeta> {
     chunks: docs.length,
     uploadedAt: Date.now(),
     store,
+    docs: docs.map((doc) => ({
+      pageContent: doc.pageContent,
+      metadata: doc.metadata as Record<string, unknown>,
+    })),
   };
 
   ragEntries.set(entry.id, entry);
@@ -129,15 +137,44 @@ export async function retrieveRelevantChunks(fileIds: string[], query: string) {
     metadata: Record<string, unknown>;
   }>;
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const wantsOverview =
+    /总结|概括|概述|全文|内容|讲了什么|说了什么|主要内容|描述|介绍|分析一下|看一下|看看/i.test(
+      query,
+    );
+
   for (const fileId of fileIds) {
     const entry = ragEntries.get(fileId);
     if (!entry) continue;
 
-    const matches = await entry.store.similaritySearch(query, 4);
+    const baseName = entry.name.replace(/\.[^.]+$/, "").toLowerCase();
+    const fileNameMatched =
+      normalizedQuery.includes(entry.name.toLowerCase()) ||
+      normalizedQuery.includes(baseName);
+
+    const matches = await entry.store.similaritySearch(
+      query,
+      wantsOverview || fileIds.length === 1 ? 6 : 4,
+    );
     docs.push(...matches);
+
+    if ((wantsOverview || fileNameMatched || fileIds.length === 1) && entry.docs.length > 0) {
+      docs.push(...entry.docs.slice(0, Math.min(4, entry.docs.length)));
+    }
   }
 
-  return docs.slice(0, 6).map((doc, index) => ({
+  const uniqueDocs = docs.filter((doc, index, arr) => {
+    const source = String(doc.metadata.sourceName || doc.metadata.source || "未知来源");
+    const key = `${source}::${doc.pageContent}`;
+    return arr.findIndex((item) => {
+      const itemSource = String(
+        item.metadata.sourceName || item.metadata.source || "未知来源",
+      );
+      return `${itemSource}::${item.pageContent}` === key;
+    }) === index;
+  });
+
+  return uniqueDocs.slice(0, 6).map((doc, index) => ({
     index: index + 1,
     source: String(
       doc.metadata.sourceName || doc.metadata.source || "未知来源",

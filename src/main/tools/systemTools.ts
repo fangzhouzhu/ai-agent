@@ -6,6 +6,27 @@ function isSafeMathExpression(expression: string): boolean {
   return /^[0-9+\-*/%().,\s^]+$/.test(expression);
 }
 
+function formatExpressionForDisplay(expression: string): string {
+  return expression
+    .trim()
+    .replace(/[=？?]+$/g, "")
+    .replace(/\*/g, " × ")
+    .replace(/\//g, " ÷ ")
+    .replace(/\^/g, " ^ ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatResultNumber(value: number): string {
+  if (Number.isInteger(value)) {
+    return new Intl.NumberFormat("en-US").format(value);
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 12,
+  }).format(value);
+}
+
 const UNIT_DEFINITIONS = {
   length: {
     m: 1,
@@ -121,7 +142,9 @@ export const calculatorTool = tool(
         return "计算失败: 结果不是有限数字";
       }
 
-      return `表达式: ${expression}\n结果: ${result}`;
+      const displayExpression = formatExpressionForDisplay(expression);
+      const displayResult = formatResultNumber(result);
+      return `计算结果: ${displayExpression} = ${displayResult}`;
     } catch (e: any) {
       return `计算失败: ${e.message}`;
     }

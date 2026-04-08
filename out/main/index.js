@@ -94,7 +94,11 @@ async function ingestFile(filePath) {
     path: filePath,
     chunks: docs.length,
     uploadedAt: Date.now(),
-    store
+    store,
+    docs: docs.map((doc) => ({
+      pageContent: doc.pageContent,
+      metadata: doc.metadata
+    }))
   };
   ragEntries.set(entry.id, entry);
   return toMeta(entry);
@@ -107,13 +111,35 @@ function removeRagFile(id) {
 }
 async function retrieveRelevantChunks(fileIds, query) {
   const docs = [];
+  const normalizedQuery = query.trim().toLowerCase();
+  const wantsOverview = /总结|概括|概述|全文|内容|讲了什么|说了什么|主要内容|描述|介绍|分析一下|看一下|看看/i.test(
+    query
+  );
   for (const fileId of fileIds) {
     const entry = ragEntries.get(fileId);
     if (!entry) continue;
-    const matches = await entry.store.similaritySearch(query, 4);
+    const baseName = entry.name.replace(/\.[^.]+$/, "").toLowerCase();
+    const fileNameMatched = normalizedQuery.includes(entry.name.toLowerCase()) || normalizedQuery.includes(baseName);
+    const matches = await entry.store.similaritySearch(
+      query,
+      wantsOverview || fileIds.length === 1 ? 6 : 4
+    );
     docs.push(...matches);
+    if ((wantsOverview || fileNameMatched || fileIds.length === 1) && entry.docs.length > 0) {
+      docs.push(...entry.docs.slice(0, Math.min(4, entry.docs.length)));
+    }
   }
-  return docs.slice(0, 6).map((doc, index) => ({
+  const uniqueDocs = docs.filter((doc, index, arr) => {
+    const source = String(doc.metadata.sourceName || doc.metadata.source || "未知来源");
+    const key = `${source}::${doc.pageContent}`;
+    return arr.findIndex((item) => {
+      const itemSource = String(
+        item.metadata.sourceName || item.metadata.source || "未知来源"
+      );
+      return `${itemSource}::${item.pageContent}` === key;
+    }) === index;
+  });
+  return uniqueDocs.slice(0, 6).map((doc, index) => ({
     index: index + 1,
     source: String(
       doc.metadata.sourceName || doc.metadata.source || "未知来源"
@@ -254,6 +280,17 @@ ${results.join("\n")}`;
 function isSafeMathExpression(expression) {
   return /^[0-9+\-*/%().,\s^]+$/.test(expression);
 }
+function formatExpressionForDisplay(expression) {
+  return expression.trim().replace(/[=？?]+$/g, "").replace(/\*/g, " × ").replace(/\//g, " ÷ ").replace(/\^/g, " ^ ").replace(/\s+/g, " ").trim();
+}
+function formatResultNumber(value) {
+  if (Number.isInteger(value)) {
+    return new Intl.NumberFormat("en-US").format(value);
+  }
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 12
+  }).format(value);
+}
 const UNIT_DEFINITIONS = {
   length: {
     m: 1,
@@ -347,8 +384,9 @@ const calculatorTool = tools.tool(
       if (typeof result !== "number" || !Number.isFinite(result)) {
         return "计算失败: 结果不是有限数字";
       }
-      return `表达式: ${expression}
-结果: ${result}`;
+      const displayExpression = formatExpressionForDisplay(expression);
+      const displayResult = formatResultNumber(result);
+      return `计算结果: ${displayExpression} = ${displayResult}`;
     } catch (e) {
       return `计算失败: ${e.message}`;
     }
@@ -914,6 +952,23 @@ const OPENAI_COMPATIBLE_TOOLS = [
 function normalizeBaseUrl(baseUrl) {
   return baseUrl.trim().replace(/\/+$/, "");
 }
+function limitMessages(messages2, maxNonSystemMessages = 8) {
+  const systemMessages = messages2.filter((item) => item.role === "system");
+  const nonSystemMessages = messages2.filter((item) => item.role !== "system");
+  if (nonSystemMessages.length <= maxNonSystemMessages) {
+    return messages2;
+  }
+  const containsToolChain = nonSystemMessages.some(
+    (item) => item.role === "tool" || item.role === "assistant" && item.tool_calls?.length
+  );
+  if (containsToolChain) {
+    return messages2;
+  }
+  return [...systemMessages, ...nonSystemMessages.slice(-maxNonSystemMessages)];
+}
+function getProviderHint(settings) {
+  return `${settings.provider || ""} ${settings.baseUrl || ""}`.toLowerCase();
+}
 function ensureOnlineSettings(settings, model) {
   const baseUrl = normalizeBaseUrl(settings.baseUrl || "");
   const apiKey = (settings.apiKey || "").trim();
@@ -944,6 +999,16 @@ async function extractErrorMessage(response) {
     return raw || `HTTP ${response.status}`;
   }
 }
+function withProviderErrorHint(message, settings, model) {
+  const providerHint = getProviderHint(settings);
+  const isZhipu = providerHint.includes("智谱") || providerHint.includes("bigmodel");
+  const balanceLikeError = /(余额不足|insufficient\s*balance|quota|bill|credit)/i.test(message);
+  if (isZhipu && balanceLikeError) {
+    return `${message}
+提示：智谱在 Agent 模式下会附带工具描述和上下文，消耗会比普通聊天高。建议优先将 Agent 模型切换为 \`glm-4-flash\` 或 \`glm-4-air\`，避免使用 \`glm-4-plus\` 这类更高成本模型。`;
+  }
+  return message;
+}
 async function tryFetchBalance(settings, headers) {
   const providerHint = `${settings.provider || ""} ${settings.baseUrl || ""}`.toLowerCase();
   if (providerHint.includes("openrouter")) {
@@ -973,20 +1038,35 @@ async function tryFetchBalance(settings, headers) {
 async function invokeOpenAICompatibleChat(options) {
   const { settings, model, messages: messages2, tools: tools2, signal } = options;
   const resolved = ensureOnlineSettings(settings, model);
+  const hasTools = Boolean(tools2 && tools2.length > 0);
+  const hasActiveToolMessages = messages2.some(
+    (item) => item.role === "tool" || item.role === "assistant" && item.tool_calls?.length
+  );
+  const trimmedMessages = hasActiveToolMessages ? messages2 : limitMessages(messages2, hasTools ? 8 : 10);
+  const providerHint = getProviderHint(settings);
+  const isZhipu = providerHint.includes("智谱") || providerHint.includes("bigmodel");
+  const maxTokens = hasTools ? isZhipu ? 1024 : 1400 : isZhipu ? 1200 : 1800;
   const response = await fetch(`${resolved.baseUrl}/chat/completions`, {
     method: "POST",
     headers: buildHeaders(resolved.apiKey),
     body: JSON.stringify({
       model: resolved.model,
-      messages: messages2,
+      messages: trimmedMessages,
       tools: tools2,
+      tool_choice: hasTools ? "auto" : void 0,
       stream: false,
-      temperature: 0.2
+      temperature: 0.2,
+      max_tokens: maxTokens
     }),
     signal
   });
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response));
+    throw new Error(
+      withProviderErrorHint(
+        await extractErrorMessage(response),
+        settings
+      )
+    );
   }
   const data = await response.json();
   const message = data.choices?.[0]?.message;
@@ -998,19 +1078,28 @@ async function invokeOpenAICompatibleChat(options) {
 async function streamOpenAICompatibleChat(options) {
   const { settings, model, messages: messages2, onToken, signal } = options;
   const resolved = ensureOnlineSettings(settings, model);
+  const providerHint = getProviderHint(settings);
+  const isZhipu = providerHint.includes("智谱") || providerHint.includes("bigmodel");
+  const trimmedMessages = limitMessages(messages2, 10);
   const response = await fetch(`${resolved.baseUrl}/chat/completions`, {
     method: "POST",
     headers: buildHeaders(resolved.apiKey),
     body: JSON.stringify({
       model: resolved.model,
-      messages: messages2,
+      messages: trimmedMessages,
       stream: true,
-      temperature: 0.3
+      temperature: 0.3,
+      max_tokens: isZhipu ? 1200 : 1800
     }),
     signal
   });
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response));
+    throw new Error(
+      withProviderErrorHint(
+        await extractErrorMessage(response),
+        settings
+      )
+    );
   }
   if (!response.body) {
     const fallback = await response.json();
@@ -1374,7 +1463,8 @@ const BASE_SYSTEM_PROMPT = `你是一个智能助手，可以帮助用户对话�
 - currency_convert: 进行汇率换算
 
 当用户需要操作文件、查询时间、做数学计算、单位换算、复制文本、联网获取信息、抓取网页内容、查询天气、汇率换算时，优先使用对应的工具。
-回答尽量简洁清晰，使用 Markdown 格式。`;
+对于明确的算式或数学表达式，请优先调用 calculator 工具，不要凭心算直接猜。
+回答尽量简洁清晰，使用 Markdown 格式；输出数学结果时请使用普通文本符号（如 ×、÷、=），不要输出 LaTeX 写法如 	imes。`;
 function buildRuntimeContextPrompt() {
   const now = /* @__PURE__ */ new Date();
   const display = new Intl.DateTimeFormat("zh-CN", {
@@ -1490,7 +1580,8 @@ ${chunk.content}`
   const ragPrompt = `你是一个文档分析助手。当前有效文档仅限：${fileScopeText}。
 请优先依据“检索上下文”回答问题，并尽量给出简洁结论。
 如果用户之前聊过其他文件、旧版本文件或已移除的文件，你必须忽略那些历史内容，不能沿用旧文件信息。
-如果上下文不足以支持结论，请明确说明“在当前已上传文件中未找到明确依据”，不要编造内容。${skillPrompt ? `
+如果当前只有一个已上传文件，而用户问“这个文件讲了什么 / 具体内容是什么 / 帮我总结一下”，应将其理解为对该文件整体内容的概括请求。
+只要已经检索到片段，就要先基于片段进行总结、概括或引用；只有在完全没有检索到片段时，才明确说明“在当前已上传文件中未找到明确依据”，不要轻易直接拒答。${skillPrompt ? `
 
 ${skillPrompt}` : ""}`;
   if (route.provider === "openai-compatible") {
