@@ -158,20 +158,27 @@ export async function retrieveRelevantChunks(fileIds: string[], query: string) {
     );
     docs.push(...matches);
 
-    if ((wantsOverview || fileNameMatched || fileIds.length === 1) && entry.docs.length > 0) {
+    if (
+      (wantsOverview || fileNameMatched || fileIds.length === 1) &&
+      entry.docs.length > 0
+    ) {
       docs.push(...entry.docs.slice(0, Math.min(4, entry.docs.length)));
     }
   }
 
   const uniqueDocs = docs.filter((doc, index, arr) => {
-    const source = String(doc.metadata.sourceName || doc.metadata.source || "未知来源");
+    const source = String(
+      doc.metadata.sourceName || doc.metadata.source || "未知来源",
+    );
     const key = `${source}::${doc.pageContent}`;
-    return arr.findIndex((item) => {
-      const itemSource = String(
-        item.metadata.sourceName || item.metadata.source || "未知来源",
-      );
-      return `${itemSource}::${item.pageContent}` === key;
-    }) === index;
+    return (
+      arr.findIndex((item) => {
+        const itemSource = String(
+          item.metadata.sourceName || item.metadata.source || "未知来源",
+        );
+        return `${itemSource}::${item.pageContent}` === key;
+      }) === index
+    );
   });
 
   return uniqueDocs.slice(0, 6).map((doc, index) => ({
