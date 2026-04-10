@@ -50,7 +50,7 @@ function shouldUseAgentTools(message: string): boolean {
 
   // 仅在明显需要工具时走 Agent，降低普通问答首字延迟。
   const toolIntentRegex =
-    /(读取文件|读文件|写文件|删除文件|列出目录|搜索文件|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch)/;
+    /(读取文件|读文件|写文件|删除文件|列出目录|搜索文件|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch|股市|a股|港股|美股|股票|大盘|指数|行情|新闻|资讯|上证|深证|沪深|金价|油价)/;
 
   return toolIntentRegex.test(text);
 }
@@ -61,6 +61,14 @@ function shouldUseRealtimeTool(message: string): boolean {
     /(今天|现在|当前|今日).*(日期|时间|几点|几号|星期几|周几|哪天)|((what|which)\s+day\s+is\s+it)|(today'?s?\s+date)|current\s+(date|time)/;
 
   return realtimeIntentRegex.test(text);
+}
+
+function shouldUseWebSearchTool(message: string): boolean {
+  const text = message.toLowerCase();
+  const webIntentRegex =
+    /((今天|今日|当前|现在|最新|最近|实时).*(股市|a股|港股|美股|股票|大盘|指数|行情|市场|新闻|资讯|汇率|金价|油价|热点|比赛|票房))|((股市|a股|港股|美股|股票|大盘|指数|行情|市场|新闻|资讯|汇率|金价|油价|热点).*(怎么样|如何|多少|走势|情况|消息|动态|表现))/;
+
+  return webIntentRegex.test(text);
 }
 
 function shouldUseCalculatorTool(message: string): boolean {
@@ -147,14 +155,22 @@ ipcMain.handle(
       const matchedSkill = matchSkillForInput(message, getSkills());
       const preferredScene = matchedSkill?.skill.preferredScene ?? "auto";
       const useRealtimeTool = !useRag && shouldUseRealtimeTool(message);
+      const useWebSearchTool = !useRag && shouldUseWebSearchTool(message);
 
       let useTools =
         !useRag &&
-        (useRealtimeTool || (useAgent && shouldUseAgentTools(message)));
+        (useRealtimeTool ||
+          useWebSearchTool ||
+          (useAgent && shouldUseAgentTools(message)));
       let useAdvancedModel =
         !useRag && (useTools || shouldUseAdvancedModel(message));
 
-      if (!useRag && preferredScene === "chat" && !useRealtimeTool) {
+      if (
+        !useRag &&
+        preferredScene === "chat" &&
+        !useRealtimeTool &&
+        !useWebSearchTool
+      ) {
         useTools = false;
         useAdvancedModel = false;
       } else if (!useRag && preferredScene === "agent") {

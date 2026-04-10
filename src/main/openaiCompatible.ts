@@ -315,6 +315,75 @@ async function extractErrorMessage(response: Response): Promise<string> {
   }
 }
 
+function coerceInlineArgumentValue(rawValue: string): unknown {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return "";
+
+  const unquoted = trimmed.replace(/^(["'])([\s\S]*)\1$/, "$2");
+  if (/^-?\d+(\.\d+)?$/.test(unquoted)) {
+    return Number(unquoted);
+  }
+  if (/^(true|false)$/i.test(unquoted)) {
+    return /^true$/i.test(unquoted);
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return unquoted;
+  }
+}
+
+function parseInlineTaggedToolCalls(content: string): {
+  sanitizedContent: string;
+  toolCalls: CompatibleToolCall[];
+} {
+  if (!content) {
+    return { sanitizedContent: "", toolCalls: [] };
+  }
+
+  const toolCalls = [
+    ...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/gi),
+  ]
+    .map((match, index) => {
+      const block = match[1]?.trim() || "";
+      const toolName = block.match(/^([a-zA-Z0-9_-]+)/)?.[1]?.trim() || "";
+
+      if (!toolName) {
+        return null;
+      }
+
+      const args: Record<string, unknown> = {};
+      const argMatches = block.matchAll(
+        /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/gi,
+      );
+
+      for (const argMatch of argMatches) {
+        const key = argMatch[1]?.trim();
+        if (!key) continue;
+        args[key] = coerceInlineArgumentValue(argMatch[2] || "");
+      }
+
+      return {
+        id: `inline-tool-${Date.now()}-${index}`,
+        type: "function" as const,
+        function: {
+          name: toolName,
+          arguments: JSON.stringify(args),
+        },
+      };
+    })
+    .filter((item): item is CompatibleToolCall => Boolean(item));
+
+  const sanitizedContent = content
+    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { sanitizedContent, toolCalls };
+}
+
 function withProviderErrorHint(
   message: string,
   settings: OnlineProviderSettings,
@@ -433,9 +502,14 @@ export async function invokeOpenAICompatibleChat(options: {
   };
 
   const message = data.choices?.[0]?.message;
+  const parsed = parseInlineTaggedToolCalls(message?.content || "");
+
   return {
-    content: message?.content || "",
-    toolCalls: message?.tool_calls || [],
+    content: parsed.sanitizedContent,
+    toolCalls:
+      message?.tool_calls && message.tool_calls.length > 0
+        ? message.tool_calls
+        : parsed.toolCalls,
   };
 }
 
@@ -492,7 +566,8 @@ export async function streamOpenAICompatibleChat(options: {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let fullResponse = "";
+  let rawResponse = "";
+  let emittedSanitizedContent = "";
 
   while (true) {
     signal?.throwIfAborted();
@@ -511,7 +586,7 @@ export async function streamOpenAICompatibleChat(options: {
 
         const payload = trimmed.slice(5).trim();
         if (!payload) continue;
-        if (payload === "[DONE]") return fullResponse;
+        if (payload === "[DONE]") return emittedSanitizedContent;
 
         try {
           const data = JSON.parse(payload) as {
@@ -523,10 +598,16 @@ export async function streamOpenAICompatibleChat(options: {
             }>;
           };
           const delta = data.choices?.[0]?.delta;
-          const token = delta?.content || delta?.reasoning_content || "";
+          const token = delta?.content || "";
           if (token) {
-            onToken(token);
-            fullResponse += token;
+            rawResponse += token;
+            const sanitized =
+              parseInlineTaggedToolCalls(rawResponse).sanitizedContent;
+            const nextChunk = sanitized.slice(emittedSanitizedContent.length);
+            emittedSanitizedContent = sanitized;
+            if (nextChunk) {
+              onToken(nextChunk);
+            }
           }
         } catch {
           // 忽略非 JSON 心跳包
@@ -535,7 +616,7 @@ export async function streamOpenAICompatibleChat(options: {
     }
   }
 
-  return fullResponse;
+  return emittedSanitizedContent;
 }
 
 export async function testOpenAICompatibleApi(options: {

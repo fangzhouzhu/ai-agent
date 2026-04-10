@@ -96,6 +96,16 @@ const defaultModelConfig: ModelRouteConfig = {
   activeOnlineProfileId: null,
 }
 
+function sanitizeAssistantContent(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, ' ')
+    .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/gi, ' ')
+    .replace(/<arg_key>[\s\S]*?(?:<\/arg_key>|$)/gi, ' ')
+    .replace(/<arg_value>[\s\S]*?(?:<\/arg_value>|$)/gi, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimStart()
+}
+
 function normalizeModelConfig(config?: {
   chatModel?: string
   agentModel?: string
@@ -696,7 +706,9 @@ const App: React.FC = () => {
           ? {
               ...c,
               messages: c.messages.map((m) =>
-                m.id === msgId ? { ...m, content: m.content + text } : m
+                m.id === msgId
+                  ? { ...m, content: sanitizeAssistantContent(m.content + text) }
+                  : m
               ),
             }
           : c

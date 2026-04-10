@@ -109,6 +109,16 @@ function summarizeResult(result?: string): string {
   return summary.length > 90 ? `${summary.slice(0, 90)}…` : summary
 }
 
+function sanitizeAssistantDisplayContent(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, ' ')
+    .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/gi, ' ')
+    .replace(/<arg_key>[\s\S]*?(?:<\/arg_key>|$)/gi, ' ')
+    .replace(/<arg_value>[\s\S]*?(?:<\/arg_value>|$)/gi, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function renderResultPreview(toolName: string, result: string) {
   const trimmed = result.trim()
   const detailItems = parseDetailLines(trimmed)
@@ -545,6 +555,7 @@ const MessageBubble: React.FC<Props> = ({
     !isUser &&
     ((message.toolCalls?.length ?? 0) > 0 ||
       ['Agent/工具', '复杂任务', 'RAG'].includes(message.modelInfo?.scene ?? ''))
+  const displayContent = isUser ? message.content : sanitizeAssistantDisplayContent(message.content)
 
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
@@ -596,7 +607,7 @@ const MessageBubble: React.FC<Props> = ({
             )
           ) : message.isStreaming ? (
             <pre className={styles.assistantText}>
-              {message.content || ' '}
+              {displayContent || ' '}
               <span ref={cursorRef} className={styles.cursor} />
             </pre>
           ) : (
@@ -640,7 +651,7 @@ const MessageBubble: React.FC<Props> = ({
                   }
                 }}
               >
-                {message.content || ' '}
+                {displayContent || ' '}
               </ReactMarkdown>
             </div>
           )}

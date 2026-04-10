@@ -31,6 +31,37 @@ function stripCdata(text: string): string {
   return text.replace(/^<!\[CDATA\[|\]\]>$/g, "");
 }
 
+function isFinanceQuery(query: string): boolean {
+  return /(股市|a股|港股|美股|股票|大盘|指数|行情|上证|深证|创业板|财经|财报|资金流向)/i.test(
+    query,
+  );
+}
+
+function enhanceSearchQuery(query: string): string {
+  const normalized = query.trim();
+  if (!isFinanceQuery(normalized)) {
+    return normalized;
+  }
+
+  return `${normalized} 东方财富 新浪财经 同花顺 上证指数 深证成指 创业板指`;
+}
+
+function isClearlyIrrelevantFinanceResult(result: string): boolean {
+  const lower = result.toLowerCase();
+  const badMatches = (
+    lower.match(
+      /support\.microsoft|oxfordlearnersdictionaries|collinsdictionary/g,
+    ) || []
+  ).length;
+  const goodMatches = (
+    lower.match(
+      /eastmoney|finance\.sina|10jqka|cnstock|stcn|cs\.com\.cn|finance\.qq/g,
+    ) || []
+  ).length;
+
+  return badMatches >= 2 && goodMatches === 0;
+}
+
 async function searchWithDuckDuckGo(
   query: string,
   limit: number,
@@ -134,12 +165,22 @@ async function searchWithBing(query: string, limit: number): Promise<string> {
 export const webSearchTool = tool(
   async ({ query, maxResults }) => {
     const limit = Math.min(Math.max(maxResults ?? 5, 1), 10);
+    const originalQuery = query.trim();
+    const effectiveQuery = enhanceSearchQuery(originalQuery);
 
     try {
-      return await searchWithDuckDuckGo(query, limit);
+      let result = await searchWithDuckDuckGo(effectiveQuery, limit);
+      if (
+        isFinanceQuery(originalQuery) &&
+        isClearlyIrrelevantFinanceResult(result)
+      ) {
+        const fallback = await searchWithBing(effectiveQuery, limit);
+        return `${fallback}\n\n[说明] 已针对财经信息自动优化搜索关键词。`;
+      }
+      return result;
     } catch (duckError: any) {
       try {
-        const fallback = await searchWithBing(query, limit);
+        const fallback = await searchWithBing(effectiveQuery, limit);
         return `${fallback}\n\n[说明] 默认搜索源暂时不可达，已自动切换到 Bing。`;
       } catch (bingError: any) {
         return `联网搜索失败: 默认搜索源（DuckDuckGo）不可达，备用搜索源（Bing）也不可达。DuckDuckGo: ${duckError?.message || "未知错误"}；Bing: ${bingError?.message || "未知错误"}`;
