@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@electron-toolkit/utils": "^3.0.0",
+    "@lancedb/lancedb": "^0.19.1",
     "@langchain/community": "^0.3.0",
     "@langchain/core": "^0.3.0",
     "@langchain/ollama": "^0.2.0",

@@ -1,132 +1,178 @@
-# AI Agent
+﻿# AI Agent
 
-基于 Electron + React + LangChain + Ollama 的本地桌面 AI 助手。
+基于 **Electron + React + LangChain + Ollama** 构建的本地桌面 AI 助手，支持本地模型与在线模型混用、智能工具调用、持久化知识库 RAG（向量引擎由 **LanceDB** 驱动）、自定义 Skills 等功能。所有数据保存在本机，不依赖任何云服务。
 
-项目特点：
+---
 
-- 本地模型对话（Ollama）
-- 支持流式输出
-- 支持 Agent 工具调用（文件读写、搜索、删除、目录浏览）
-- 多会话管理与本地持久化
-- 桌面端体验（Electron）
+## 功能一览
 
-## 功能概览
+### 智能模型路由
 
-- 普通对话模式
-  - 仅进行 LLM 对话，不调用工具
-- Agent 模式
-  - 模型可按需调用文件工具：
-    - `read_file`
-    - `write_file`
-    - `list_directory`
-    - `delete_file`
-    - `search_files`
-- 会话管理
-  - 新建、切换、删除会话
-  - 自动保存会话记录
-- 模型管理
-  - 获取本地 Ollama 模型列表
-  - 切换当前使用模型
-- 流式交互
-  - token 级别实时返回
-  - UI 可展示工具调用输入/结果
+根据问题类型自动选择处理方式，无需手动切换：
+
+| 场景       | 触发条件               | 处理模式   |
+| ---------- | ---------------------- | ---------- |
+| 普通对话   | 日常闲聊、简单问答     | Chat 模型  |
+| 复杂任务   | 代码、分析、长文本     | Agent 模型 |
+| 工具调用   | 文件操作、天气、搜索等 | Agent 模型 |
+| 文档问答   | 上传文件后提问         | RAG 模式   |
+| 知识库问答 | 勾选知识库后提问       | RAG 模式   |
+
+### Agent 工具调用
+
+| 分类     | 工具                                         |
+| -------- | -------------------------------------------- |
+| 文件系统 | 读文件、写文件、删除文件、列出目录、搜索文件 |
+| 系统     | 获取当前时间、计算器、单位换算、剪贴板写入   |
+| 网络     | 网页搜索、天气查询、汇率转换、抓取网页内容   |
+
+### 文档即时问答（RAG）
+
+- 支持上传 **PDF、Word（docx）、TXT、Markdown、JSON、代码文件**等
+- 文档上传后自动切片 + 向量化，立即可提问
+- 仅在当次会话内有效（内存级，无需保存）
+
+### 知识库（持久化 RAG）
+
+- 创建多个命名知识库，文档永久保存在本机 `userData` 目录
+- 向量数据由 **LanceDB** 存储，每个知识库对应一张独立表
+- 文档入库流水线：解析 → 切片 → 向量化（`nomic-embed-text`），异步执行并展示进度
+- SHA-256 文件去重，同一文档不重复入库
+- 混合检索：向量相似度（70%）+ 关键词匹配（30%）
+- 在侧边栏勾选知识库后，聊天时自动调用
+- 支持单文档重建索引、移除文档
+
+### 本地 Skills（自定义提示词）
+
+- 创建多个 Skill，每个 Skill 包含：名称、描述、关键词、系统提示词、优先级、适用场景
+- 根据用户消息自动匹配 Skill，将系统提示词注入当轮对话
+- 适合角色扮演、格式约束、专业领域增强等固定场景
+
+### 在线模型支持
+
+- 兼容 **OpenAI Chat Completions API** 协议的第三方服务
+- 内置预设：OpenAI、DeepSeek、Moonshot、SiliconFlow、智谱 AI、OpenRouter
+- 支持保存多个预设，一键切换；API Test 可自动获取模型列表、测量延迟
+- Chat / Agent / RAG 场景可独立选择本地或在线模型
+
+### 多会话管理
+
+- 新建、切换、删除会话，自动持久化到本地 JSON 文件
+- 支持编辑、删除、重新生成单条消息
+
+---
 
 ## 技术栈
 
-- Electron 33
-- electron-vite + Vite 5
-- React 18 + TypeScript
-- LangChain (`@langchain/ollama`, `@langchain/core`)
-- Zod（工具入参校验）
+| 层         | 技术                                               |
+| ---------- | -------------------------------------------------- |
+| 桌面框架   | Electron 33                                        |
+| 构建工具   | electron-vite + Vite 5                             |
+| 前端       | React 18 + TypeScript + CSS Modules                |
+| LLM 框架   | LangChain (`@langchain/ollama`, `@langchain/core`) |
+| 本地模型   | Ollama（对话模型 + `nomic-embed-text` 嵌入模型）   |
+| 向量数据库 | LanceDB (`@lancedb/lancedb`)                       |
+| 文档解析   | pdf-parse、mammoth                                 |
+| 数据持久化 | 本地 JSON + LanceDB（`%APPDATA%/ai-agent/`）       |
+
+---
 
 ## 快速开始
 
-## 1. 环境要求
+### 1. 环境要求
 
-- Node.js 18+
-- npm 9+
-- 本地 Ollama 服务可用（默认地址：`http://localhost:11434`）
+- **Node.js** 18+
+- **Ollama** 已安装并运行（默认：`http://localhost:11434`）
+- 拉取所需模型（知识库功能需要嵌入模型）：
 
-建议先确认 Ollama 已启动，并已拉取至少一个模型。
+```bash
+ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
+```
 
-## 2. 安装依赖
+### 2. 安装依赖
 
 ```bash
 npm install
 ```
 
-## 3. 启动开发
+### 3. 开发模式
 
 ```bash
 npm run dev
 ```
 
-## 4. 类型检查
-
-```bash
-npm run typecheck
-```
-
-## 5. 构建
+### 4. 构建
 
 ```bash
 npm run build
 ```
 
-## 核心脚本
+---
 
-- `npm run dev`：开发模式
-- `npm run dev:inspect`：开发模式（可调试主进程）
-- `npm run build`：构建
-- `npm run preview`：预览
-- `npm run typecheck`：TypeScript 类型检查
+## NPM 脚本
+
+| 脚本                  | 说明                     |
+| --------------------- | ------------------------ |
+| `npm run dev`         | 开发模式（热重载）       |
+| `npm run dev:inspect` | 开发模式（主进程可调试） |
+| `npm run build`       | 生产构建                 |
+| `npm run preview`     | 预览构建产物             |
+| `npm run typecheck`   | TypeScript 类型检查      |
+
+---
 
 ## 目录结构
 
-```text
+```
 src/
-  main/                 # Electron 主进程
-    index.ts            # 主进程入口 + IPC 注册
-    agent.ts            # 对话与 Agent 编排
-    storage.ts          # 会话持久化
-    tools/
-      fileTools.ts      # 文件工具实现
-  preload/
-    index.ts            # contextBridge 暴露 API
-  renderer/
-    src/
-      App.tsx           # 前端状态与页面主逻辑
-      components/       # 组件（侧边栏、输入栏、消息气泡等）
-      types/            # 前端类型定义
+├── main/                   # Electron 主进程
+│   ├── index.ts            # IPC 处理器入口
+│   ├── agent.ts            # LLM 路由 / 流式对话
+│   ├── rag.ts              # 即时文档 RAG（内存）
+│   ├── ragStore.ts         # 向量持久化（LanceDB）
+│   ├── ragRepository.ts    # 知识库 & 文档元数据 CRUD
+│   ├── ragIndexer.ts       # 入库流水线（解析→切片→向量化）
+│   ├── ragRetriever.ts     # 混合检索（向量 + 关键词）
+│   ├── skills.ts           # Skill 匹配逻辑
+│   ├── storage.ts          # 本地 JSON 持久化工具
+│   ├── openaiCompatible.ts # 在线 API 适配器
+│   └── tools/              # Agent 工具集
+│       ├── fileTools.ts
+│       ├── systemTools.ts
+│       └── webTools.ts
+├── preload/
+│   └── index.ts            # contextBridge API 桥接
+└── renderer/
+    └── src/
+        ├── App.tsx
+        └── components/
+            ├── Sidebar.tsx         # 侧边栏（会话列表 / 知识库）
+            ├── ChatArea.tsx        # 消息列表
+            ├── MessageBubble.tsx   # 消息气泡（含工具调用展示）
+            ├── InputBar.tsx        # 输入框（文件上传、Agent 开关）
+            └── KnowledgeBase.tsx   # 知识库管理面板
 ```
 
-## 架构说明
+---
 
-详细技术架构文档见：
+## 数据存储位置
 
-- [docs/technical-architecture.md](docs/technical-architecture.md)
+所有数据保存在本机，不会上传任何内容：
 
-## 数据存储
+| 数据         | 路径                                          |
+| ------------ | --------------------------------------------- |
+| 会话记录     | `%APPDATA%/ai-agent/conversations/`           |
+| 模型配置     | `%APPDATA%/ai-agent/settings.json`            |
+| 知识库元数据 | `%APPDATA%/ai-agent/rag/knowledge-bases.json` |
+| 文档元数据   | `%APPDATA%/ai-agent/rag/documents.json`       |
+| 原始文档副本 | `%APPDATA%/ai-agent/rag/files/`               |
+| 向量索引     | `%APPDATA%/ai-agent/rag/vectors/`（LanceDB）  |
 
-会话数据存储在 Electron `userData` 目录下（不同系统路径不同），主要文件：
+> macOS 下 `%APPDATA%` 对应 `~/Library/Application Support`，Linux 对应 `~/.config`。
 
-- `index.json`：会话元数据索引
-- `active.json`：当前活跃会话 ID
-- `conversations/<id>.json`：会话消息
+---
 
-## 开发说明
+## 详细架构
 
-- 主进程与预加载改动由 electron-vite 开发链路处理重建/重启。
-- 当前配置在 `electron.vite.config.ts` 中对 main/preload watch 做了约束，避免 renderer 变更干扰主进程重启链路。
-
-## 注意事项
-
-- Agent 工具具备本地文件读写/删除能力，请谨慎在生产环境开放。
-- 如遇模型列表为空：
-  - 检查 Ollama 是否运行
-  - 检查模型是否已拉取
-  - 检查端口 `11434` 可访问
-
-## License
-
-暂未声明（如需开源，请补充 LICENSE 文件）。
+见 [docs/technical-architecture.md](docs/technical-architecture.md)。

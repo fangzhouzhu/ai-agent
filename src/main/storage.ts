@@ -181,3 +181,23 @@ export function getSkills(): SkillConfig[] {
 export function saveSkills(skills: SkillConfig[]): void {
   saveModelSettings({ skills });
 }
+
+// ---- RAG 目录 ----
+
+export function getRagDir(): string {
+  const dir = join(getDataDir(), "rag");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function getRagFilesDir(): string {
+  const dir = join(getRagDir(), "files");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export function getRagVectorsDir(): string {
+  const dir = join(getRagDir(), "vectors");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}

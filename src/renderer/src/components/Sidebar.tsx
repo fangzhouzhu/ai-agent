@@ -9,6 +9,9 @@ interface Props {
   onNew: () => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
+  currentView: 'chat' | 'kb'
+  onViewChange: (view: 'chat' | 'kb') => void
+  selectedKbCount: number
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -18,6 +21,9 @@ const Sidebar: React.FC<Props> = ({
   onNew,
   onDelete,
   onOpenSettings,
+  currentView,
+  onViewChange,
+  selectedKbCount,
 }) => {
   return (
     <div className={styles.sidebar}>
@@ -32,43 +38,74 @@ const Sidebar: React.FC<Props> = ({
         </button>
       </div>
 
-      <div className={styles.modelSection}>
-        <div className={styles.routingNote}>
-          已开启智能模型路由：普通聊天、复杂任务、文档问答会自动匹配更合适的本地或在线模型，可在左下角设置中调整。
-        </div>
+      {/* View switcher */}
+      <div className={styles.viewTabs}>
+        <button
+          className={`${styles.viewTab} ${currentView === 'chat' ? styles.viewTabActive : ''}`}
+          onClick={() => onViewChange('chat')}
+        >
+          对话
+        </button>
+        <button
+          className={`${styles.viewTab} ${currentView === 'kb' ? styles.viewTabActive : ''}`}
+          onClick={() => onViewChange('kb')}
+        >
+          知识库
+          {selectedKbCount > 0 && (
+            <span className={styles.kbBadge}>{selectedKbCount}</span>
+          )}
+        </button>
       </div>
 
-      {/* 会话列表 */}
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>历史对话</div>
-        <div className={styles.list}>
-          {conversations.length === 0 && (
-            <div className={styles.empty}>暂无对话记录</div>
-          )}
-          {[...conversations]
-            .sort((a, b) => b.updatedAt - a.updatedAt)
-            .map((conv) => (
-              <div
-                key={conv.id}
-                className={`${styles.item} ${conv.id === activeId ? styles.active : ''}`}
-                onClick={() => onSelect(conv.id)}
-              >
-                <span className={styles.itemIcon}>💬</span>
-                <span className={styles.itemTitle}>{conv.title}</span>
-                <button
-                  className={styles.deleteBtn}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete(conv.id)
-                  }}
-                  title="删除"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+      {currentView === 'chat' && (
+        <>
+          <div className={styles.modelSection}>
+            <div className={styles.routingNote}>
+              已开启智能模型路由：普通聊天、复杂任务、文档问答会自动匹配更合适的本地或在线模型，可在左下角设置中调整。
+            </div>
+          </div>
+
+          {/* 会话列表 */}
+          <div className={styles.section}>
+            <div className={styles.sectionTitle}>历史对话</div>
+            <div className={styles.list}>
+              {conversations.length === 0 && (
+                <div className={styles.empty}>暂无对话记录</div>
+              )}
+              {[...conversations]
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map((conv) => (
+                  <div
+                    key={conv.id}
+                    className={`${styles.item} ${conv.id === activeId ? styles.active : ''}`}
+                    onClick={() => onSelect(conv.id)}
+                  >
+                    <span className={styles.itemIcon}>💬</span>
+                    <span className={styles.itemTitle}>{conv.title}</span>
+                    <button
+                      className={styles.deleteBtn}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDelete(conv.id)
+                      }}
+                      title="删除"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {currentView === 'kb' && (
+        <div className={styles.kbViewArea}>
+          <div className={styles.kbViewHint}>
+            在右侧管理知识库，点击 ○ 选用后可在对话中使用
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 底部信息 */}
       <div className={styles.footer}>

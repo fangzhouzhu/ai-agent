@@ -2,6 +2,7 @@
 import Sidebar from './components/Sidebar'
 import ChatArea from './components/ChatArea'
 import InputBar from './components/InputBar'
+import KnowledgeBasePanel from './components/KnowledgeBase'
 import {
   type Conversation,
   type ConvMeta,
@@ -234,6 +235,8 @@ const App: React.FC = () => {
     models: [],
   })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
+  const [currentView, setCurrentView] = useState<'chat' | 'kb'>('chat')
+  const [selectedKbIds, setSelectedKbIds] = useState<string[]>([])
 
   const ragFilesRef = useRef<RagFileMeta[]>([])
   const streamingMsgIdRef = useRef<string | null>(null)
@@ -1016,10 +1019,11 @@ const App: React.FC = () => {
         history,
         userMsg.content,
         useAgent,
-        ragFilesRef.current.map((file) => file.id)
+        ragFilesRef.current.map((file) => file.id),
+        selectedKbIds
       )
     },
-    [isLoading, isRagProcessing, activeId, conversations, persistConversation, useAgent, ragFiles, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [isLoading, isRagProcessing, activeId, conversations, persistConversation, useAgent, ragFiles, selectedKbIds, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   // 发送消息
@@ -1185,10 +1189,11 @@ const App: React.FC = () => {
         history,
         text,
         agentMode,
-        currentRagFiles.map((file) => file.id)
+        currentRagFiles.map((file) => file.id),
+        selectedKbIds
       )
     },
-    [isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, selectedKbIds, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   return (
@@ -1200,44 +1205,57 @@ const App: React.FC = () => {
         onNew={handleNew}
         onDelete={handleDelete}
         onOpenSettings={() => void handleOpenModelConfig()}
+        currentView={currentView}
+        onViewChange={setCurrentView}
+        selectedKbCount={selectedKbIds.length}
       />
       <div className={styles.main}>
-        <div className={styles.topbar}>
-          <span className={styles.convTitle}>
-            {activeConversation?.title ?? '新对话'}
-          </span>
-          <span className={styles.modelBadge}>
-            自动模型路由 · {[
-              modelConfig.chat,
-              modelConfig.agent,
-              modelConfig.rag,
-            ].some((route) => route.provider === 'openai-compatible')
-              ? '本地 / 在线'
-              : '本地 Ollama'}
-          </span>
-        </div>
+        {currentView === 'kb' ? (
+          <KnowledgeBasePanel
+            selectedKbIds={selectedKbIds}
+            onSelectionChange={setSelectedKbIds}
+          />
+        ) : (
+          <>
+            <div className={styles.topbar}>
+              <span className={styles.convTitle}>
+                {activeConversation?.title ?? '新对话'}
+              </span>
+              <span className={styles.modelBadge}>
+                自动模型路由 · {[
+                  modelConfig.chat,
+                  modelConfig.agent,
+                  modelConfig.rag,
+                ].some((route) => route.provider === 'openai-compatible')
+                  ? '本地 / 在线'
+                  : '本地 Ollama'}
+                {selectedKbIds.length > 0 && ` · 知识库 ×${selectedKbIds.length}`}
+              </span>
+            </div>
 
-        <ChatArea
-          messages={activeConversation?.messages ?? []}
-          isLoading={isLoading || (activeConversation !== null && !activeConversation.loaded)}
-          onCopyMessage={handleCopyMessage}
-          onEditUserMessage={handleEditUserMessage}
-          onDeleteMessage={handleDeleteMessage}
-          onRegenerateMessage={handleRegenerateMessage}
-        />
+            <ChatArea
+              messages={activeConversation?.messages ?? []}
+              isLoading={isLoading || (activeConversation !== null && !activeConversation.loaded)}
+              onCopyMessage={handleCopyMessage}
+              onEditUserMessage={handleEditUserMessage}
+              onDeleteMessage={handleDeleteMessage}
+              onRegenerateMessage={handleRegenerateMessage}
+            />
 
-        <InputBar
-          onSend={handleSend}
-          onAbort={handleAbort}
-          isLoading={isLoading}
-          isRagProcessing={isRagProcessing}
-          ragStatusText={ragStatusText}
-          useAgent={useAgent}
-          onToggleAgent={() => setUseAgent((v) => !v)}
-          ragFiles={ragFiles}
-          onPickFiles={handlePickRagFiles}
-          onRemoveFile={handleRemoveRagFile}
-        />
+            <InputBar
+              onSend={handleSend}
+              onAbort={handleAbort}
+              isLoading={isLoading}
+              isRagProcessing={isRagProcessing}
+              ragStatusText={ragStatusText}
+              useAgent={useAgent}
+              onToggleAgent={() => setUseAgent((v) => !v)}
+              ragFiles={ragFiles}
+              onPickFiles={handlePickRagFiles}
+              onRemoveFile={handleRemoveRagFile}
+            />
+          </>
+        )}
       </div>
 
       {showModelConfig && (

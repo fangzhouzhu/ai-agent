@@ -1,0 +1,447 @@
+.container {
+  display: flex;
+  height: 100%;
+  background: #f0f4ff;
+}
+
+/* ---- Left panel ---- */
+.leftPanel {
+  width: 220px;
+  min-width: 180px;
+  background: #2d4eaa;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.leftHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 14px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.leftTitle {
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.addKbBtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.addKbBtn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* New KB form */
+.newKbForm {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.newKbInput {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.newKbInput::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.newKbInput:focus {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.newKbActions {
+  display: flex;
+  gap: 6px;
+}
+
+.confirmBtn {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 5px;
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  color: #2d4eaa;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.confirmBtn:hover {
+  background: #fff;
+}
+
+.cancelBtn {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cancelBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.kbList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.emptyHint {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px 12px;
+}
+
+.kbItem {
+  padding: 10px 12px 8px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.15s;
+}
+
+.kbItem:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.kbItemActive {
+  background: rgba(255, 255, 255, 0.13);
+  border-left-color: #fff;
+}
+
+.kbItemTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kbIcon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.kbName {
+  flex: 1;
+  font-size: 13px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kbItemActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.selectBtn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.selectBtnActive {
+  border-color: #7dff99;
+  color: #7dff99;
+  background: rgba(125, 255, 153, 0.12);
+}
+
+.deleteKbBtn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s;
+}
+
+.deleteKbBtn:hover {
+  color: #ff7070;
+}
+
+.kbStats {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 3px;
+  padding-left: 20px;
+}
+
+.activeNotice {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #7dff99;
+  background: rgba(125, 255, 153, 0.1);
+  border-top: 1px solid rgba(125, 255, 153, 0.2);
+  text-align: center;
+}
+
+/* ---- Right panel ---- */
+.rightPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f0f4ff;
+}
+
+.noKbSelected {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #8b9dc3;
+}
+
+.noKbIcon {
+  font-size: 44px;
+  opacity: 0.5;
+}
+
+.noKbText {
+  font-size: 14px;
+}
+
+.rightHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 12px;
+  background: #fff;
+  border-bottom: 1px solid #e0e8ff;
+  gap: 12px;
+}
+
+.rightTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rightTitle > span:first-child {
+  font-size: 15px;
+  font-weight: 600;
+  color: #2d4eaa;
+}
+
+.rightDesc {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  color: #8b9dc3 !important;
+}
+
+.addFileBtn {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1.5px solid #4a7cf0;
+  background: #fff;
+  color: #4a7cf0;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.addFileBtn:hover:not(:disabled) {
+  background: #4a7cf0;
+  color: #fff;
+}
+
+.addFileBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8b9dc3;
+  font-size: 14px;
+}
+
+.emptyDocs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #8b9dc3;
+  font-size: 14px;
+}
+
+.emptyDocsHint {
+  font-size: 12px;
+  color: #b0bec5;
+}
+
+/* Document table */
+.docTable {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.docTableHeader {
+  display: grid;
+  grid-template-columns: 1fr 70px 60px 120px 100px 64px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #8b9dc3;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #e0e8ff;
+  margin-bottom: 4px;
+}
+
+.docRow {
+  display: grid;
+  grid-template-columns: 1fr 70px 60px 120px 100px 64px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: #3a4a6b;
+  border: 1px solid transparent;
+  transition: background 0.12s;
+}
+
+.docRow:hover {
+  background: #e8f0ff;
+  border-color: #dce8ff;
+}
+
+.colName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 8px;
+  font-weight: 500;
+}
+
+.colSize,
+.colChunks {
+  text-align: right;
+  color: #6b7c9f;
+  font-size: 12px;
+}
+
+.colStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.statusBadge {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.progressBar {
+  height: 3px;
+  background: #dce8ff;
+  border-radius: 2px;
+  overflow: hidden;
+  width: 80px;
+}
+
+.progressFill {
+  height: 100%;
+  background: #4a7cf0;
+  transition: width 0.3s;
+}
+
+.colDate {
+  font-size: 11px;
+  color: #8b9dc3;
+}
+
+.colActions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.rebuildBtn,
+.removeDocBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  border: 1px solid #dce8ff;
+  background: #fff;
+  color: #8b9dc3;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.rebuildBtn:hover {
+  color: #4a7cf0;
+  border-color: #4a7cf0;
+}
+
+.removeDocBtn:hover {
+  color: #e74c3c;
+  border-color: #e74c3c;
+}

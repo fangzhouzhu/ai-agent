@@ -45,6 +45,50 @@ export type RagStatus = {
   fileName?: string;
 };
 
+export type KnowledgeBase = {
+  id: string;
+  name: string;
+  description: string;
+  embeddingModel: string;
+  chunkSize: number;
+  chunkOverlap: number;
+  docCount: number;
+  chunkCount: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type KbDocStatus =
+  | "pending"
+  | "parsing"
+  | "chunking"
+  | "embedding"
+  | "ready"
+  | "failed";
+
+export type KbDocument = {
+  id: string;
+  knowledgeBaseId: string;
+  fileName: string;
+  originalPath: string;
+  storedPath: string;
+  hash: string;
+  size: number;
+  status: KbDocStatus;
+  chunkCount: number;
+  errorMessage?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type KbIndexingProgress = {
+  docId: string;
+  kbId: string;
+  status: string;
+  message: string;
+  progress?: number;
+};
+
 export type ModelProvider = "ollama" | "openai-compatible";
 export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
 
@@ -114,7 +158,15 @@ const api = {
     message: string,
     useAgent: boolean,
     fileIds: string[] = [],
-  ) => ipcRenderer.invoke("chat:send", { history, message, useAgent, fileIds }),
+    kbIds: string[] = [],
+  ) =>
+    ipcRenderer.invoke("chat:send", {
+      history,
+      message,
+      useAgent,
+      fileIds,
+      kbIds,
+    }),
 
   // 流式 token
   onToken: (callback: (token: string) => void) => {
@@ -214,6 +266,40 @@ const api = {
         callback(data);
       ipcRenderer.on("rag:status", handler);
       return () => ipcRenderer.removeListener("rag:status", handler);
+    },
+  },
+
+  // ---- 知识库 API ----
+  kb: {
+    list: (): Promise<KnowledgeBase[]> => ipcRenderer.invoke("kb:list"),
+    create: (data: {
+      name: string;
+      description?: string;
+      chunkSize?: number;
+      chunkOverlap?: number;
+    }): Promise<KnowledgeBase> => ipcRenderer.invoke("kb:create", data),
+    update: (
+      id: string,
+      data: { name?: string; description?: string },
+    ): Promise<KnowledgeBase | null> =>
+      ipcRenderer.invoke("kb:update", id, data),
+    delete: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("kb:delete", id),
+    listDocs: (kbId: string): Promise<KbDocument[]> =>
+      ipcRenderer.invoke("kb:list-docs", kbId),
+    addFiles: (kbId: string): Promise<KbDocument[]> =>
+      ipcRenderer.invoke("kb:add-files", kbId),
+    removeDoc: (docId: string): Promise<void> =>
+      ipcRenderer.invoke("kb:remove-doc", docId),
+    rebuildDoc: (docId: string): Promise<void> =>
+      ipcRenderer.invoke("kb:rebuild-doc", docId),
+    onIndexingProgress: (callback: (data: KbIndexingProgress) => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        data: KbIndexingProgress,
+      ) => callback(data);
+      ipcRenderer.on("kb:indexing-progress", handler);
+      return () => ipcRenderer.removeListener("kb:indexing-progress", handler);
     },
   },
 

@@ -21,6 +21,20 @@ import {
 } from "./agent";
 import { testOpenAICompatibleApi } from "./openaiCompatible";
 import { ingestFile, listRagFiles, removeRagFile } from "./rag";
+import {
+  listKnowledgeBases,
+  createKnowledgeBase,
+  updateKnowledgeBase,
+  deleteKnowledgeBase,
+  listDocuments,
+} from "./ragRepository";
+import {
+  ingestDocumentToKb,
+  removeDocumentFromKb,
+  rebuildDocumentIndex,
+} from "./ragIndexer";
+import { retrieveFromKbs } from "./ragRetriever";
+import { deleteKbVectors } from "./ragStore";
 import { matchSkillForInput } from "./skills";
 import {
   listConversations,
@@ -134,11 +148,13 @@ ipcMain.handle(
       message,
       useAgent,
       fileIds,
+      kbIds,
     }: {
       history: ChatMessage[];
       message: string;
       useAgent: boolean;
       fileIds?: string[];
+      kbIds?: string[];
     },
   ) => {
     const webContents = event.sender;
@@ -151,7 +167,9 @@ ipcMain.handle(
     const { signal } = controller;
 
     try {
-      const useRag = Array.isArray(fileIds) && fileIds.length > 0;
+      const useFileRag = Array.isArray(fileIds) && fileIds.length > 0;
+      const useKbRag = Array.isArray(kbIds) && kbIds.length > 0;
+      const useRag = useFileRag || useKbRag;
       const matchedSkill = matchSkillForInput(message, getSkills());
       const preferredScene = matchedSkill?.skill.preferredScene ?? "auto";
       const useRealtimeTool = !useRag && shouldUseRealtimeTool(message);
@@ -208,16 +226,44 @@ ipcMain.handle(
 
       // 自动路由：文档问答 -> RAG 模型；工具/复杂任务 -> Agent 模型；其余 -> 普通对话模型
       if (useRag) {
-        await chatWithRag(
-          effectiveHistory,
-          message,
-          fileIds,
-          (token) => {
-            webContents.send("chat:token", token);
-          },
-          signal,
-          matchedSkill?.skill,
-        );
+        if (useKbRag) {
+          // KB-based RAG: retrieve from persistent knowledge bases
+          const chunks = await retrieveFromKbs(kbIds!, message);
+          const context = chunks
+            .map(
+              (c) =>
+                `[${c.index}] 来源：${c.source}（知识库：${c.kbName}）\n${c.content}`,
+            )
+            .join("\n\n---\n\n");
+          const augmented: ChatMessage[] = [
+            ...effectiveHistory,
+            {
+              role: "user",
+              content: `请根据以下知识库内容回答问题。\n\n知识库内容：\n${context}\n\n---\n\n问题：${message}`,
+            },
+          ];
+          await chatWithRag(
+            augmented.slice(0, -1),
+            augmented[augmented.length - 1].content,
+            [],
+            (token) => {
+              webContents.send("chat:token", token);
+            },
+            signal,
+            matchedSkill?.skill,
+          );
+        } else {
+          await chatWithRag(
+            effectiveHistory,
+            message,
+            fileIds ?? [],
+            (token) => {
+              webContents.send("chat:token", token);
+            },
+            signal,
+            matchedSkill?.skill,
+          );
+        }
       } else if (useTools) {
         await chatWithAgent(
           effectiveHistory,
@@ -397,6 +443,99 @@ ipcMain.handle("rag:list", () => {
 // IPC: 删除单个已上传文档
 ipcMain.handle("rag:remove", (_event, id: string) => {
   return removeRagFile(id);
+});
+
+// ---- 知识库 IPC ----
+
+// 列出所有知识库
+ipcMain.handle("kb:list", () => {
+  return listKnowledgeBases();
+});
+
+// 创建知识库
+ipcMain.handle(
+  "kb:create",
+  (
+    _event,
+    data: {
+      name: string;
+      description?: string;
+      chunkSize?: number;
+      chunkOverlap?: number;
+    },
+  ) => {
+    return createKnowledgeBase(data);
+  },
+);
+
+// 更新知识库
+ipcMain.handle(
+  "kb:update",
+  (_event, id: string, data: { name?: string; description?: string }) => {
+    return updateKnowledgeBase(id, data);
+  },
+);
+
+// 删除知识库（包含其所有文档和向量）
+ipcMain.handle("kb:delete", async (_event, id: string) => {
+  // Remove all document files and vectors
+  const docs = listDocuments(id);
+  for (const doc of docs) {
+    try {
+      await removeDocumentFromKb(doc.id);
+    } catch {
+      // best-effort
+    }
+  }
+  await deleteKbVectors(id);
+  return deleteKnowledgeBase(id);
+});
+
+// 列出知识库中的文档
+ipcMain.handle("kb:list-docs", (_event, kbId: string) => {
+  return listDocuments(kbId);
+});
+
+// 向知识库添加文档（通过文件选择器）
+ipcMain.handle("kb:add-files", async (event, kbId: string) => {
+  const result = await dialog.showOpenDialog({
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      {
+        name: "Documents",
+        extensions: ["txt", "md", "pdf", "docx", "csv", "json", "ts", "js"],
+      },
+      { name: "All Files", extensions: ["*"] },
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) return [];
+
+  const added = [];
+  for (const filePath of result.filePaths) {
+    try {
+      const doc = await ingestDocumentToKb(kbId, filePath);
+      added.push(doc);
+    } catch (err: unknown) {
+      event.sender.send("kb:indexing-progress", {
+        docId: "",
+        kbId,
+        status: "failed",
+        message: `${basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+  return added;
+});
+
+// 删除知识库中的单个文档
+ipcMain.handle("kb:remove-doc", async (_event, docId: string) => {
+  await removeDocumentFromKb(docId);
+});
+
+// 重建文档索引
+ipcMain.handle("kb:rebuild-doc", async (_event, docId: string) => {
+  await rebuildDocumentIndex(docId);
 });
 
 // IPC: 切换聊天模型

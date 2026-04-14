@@ -50,6 +50,85 @@
   border-color: #7ac8ff;
 }
 
+/* View tabs */
+.viewTabs {
+  display: flex;
+  padding: 8px 10px 0;
+  gap: 0;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.viewTab {
+  flex: 1;
+  padding: 9px 8px 8px;
+  border-radius: 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+  position: relative;
+  letter-spacing: 0.02em;
+}
+
+.viewTab:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.viewTabActive {
+  color: #fff;
+  font-weight: 600;
+  border-bottom-color: #7ac8ff;
+}
+
+.viewTabActive .viewTabIcon {
+  filter: drop-shadow(0 0 4px rgba(122, 200, 255, 0.6));
+}
+
+.kbBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #7dff99;
+  color: #1a3a1e;
+  font-size: 9px;
+  font-weight: 700;
+  box-shadow: 0 0 6px rgba(125, 255, 153, 0.5);
+}
+
+.kbViewArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.kbViewHint {
+  padding: 12px 14px;
+  font-size: 11px;
+  color: #a8d0ff;
+  line-height: 1.5;
+  background: #1558b8;
+  margin: 8px;
+  border-radius: 8px;
+  border: 1px solid #3a88e8;
+}
+
 /* 自动模型路由 */
 .modelSection {
   padding: 10px 12px;
