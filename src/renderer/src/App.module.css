@@ -3,7 +3,7 @@
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  background: #212121;
+  background: #f0f4ff;
 }
 
 .main {
@@ -19,8 +19,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 24px;
-  border-bottom: 1px solid #2a2a2a;
-  background: #212121;
+  border-bottom: 1px solid #dce8ff;
+  background: #ffffff;
   -webkit-app-region: drag;
   flex-shrink: 0;
 }
@@ -28,7 +28,7 @@
 .convTitle {
   font-size: 14px;
   font-weight: 500;
-  color: #ccc;
+  color: #1a2650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -37,9 +37,9 @@
 
 .modelBadge {
   font-size: 11px;
-  color: #666;
-  background: #1e1e1e;
-  border: 1px solid #333;
+  color: #4a5a88;
+  background: #eef3ff;
+  border: 1px solid #c5d5f5;
   border-radius: 10px;
   padding: 3px 10px;
   -webkit-app-region: no-drag;
@@ -66,10 +66,12 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #202020;
-  border: 1px solid #343434;
+  background: #ffffff;
+  border: 1px solid #d0deff;
   border-radius: 14px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 20px 60px rgba(45, 78, 170, 0.12),
+    0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
 .modalHeader {
@@ -78,26 +80,26 @@
   justify-content: space-between;
   gap: 12px;
   padding: 18px 18px 10px;
-  border-bottom: 1px solid #2d2d2d;
+  border-bottom: 1px solid #eaecff;
 }
 
 .modalTitle {
   margin: 0;
   font-size: 18px;
-  color: #f3f3f3;
+  color: #1a2650;
 }
 
 .modalSubtitle {
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #9c9c9c;
+  color: #4a5a88;
 }
 
 .modalClose {
   border: none;
   background: transparent;
-  color: #aaa;
+  color: #6a7890;
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
@@ -107,7 +109,7 @@
   display: flex;
   gap: 4px;
   padding: 0 18px;
-  border-bottom: 1px solid #2d2d2d;
+  border-bottom: 1px solid #eaecff;
   flex-shrink: 0;
 }
 
@@ -115,7 +117,7 @@
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: #9ea3ad;
+  color: #4a5a88;
   padding: 12px 14px 10px;
   font-size: 13px;
   font-weight: 500;
@@ -123,12 +125,12 @@
 }
 
 .modalTab:hover {
-  color: #d7deea;
+  color: #1a2650;
 }
 
 .modalTabActive {
-  color: #ffffff;
-  border-bottom-color: #5a7cff;
+  color: #2d4eaa;
+  border-bottom-color: #3b82f6;
 }
 
 .modalBody {
@@ -139,13 +141,13 @@
 
 .modalSection {
   padding: 14px 18px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid #eaecff;
 }
 
 .modalLabel {
   font-size: 12px;
   font-weight: 600;
-  color: #e1e1e1;
+  color: #1a2650;
   margin-bottom: 10px;
 }
 
@@ -160,20 +162,20 @@
   align-items: center;
   padding: 5px 10px;
   border-radius: 999px;
-  background: #2a2a2a;
-  border: 1px solid #3b3b3b;
-  color: #d6d6d6;
+  background: #eef3ff;
+  border: 1px solid #c5d5f5;
+  color: #4a5a88;
   font-size: 12px;
 }
 
 .embedTag {
-  border-color: #406088;
-  color: #b7d7ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
 }
 
 .emptyHint {
   font-size: 12px;
-  color: #7a7a7a;
+  color: #8a9ab8;
 }
 
 .fieldGrid {
@@ -187,17 +189,17 @@
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: #cfcfcf;
+  color: #1a2650;
 }
 
 .fieldSelect,
 .fieldInput,
 .fieldTextarea {
   width: 100%;
-  background: #171717;
-  border: 1px solid #353535;
+  background: #f5f8ff;
+  border: 1px solid #c5d5f5;
   border-radius: 8px;
-  color: #ececec;
+  color: #1a2650;
   padding: 8px 10px;
   outline: none;
 }
@@ -211,16 +213,16 @@
 .fieldSelect:focus,
 .fieldInput:focus,
 .fieldTextarea:focus {
-  border-color: #5a7cff;
+  border-color: #3b82f6;
 }
 
 .fieldInput::placeholder {
-  color: #6f6f6f;
+  color: #8a9ab8;
 }
 
 .fieldHint {
   font-size: 11px;
-  color: #8e8e8e;
+  color: #6a7890;
   line-height: 1.5;
 }
 
@@ -250,14 +252,14 @@
   text-align: left;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid #343434;
-  background: #171717;
+  border: 1px solid #c5d5f5;
+  background: #f5f8ff;
   cursor: pointer;
 }
 
 .skillCardActive {
-  border-color: #3f6eea;
-  box-shadow: 0 0 0 1px rgba(63, 110, 234, 0.2) inset;
+  border-color: #4a7cf0;
+  box-shadow: 0 0 0 1px rgba(74, 124, 240, 0.15) inset;
 }
 
 .skillCardHeader {
@@ -270,13 +272,13 @@
 .skillCardName {
   font-size: 13px;
   font-weight: 600;
-  color: #f1f1f1;
+  color: #1a2650;
 }
 
 .skillState {
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid #c5d5f5;
   font-size: 11px;
 }
 
@@ -286,14 +288,14 @@
 }
 
 .skillDisabled {
-  color: #b6b6b6;
-  border-color: #464646;
+  color: #9aaac8;
+  border-color: #c5d5f5;
 }
 
 .skillCardDesc {
   margin-top: 6px;
   font-size: 12px;
-  color: #9a9a9a;
+  color: #4a5a88;
   line-height: 1.5;
 }
 
@@ -303,7 +305,7 @@
   flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
-  color: #8b8b8b;
+  color: #6a7890;
 }
 
 .skillEditor {
@@ -311,9 +313,9 @@
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #323232;
+  border: 1px solid #c5d5f5;
   border-radius: 12px;
-  background: #191919;
+  background: #f5f8ff;
   min-height: 240px;
 }
 
@@ -329,30 +331,30 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  border: 1px solid #323232;
+  border: 1px solid #c5d5f5;
   border-radius: 12px;
-  background: #191919;
+  background: #f5f8ff;
 }
 
 .routeTitle {
   font-size: 13px;
   font-weight: 600;
-  color: #f0f0f0;
+  color: #1a2650;
 }
 
 .routeHint {
   font-size: 11px;
   line-height: 1.5;
-  color: #929292;
+  color: #6a7890;
 }
 
 .hintCard {
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #171b22;
-  border: 1px solid #2f405f;
-  color: #bdd1ff;
+  background: #e0edff;
+  border: 1px solid #a0c0f5;
+  color: #2d4a88;
   font-size: 12px;
   line-height: 1.6;
 }
@@ -375,13 +377,13 @@
 .profileCard {
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid #343434;
-  background: #171717;
+  border: 1px solid #c5d5f5;
+  background: #f5f8ff;
 }
 
 .profileCardActive {
-  border-color: #3f6eea;
-  box-shadow: 0 0 0 1px rgba(63, 110, 234, 0.2) inset;
+  border-color: #4a7cf0;
+  box-shadow: 0 0 0 1px rgba(74, 124, 240, 0.12) inset;
 }
 
 .profileHeader {
@@ -394,13 +396,13 @@
 .profileName {
   font-size: 13px;
   font-weight: 600;
-  color: #f1f1f1;
+  color: #1a2650;
 }
 
 .profileMeta {
   margin-top: 4px;
   font-size: 11px;
-  color: #909090;
+  color: #6a7890;
   word-break: break-all;
 }
 
@@ -411,9 +413,9 @@
 }
 
 .miniBtn {
-  border: 1px solid #3a3a3a;
-  background: #1d1d1d;
-  color: #ddd;
+  border: 1px solid #c5d5f5;
+  background: #eef3ff;
+  color: #1a2650;
   border-radius: 8px;
   padding: 4px 8px;
   font-size: 11px;
@@ -421,8 +423,8 @@
 }
 
 .dangerBtn {
-  color: #ff9b9b;
-  border-color: #613737;
+  color: #dc3030;
+  border-color: #f5c5c5;
 }
 
 .testRow {
@@ -443,26 +445,26 @@
 .metricCard {
   padding: 10px 12px;
   border-radius: 10px;
-  background: #171717;
-  border: 1px solid #313131;
+  background: #f5f8ff;
+  border: 1px solid #c5d5f5;
 }
 
 .metricLabel {
   font-size: 11px;
-  color: #8c8c8c;
+  color: #6a7890;
   margin-bottom: 6px;
 }
 
 .metricValue {
   font-size: 12px;
-  color: #ededed;
+  color: #1a2650;
   line-height: 1.5;
   word-break: break-word;
 }
 
 .statusNote {
   font-size: 12px;
-  color: #bcbcbc;
+  color: #4a5a88;
 }
 
 .statusSuccess {
@@ -475,7 +477,7 @@
 
 .embedNote {
   font-size: 12px;
-  color: #a6a6a6;
+  color: #6a7890;
   line-height: 1.6;
 }
 
@@ -484,8 +486,8 @@
   justify-content: flex-end;
   gap: 10px;
   padding: 16px 18px 18px;
-  border-top: 1px solid #2a2a2a;
-  background: #202020;
+  border-top: 1px solid #eaecff;
+  background: #f5f8ff;
   flex-shrink: 0;
 }
 
@@ -499,13 +501,13 @@
 }
 
 .secondaryBtn {
-  border: 1px solid #3a3a3a;
-  background: #1a1a1a;
-  color: #ddd;
+  border: 1px solid #c5d5f5;
+  background: #eef3ff;
+  color: #1a2650;
 }
 
 .secondaryBtn:hover {
-  border-color: #5a5a5a;
+  border-color: #8aaad8;
 }
 
 .primaryBtn {

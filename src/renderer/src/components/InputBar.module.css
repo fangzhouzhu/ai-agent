@@ -1,20 +1,25 @@
 .container {
   padding: 12px 20px 20px;
-  background: #212121;
+  background: #f0f4ff;
 }
 
 .inner {
   max-width: 840px;
   margin: 0 auto;
-  background: #2f2f2f;
-  border: 1px solid #3a3a3a;
+  background: #ffffff;
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(135deg, #4a7cf0, #7c3aed, #00c8ff) border-box;
+  border: 1px solid transparent;
   border-radius: 14px;
   overflow: hidden;
-  transition: border-color 0.2s;
+  transition: box-shadow 0.25s;
 }
 
 .inner:focus-within {
-  border-color: #555;
+  box-shadow:
+    0 0 0 3px rgba(74, 124, 240, 0.12),
+    0 4px 20px rgba(74, 124, 240, 0.1);
 }
 
 .toolbar {
@@ -36,10 +41,10 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  background: #1a1a1a;
-  border: 1px solid #3a3a3a;
+  background: #eef3ff;
+  border: 1px solid #c5d5f5;
   border-radius: 6px;
-  color: #888;
+  color: #4a5a88;
   font-size: 12px;
   padding: 4px 10px;
   cursor: pointer;
@@ -47,24 +52,26 @@
 }
 
 .agentToggle:hover {
-  border-color: #555;
-  color: #ccc;
+  border-color: #6a90f8;
+  color: #2d4faa;
 }
 
 .agentActive {
-  background: #1a2a3a;
-  border-color: #3a6a9a;
-  color: #7ab4f5;
+  background:
+    linear-gradient(#eef3ff, #eef3ff) padding-box,
+    linear-gradient(135deg, #7c3aed, #2563eb) border-box;
+  border: 1px solid transparent;
+  color: #2d4eaa;
 }
 
 .uploadBtn {
   display: flex;
   align-items: center;
   gap: 5px;
-  background: #1a1a1a;
-  border: 1px solid #3a3a3a;
+  background: #eef3ff;
+  border: 1px solid #c5d5f5;
   border-radius: 6px;
-  color: #cfcfcf;
+  color: #4a5a88;
   font-size: 12px;
   padding: 4px 10px;
   cursor: pointer;
@@ -72,8 +79,8 @@
 }
 
 .uploadBtn:hover:not(:disabled) {
-  border-color: #4f8cff;
-  color: #dce9ff;
+  border-color: #7c6aed;
+  color: #2d4faa;
 }
 
 .uploadBtn:disabled {
@@ -83,7 +90,7 @@
 
 .hint {
   font-size: 11px;
-  color: #555;
+  color: #8a9ab8;
 }
 
 .fileList {
@@ -100,9 +107,9 @@
   gap: 8px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: #1d2735;
-  border: 1px solid #37506f;
-  color: #d7e6ff;
+  background: #e8f0ff;
+  border: 1px solid #b0c8f5;
+  color: #2d4a88;
   font-size: 12px;
 }
 
@@ -120,11 +127,11 @@
   align-items: center;
   gap: 6px;
   max-width: 220px;
-  background: #262f3b;
-  border: 1px solid #37506f;
+  background: #e8f0ff;
+  border: 1px solid #b0c8f5;
   border-radius: 999px;
   padding: 4px 8px 4px 10px;
-  color: #cfe0ff;
+  color: #2d4a88;
   font-size: 12px;
 }
 
@@ -157,7 +164,7 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 12px 14px;
 }
 
 .textarea {
@@ -165,18 +172,18 @@
   background: transparent;
   border: none;
   outline: none;
-  color: #ececec;
+  color: #1a2650;
   font-size: 14px;
   font-family: inherit;
   line-height: 1.6;
   resize: none;
-  min-height: 24px;
+  min-height: 34px;
   max-height: 200px;
   overflow-y: auto;
 }
 
 .textarea::placeholder {
-  color: #555;
+  color: #9ab0d0;
 }
 
 .textarea:disabled {
@@ -184,11 +191,11 @@
 }
 
 .sendBtn {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   border-radius: 8px;
   border: none;
-  background: #19c37d;
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
   color: #fff;
   cursor: pointer;
   display: flex;
@@ -205,24 +212,25 @@
 }
 
 .sendBtn:hover:not(:disabled) {
-  background: #16a86a;
+  background: linear-gradient(135deg, #6d28d9, #1d4ed8);
+  box-shadow: 0 0 14px rgba(124, 58, 237, 0.5);
   transform: scale(1.05);
 }
 
 .sendBtn:disabled {
-  background: #333;
+  background: #dde8ff;
   cursor: not-allowed;
-  color: #555;
+  color: #9ab0d0;
 }
 
 /* 停止按钮 */
 .stopBtn {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   border-radius: 8px;
-  border: 1px solid #555;
-  background: #2a2a2a;
-  color: #ccc;
+  border: 1px solid #c0d0f0;
+  background: #eef3ff;
+  color: #4a5a88;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -238,7 +246,7 @@
 }
 
 .stopBtn:hover {
-  background: #3a3a3a;
+  background: #fff5f5;
   border-color: #ff7070;
   color: #ff7070;
   transform: scale(1.05);

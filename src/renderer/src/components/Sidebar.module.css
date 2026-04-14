@@ -2,8 +2,8 @@
   width: 260px;
   min-width: 220px;
   max-width: 300px;
-  background: #171717;
-  border-right: 1px solid #2a2a2a;
+  background: #1f42d1;
+  border-right: 1px solid #3a88e8;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -15,7 +15,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid #3a88e8;
 }
 
 .logo {
@@ -28,9 +28,9 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  border: 1px solid #333;
+  border: 1px solid #5a9eee;
   background: transparent;
-  color: #aaa;
+  color: #c0d4f8;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -45,23 +45,23 @@
 }
 
 .newBtn:hover {
-  background: #2a2a2a;
-  color: #fff;
-  border-color: #444;
+  background: #2278e0;
+  color: #ffffff;
+  border-color: #7ac8ff;
 }
 
 /* 自动模型路由 */
 .modelSection {
   padding: 10px 12px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid #3a88e8;
 }
 
 .routingNote {
   font-size: 10px;
-  color: #7a7a7a;
+  color: #a8d0ff;
   line-height: 1.5;
-  background: #1d1d1d;
-  border: 1px solid #2d2d2d;
+  background: #1558b8;
+  border: 1px solid #3a88e8;
   border-radius: 6px;
   padding: 6px 8px;
 }
@@ -75,7 +75,7 @@
 
 .sectionTitle {
   font-size: 11px;
-  color: #555;
+  color: #a8d0ff;
   padding: 4px 8px 6px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -90,7 +90,7 @@
 .empty {
   padding: 12px 8px;
   font-size: 12px;
-  color: #555;
+  color: #a8d0ff;
   text-align: center;
 }
 
@@ -106,7 +106,7 @@
 }
 
 .item:hover {
-  background: #2a2a2a;
+  background: #2278e0;
 }
 
 .item:hover .deleteBtn {
@@ -114,7 +114,7 @@
 }
 
 .active {
-  background: #2a2a2a;
+  background: #2278e0;
 }
 
 .itemIcon {
@@ -125,7 +125,7 @@
 .itemTitle {
   flex: 1;
   font-size: 13px;
-  color: #ccc;
+  color: #d8eeff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -139,7 +139,7 @@
   opacity: 0;
   background: none;
   border: none;
-  color: #666;
+  color: #a8d0ff;
   cursor: pointer;
   font-size: 11px;
   padding: 2px 4px;
@@ -150,13 +150,13 @@
 }
 
 .deleteBtn:hover {
-  background: #444;
-  color: #ff7070;
+  background: #2a82ee;
+  color: #ff9090;
 }
 
 /* 底部 */
 .footer {
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid #3a5bc0;
   padding: 12px;
   display: flex;
   align-items: center;
@@ -166,7 +166,7 @@
 
 .footerInfo {
   font-size: 11px;
-  color: #555;
+  color: #a8d0ff;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -176,9 +176,9 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  border: 1px solid #333;
-  background: #1b1b1b;
-  color: #bdbdbd;
+  border: 1px solid #3a88e8;
+  background: #1558b8;
+  color: #a8d0ff;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -189,7 +189,7 @@
 }
 
 .settingsBtn:hover {
-  background: #2a2a2a;
-  color: #fff;
-  border-color: #4c6fff;
+  background: #2278e0;
+  color: #ffffff;
+  border-color: #7ac8ff;
 }
