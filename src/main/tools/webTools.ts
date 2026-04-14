@@ -203,48 +203,165 @@ export const webSearchTool = tool(
   },
 );
 
+const OPEN_METEO_WEATHER_CODES: Record<number, string> = {
+  0: "晴天",
+  1: "晴间多云",
+  2: "部分多云",
+  3: "阴天",
+  45: "雾",
+  48: "冻雾",
+  51: "小毛毛雨",
+  53: "中毛毛雨",
+  55: "大毛毛雨",
+  61: "小雨",
+  63: "中雨",
+  65: "大雨",
+  71: "小雪",
+  73: "中雪",
+  75: "大雪",
+  77: "雪粒",
+  80: "阵雨",
+  81: "中阵雨",
+  82: "强阵雨",
+  85: "阵雪",
+  86: "强阵雪",
+  95: "雷暴",
+  96: "雷暴伴小冰雹",
+  99: "雷暴伴大冰雹",
+};
+
+async function fetchWeatherFromWttr(location: string): Promise<string> {
+  const url = `https://wttr.in/${encodeURIComponent(location)}?format=j1&lang=zh`;
+  const res = await fetch(url, {
+    headers: { "user-agent": "curl/8.0" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`wttr.in HTTP ${res.status}`);
+
+  const data = (await res.json()) as {
+    current_condition?: Array<{
+      temp_C?: string;
+      FeelsLikeC?: string;
+      humidity?: string;
+      windspeedKmph?: string;
+      winddir16Point?: string;
+      weatherDesc?: Array<{ value?: string }>;
+    }>;
+    weather?: Array<{
+      maxtempC?: string;
+      mintempC?: string;
+      date?: string;
+    }>;
+    nearest_area?: Array<{
+      areaName?: Array<{ value?: string }>;
+    }>;
+  };
+
+  const cur = data.current_condition?.[0];
+  if (!cur) throw new Error("wttr.in 未返回天气数据");
+
+  const today = data.weather?.[0];
+  const lines = [
+    `位置: ${location}`,
+    `天气: ${cur.weatherDesc?.[0]?.value || "未知"}`,
+    `温度: ${cur.temp_C ?? "?"}°C（体感 ${cur.FeelsLikeC ?? "?"}°C）`,
+  ];
+  if (today?.maxtempC !== undefined && today?.mintempC !== undefined) {
+    lines.push(`今日: 最高 ${today.maxtempC}°C / 最低 ${today.mintempC}°C`);
+  }
+  lines.push(
+    `湿度: ${cur.humidity ?? "?"}%`,
+    `风速: ${cur.windspeedKmph ?? "?"} km/h ${cur.winddir16Point ?? ""}`,
+  );
+  return lines.join("\n");
+}
+
+async function fetchWeatherFromOpenMeteo(location: string): Promise<string> {
+  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=zh&format=json`;
+  const geoRes = await fetch(geoUrl, { signal: AbortSignal.timeout(8000) });
+  if (!geoRes.ok) throw new Error(`Geocoding HTTP ${geoRes.status}`);
+
+  const geoData = (await geoRes.json()) as {
+    results?: Array<{
+      latitude: number;
+      longitude: number;
+      name: string;
+      country: string;
+    }>;
+  };
+  const place = geoData.results?.[0];
+  if (!place) throw new Error(`未找到城市: ${location}`);
+
+  const weatherUrl =
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${place.latitude}&longitude=${place.longitude}` +
+    `&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code` +
+    `&daily=temperature_2m_max,temperature_2m_min` +
+    `&timezone=auto&wind_speed_unit=kmh&forecast_days=1`;
+  const weatherRes = await fetch(weatherUrl, {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!weatherRes.ok) throw new Error(`Open-Meteo HTTP ${weatherRes.status}`);
+
+  const weatherData = (await weatherRes.json()) as {
+    current?: {
+      temperature_2m?: number;
+      apparent_temperature?: number;
+      relative_humidity_2m?: number;
+      wind_speed_10m?: number;
+      weather_code?: number;
+    };
+    daily?: {
+      temperature_2m_max?: number[];
+      temperature_2m_min?: number[];
+    };
+  };
+  const cur = weatherData.current;
+  if (!cur) throw new Error("未获取到天气数据");
+
+  const desc = OPEN_METEO_WEATHER_CODES[cur.weather_code ?? -1] ?? "未知";
+  const maxT = weatherData.daily?.temperature_2m_max?.[0];
+  const minT = weatherData.daily?.temperature_2m_min?.[0];
+  const lines = [
+    `位置: ${place.name}，${place.country}（数值预报模型）`,
+    `天气: ${desc}`,
+    `温度: ${cur.temperature_2m ?? "?"}°C（体感 ${cur.apparent_temperature ?? "?"}°C）`,
+  ];
+  if (maxT !== undefined && minT !== undefined) {
+    lines.push(`今日: 最高 ${maxT}°C / 最低 ${minT}°C`);
+  }
+  lines.push(
+    `湿度: ${cur.relative_humidity_2m ?? "?"}%`,
+    `风速: ${cur.wind_speed_10m ?? "?"} km/h`,
+  );
+  return lines.join("\n");
+}
+
+async function fetchWeatherFallback(location: string): Promise<string> {
+  const query = `${location} 今日天气 气温`;
+  const result = await searchWithDuckDuckGo(query, 3).catch(() =>
+    searchWithBing(query, 3),
+  );
+  return `[天气 API 不可达，已改用搜索结果]\n${result}`;
+}
+
 export const currentWeatherTool = tool(
-  async ({ location, lang }) => {
+  async ({ location }) => {
+    // 优先 wttr.in（真实气象站数据）
     try {
-      const locale = lang || "zh";
-      const url = `https://wttr.in/${encodeURIComponent(location)}?format=j1&lang=${encodeURIComponent(locale)}`;
-      const res = await fetch(url, {
-        headers: {
-          "user-agent": "curl/8.0",
-        },
-      });
-
-      if (!res.ok) {
-        return `天气查询失败: HTTP ${res.status}`;
+      return await fetchWeatherFromWttr(location);
+    } catch {
+      // 备用 Open-Meteo（数值预报模型，精度稍低）
+      try {
+        return await fetchWeatherFromOpenMeteo(location);
+      } catch {
+        // 最终兜底：搜索引擎
+        try {
+          return await fetchWeatherFallback(location);
+        } catch (e: any) {
+          return `天气查询失败: ${e.message}`;
+        }
       }
-
-      const data = (await res.json()) as {
-        current_condition?: Array<{
-          temp_C?: string;
-          FeelsLikeC?: string;
-          humidity?: string;
-          windspeedKmph?: string;
-          winddir16Point?: string;
-          weatherDesc?: Array<{ value?: string }>;
-        }>;
-      };
-
-      const current = data.current_condition?.[0];
-      if (!current) {
-        return `天气查询失败: 未获取到 ${location} 的天气数据`;
-      }
-
-      return [
-        `位置: ${location}`,
-        `天气: ${current.weatherDesc?.[0]?.value || "未知"}`,
-        `温度: ${current.temp_C || "?"}°C`,
-        `体感: ${current.FeelsLikeC || "?"}°C`,
-        `湿度: ${current.humidity || "?"}%`,
-        `风速: ${current.windspeedKmph || "?"} km/h`,
-        `风向: ${current.winddir16Point || "未知"}`,
-      ].join("\n");
-    } catch (e: any) {
-      return `天气查询失败: ${e.message}`;
     }
   },
   {
@@ -252,7 +369,6 @@ export const currentWeatherTool = tool(
     description: "查询指定地点的当前天气情况。",
     schema: z.object({
       location: z.string().describe("地点名称，例如 北京、Shanghai、New York"),
-      lang: z.string().optional().describe("返回语言，例如 zh、en"),
     }),
   },
 );

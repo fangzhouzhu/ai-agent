@@ -38,6 +38,7 @@ type SavedOnlineProfile = {
   chatModel?: string
   agentModel?: string
   ragModel?: string
+  models?: string[]
   createdAt: number
   updatedAt: number
 }
@@ -609,14 +610,28 @@ const App: React.FC = () => {
 
     try {
       const result = await window.electronAPI.testOnlineApi(draftModelConfig.online, testModel)
+      const fetchedModels = result.models ?? []
       setApiTestState({
         status: result.ok ? 'success' : 'error',
         message: result.message,
-        models: result.models ?? [],
+        models: fetchedModels,
         latencyMs: result.latencyMs,
         balanceInfo: result.balanceInfo,
         testedAt: result.testedAt,
       })
+      // API Test 成功且有模型列表时，将其缓存到当前激活的预设中
+      if (result.ok && fetchedModels.length > 0) {
+        setDraftModelConfig((prev) => {
+          const activeProfileId = prev.activeOnlineProfileId
+          if (!activeProfileId) return prev
+          return {
+            ...prev,
+            onlineProfiles: prev.onlineProfiles.map((p) =>
+              p.id === activeProfileId ? { ...p, models: fetchedModels } : p
+            ),
+          }
+        })
+      }
     } catch (error) {
       setApiTestState({
         status: 'error',
@@ -636,8 +651,11 @@ const App: React.FC = () => {
   const onlineModelCandidates = Array.from(
     new Set(
       [
-        ...(providerModelPresets[draftModelConfig.online.provider] ?? []),
+        // 优先使用当前激活预设中已缓存的模型列表（由 API Test 自动获取并持久化）
+        ...(activeOnlineProfile?.models ?? providerModelPresets[draftModelConfig.online.provider] ?? []),
+        // 本次 API Test 临时返回的模型（未保存预设时也能使用）
         ...apiTestState.models,
+        // 各预设中手动保存的模型名
         ...draftModelConfig.onlineProfiles
           .filter((profile) => profile.provider === draftModelConfig.online.provider)
           .flatMap((profile) =>

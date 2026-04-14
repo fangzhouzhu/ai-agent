@@ -216,6 +216,7 @@ function buildLLM(modelName: string, streaming = false): ChatOllama {
     model: modelName,
     baseUrl: "http://localhost:11434",
     streaming,
+    // verbose: true, // 在主进程终端打印请求/响应详情
   });
 }
 
@@ -239,6 +240,77 @@ async function streamFromOllama(
   }
 
   return fullResponse;
+}
+
+type PreCalledResult = {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: string;
+};
+
+/**
+ * 关键词预路由：在发给模型之前，根据消息内容强制调用高置信度工具。
+ * 用于解决小模型（3b 级别）不可靠的 tool calling 问题。
+ */
+async function preCallTools(
+  userMessage: string,
+  onToolCall: (toolName: string, input: unknown) => void,
+  onToolResult: (toolName: string, result: string) => void,
+  signal?: AbortSignal,
+): Promise<PreCalledResult[]> {
+  const results: PreCalledResult[] = [];
+
+  // URL 检测 → fetch_url
+  const urlMatch = userMessage.match(/https?:\/\/[^\s）\)。，！？]+/);
+  if (urlMatch) {
+    const url = urlMatch[0];
+    const fetchTool = allTools.find((t) => t.name === "fetch_url");
+    if (fetchTool) {
+      const args = { url };
+      onToolCall("fetch_url", args);
+      try {
+        const result = String(await fetchTool.invoke(args, { signal }));
+        onToolResult("fetch_url", result);
+        results.push({ toolName: "fetch_url", args, result });
+      } catch (e: any) {
+        const result = `fetch_url 失败: ${e?.message || e}`;
+        onToolResult("fetch_url", result);
+        results.push({ toolName: "fetch_url", args, result });
+      }
+    }
+    // URL 命中后直接返回，不再做其他预路由
+    return results;
+  }
+
+  // 天气关键词 → get_weather_current
+  const weatherPattern = /天气|气温|温度|下雨|下雪|阴晴|风力|weather/i;
+  if (weatherPattern.test(userMessage)) {
+    // 提取城市：优先匹配"XX天气/XX的天气/XX气温"，支持 1-8 个字符的地名
+    const cityMatch =
+      userMessage.match(
+        /([^\s，,。？?！!、\n]{2,8})(?:的|地区)?(?:天气|气温|温度|下雨|下雪|阴晴|风力)/,
+      ) ||
+      userMessage.match(
+        /(?:查|看|问|帮我查)?([^\s，,。？?！!、\n]{2,8})(?:今天|明天|现在|当前)?(?:天气|气温|温度)/,
+      );
+    const location = cityMatch?.[1]?.trim() || "北京";
+    const weatherTool = allTools.find((t) => t.name === "get_weather_current");
+    if (weatherTool) {
+      const args: Record<string, unknown> = { location };
+      onToolCall("get_weather_current", args);
+      try {
+        const result = String(await weatherTool.invoke(args, { signal }));
+        onToolResult("get_weather_current", result);
+        results.push({ toolName: "get_weather_current", args, result });
+      } catch (e: any) {
+        const result = `get_weather_current 失败: ${e?.message || e}`;
+        onToolResult("get_weather_current", result);
+        results.push({ toolName: "get_weather_current", args, result });
+      }
+    }
+  }
+
+  return results;
 }
 
 // 获取可用的 Ollama 模型列表
@@ -296,7 +368,8 @@ const TOOL_SYSTEM_PROMPT = `你还可以调用以下工具：
 
 当用户需要操作文件、查询时间、做数学计算、单位换算、复制文本、联网获取信息、抓取网页内容、查询天气、汇率换算时，优先使用对应的工具。
 如果问题涉及今天/最新的股市、新闻、行情、汇率、金价油价等实时公开信息，必须优先调用 web_search 或 fetch_url 工具，不能仅凭训练记忆回答。
-对于明确的算式或数学表达式，请优先调用 calculator 工具，不要凭心算直接猜。`;
+对于明确的算式或数学表达式，请优先调用 calculator 工具，不要凭心算直接猜。
+【强制规则】如果用户消息中包含任何 URL 链接（以 http:// 或 https:// 开头），必须立即调用 fetch_url 工具获取内容，严禁根据训练记忆猜测或编造网页内容，违反此规则视为错误回答。`;
 
 function buildRuntimeContextPrompt(enableTools = false): string {
   const now = new Date();
@@ -438,6 +511,28 @@ export async function chatWithAgent(
       onToken,
       signal,
     });
+  }
+
+  // 关键词预路由：强制调用高置信度工具，不依赖小模型自己决定是否调用
+  const preResults = await preCallTools(
+    userMessage,
+    onToolCall,
+    onToolResult,
+    signal,
+  );
+  if (preResults.length > 0) {
+    const toolContext = preResults
+      .map((r) => `[工具: ${r.toolName}]\n${r.result}`)
+      .join("\n\n");
+    const messagesWithContext = [
+      new SystemMessage(buildSystemPrompt(skill, { enableTools: false })),
+      new SystemMessage(
+        `以下是已自动获取的工具结果，请基于这些结果直接回答用户问题，无需再调用工具：\n\n${toolContext}`,
+      ),
+      ...history.map(toLC),
+      new HumanMessage(userMessage),
+    ];
+    return streamFromOllama(route.model, messagesWithContext, onToken, signal);
   }
 
   const llm = buildLLM(route.model, false);
