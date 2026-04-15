@@ -20,6 +20,7 @@ import {
   webSearchTool,
   webTools,
 } from "./webTools";
+import { generatePdfTool, generatePptxTool, reportTools } from "./reportTools";
 
 export {
   readFileTool,
@@ -35,6 +36,8 @@ export {
   currentWeatherTool,
   fetchUrlTool,
   currencyConvertTool,
+  generatePdfTool,
+  generatePptxTool,
 };
 
 export const allTools: DynamicStructuredTool[] = [
@@ -45,4 +48,5 @@ export const allTools: DynamicStructuredTool[] = [
   searchFilesTool,
   ...systemTools,
   ...webTools,
+  ...reportTools,
 ];

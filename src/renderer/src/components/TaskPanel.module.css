@@ -1,0 +1,503 @@
+.container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: #f0f4ff;
+  overflow: hidden;
+}
+
+/* ── 左侧面板 ── */
+.leftPanel {
+  width: 280px;
+  min-width: 240px;
+  background: #1f42d1;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.leftHeader {
+  display: flex;
+  align-items: center;
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.leftTitle {
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* 新建任务区 */
+.newTaskArea {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.promptInput {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 12.5px;
+  padding: 9px 11px;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.5;
+  transition: border-color 0.15s;
+}
+
+.promptInput::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.promptInput:focus {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.createBtn {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    transform 0.1s;
+  letter-spacing: 0.02em;
+}
+
+.createBtn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.createBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 任务列表 */
+.taskList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.taskList::-webkit-scrollbar {
+  width: 4px;
+}
+
+.taskList::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.taskItem {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.12s;
+}
+
+.taskItem:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.taskItemActive {
+  background: rgba(255, 255, 255, 0.12);
+  border-left-color: #7ac8ff;
+}
+
+.taskItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.taskItemTitle {
+  color: #e8f0ff;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  flex: 1;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.taskItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 17px;
+}
+
+.statusLabel {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+}
+
+.stepCount {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+}
+
+/* 状态圆点 */
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status_pending {
+  background: #8a9ab8;
+}
+.status_running {
+  background: #f0a500;
+  box-shadow: 0 0 6px rgba(240, 165, 0, 0.6);
+  animation: pulse 1.5s infinite;
+}
+.status_completed {
+  background: #27ae60;
+}
+.status_failed {
+  background: #e74c3c;
+}
+.status_cancelled {
+  background: #6a7890;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.emptyHint {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  padding: 16px 12px;
+  line-height: 1.5;
+}
+
+/* ── 右侧详情面板 ── */
+.rightPanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f0f4ff;
+}
+
+/* 空状态 */
+.emptyDetail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px;
+}
+
+.emptyIcon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.emptyTitle {
+  color: #1a2650;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.emptyDesc {
+  color: #4a5a88;
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.7;
+  max-width: 460px;
+}
+
+/* 任务标题栏 */
+.detailHeader {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #d0deff;
+  background: #fff;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.detailTitle {
+  color: #1a2650;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.detailMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.badge_pending {
+  background: #e8f0ff;
+  color: #4a5a88;
+}
+.badge_running {
+  background: #fff3d0;
+  color: #b07700;
+}
+.badge_completed {
+  background: #d4f8e0;
+  color: #1a6b35;
+}
+.badge_failed {
+  background: #fde8e8;
+  color: #c0392b;
+}
+.badge_cancelled {
+  background: #f0f0f0;
+  color: #6a7890;
+}
+
+.detailTime {
+  color: #8a9ab8;
+  font-size: 12px;
+}
+
+.detailActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cancelBtn {
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid #f0a500;
+  background: transparent;
+  color: #b07700;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.cancelBtn:hover {
+  background: #fff3d0;
+}
+
+.deleteBtn {
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid #ffb0b0;
+  background: transparent;
+  color: #c0392b;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.deleteBtn:hover {
+  background: #fde8e8;
+}
+
+/* 步骤列表 */
+.stepList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stepList::-webkit-scrollbar {
+  width: 5px;
+}
+
+.stepList::-webkit-scrollbar-thumb {
+  background: #b0c8f5;
+  border-radius: 3px;
+}
+
+.stepItem {
+  border-radius: 8px;
+  border: 1px solid #d0deff;
+  background: #fff;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.step_thinking {
+  border-color: #b0c8f5;
+}
+.step_tool_call {
+  border-color: #d0deff;
+}
+.step_tool_result {
+  border-color: #dce8ff;
+  background: #f8fbff;
+}
+.step_output {
+  border-color: #27ae60;
+  background: #f2fff6;
+}
+.step_error {
+  border-color: #e74c3c;
+  background: #fff5f5;
+}
+
+.stepHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+}
+
+.stepIcon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.stepLabel {
+  color: #1a2650;
+  font-size: 13px;
+  flex: 1;
+  font-weight: 500;
+}
+
+.expandIcon {
+  color: #8a9ab8;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.stepContent {
+  margin: 0;
+  padding: 8px 12px 10px;
+  border-top: 1px solid #eef3ff;
+  font-size: 12px;
+  color: #4a5a88;
+  font-family: "Consolas", "Monaco", monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #f8fbff;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.outputContent {
+  border-top: 1px solid #c8f0d8;
+  padding: 10px 12px;
+  background: #f2fff6;
+}
+
+.outputPre {
+  margin: 0;
+  font-size: 13px;
+  color: #1a4a2a;
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+/* 等待提示 */
+.waitingHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #4a5a88;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #b0c8f5;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 输出文件区 */
+.outputFiles {
+  padding: 12px 16px;
+  border-top: 1px solid #d0deff;
+  background: #fff;
+}
+
+.outputFilesTitle {
+  color: #4a5a88;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.outputFile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  color: #1f42d1;
+  font-size: 13px;
+  font-family: "Consolas", monospace;
+  cursor: pointer;
+  user-select: text;
+}
+
+.outputFile:hover {
+  text-decoration: underline;
+}

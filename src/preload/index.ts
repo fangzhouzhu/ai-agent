@@ -89,6 +89,33 @@ export type KbIndexingProgress = {
   progress?: number;
 };
 
+export type TaskStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type TaskStep = {
+  id: string;
+  type: "plan" | "tool_call" | "tool_result" | "thinking" | "output" | "error";
+  label: string;
+  content: string;
+  timestamp: number;
+};
+
+export type Task = {
+  id: string;
+  title: string;
+  prompt: string;
+  status: TaskStatus;
+  steps: TaskStep[];
+  result: string;
+  outputFiles: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type ModelProvider = "ollama" | "openai-compatible";
 export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
 
@@ -330,6 +357,29 @@ const api = {
     setActive: (id: string | null): Promise<void> =>
       ipcRenderer.invoke("storage:set-active", id),
   },
+
+  // ---- 任务 API ----
+  task: {
+    create: (prompt: string): Promise<string> =>
+      ipcRenderer.invoke("task:create", prompt),
+    list: (): Promise<Task[]> => ipcRenderer.invoke("task:list"),
+    get: (id: string): Promise<Task | null> =>
+      ipcRenderer.invoke("task:get", id),
+    cancel: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("task:cancel", id),
+    delete: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("task:delete", id),
+    onUpdate: (callback: (task: Task) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, task: Task) =>
+        callback(task);
+      ipcRenderer.on("task:update", handler);
+      return () => ipcRenderer.removeListener("task:update", handler);
+    },
+  },
+
+  // ---- Shell ----
+  openPath: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke("shell:openPath", filePath),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", api);

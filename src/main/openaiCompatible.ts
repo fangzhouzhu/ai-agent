@@ -236,6 +236,67 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "generate_pdf",
+      description:
+        "根据标题和 Markdown 格式正文生成 PDF 报告文件，返回生成文件的路径。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: {
+            type: "string",
+            description: "PDF 文件保存路径，例如 C:/reports/股票分析.pdf",
+          },
+          title: { type: "string", description: "报告标题" },
+          content: {
+            type: "string",
+            description:
+              "报告正文，支持 Markdown 格式（# 标题、- 列表项、普通段落）",
+          },
+        },
+        required: ["filePath", "title", "content"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_pptx",
+      description:
+        "根据标题和多张幻灯片内容生成 PowerPoint（.pptx）演示文稿，返回生成文件的路径。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: {
+            type: "string",
+            description: "PPTX 文件保存路径，例如 C:/reports/股票分析.pptx",
+          },
+          title: { type: "string", description: "演示文稿总标题" },
+          slides: {
+            type: "array",
+            description: "幻灯片数组，每个元素代表一张幻灯片",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string", description: "幻灯片标题" },
+                content: {
+                  type: "string",
+                  description: "幻灯片正文，每行一个要点，支持 - 开头的行",
+                },
+              },
+              required: ["title", "content"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["filePath", "title", "slides"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 function normalizeBaseUrl(baseUrl: string): string {

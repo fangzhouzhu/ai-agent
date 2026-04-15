@@ -365,11 +365,14 @@ const TOOL_SYSTEM_PROMPT = `你还可以调用以下工具：
 - fetch_url: 抓取网页标题和正文摘要
 - get_weather_current: 查询当前天气
 - currency_convert: 进行汇率换算
+- generate_pdf: 根据标题和 Markdown 正文生成 PDF 报告文件
+- generate_pptx: 根据标题和多张幻灯片内容生成 PowerPoint 演示文稿
 
 当用户需要操作文件、查询时间、做数学计算、单位换算、复制文本、联网获取信息、抓取网页内容、查询天气、汇率换算时，优先使用对应的工具。
 如果问题涉及今天/最新的股市、新闻、行情、汇率、金价油价等实时公开信息，必须优先调用 web_search 或 fetch_url 工具，不能仅凭训练记忆回答。
 对于明确的算式或数学表达式，请优先调用 calculator 工具，不要凭心算直接猜。
-【强制规则】如果用户消息中包含任何 URL 链接（以 http:// 或 https:// 开头），必须立即调用 fetch_url 工具获取内容，严禁根据训练记忆猜测或编造网页内容，违反此规则视为错误回答。`;
+【强制规则】如果用户消息中包含任何 URL 链接（以 http:// 或 https:// 开头），必须立即调用 fetch_url 工具获取内容，严禁根据训练记忆猜测或编造网页内容，违反此规则视为错误回答。
+【复合任务规则】当用户要求完成一项端到端任务（如"搜索信息→分析→生成报告"），必须按步骤依次调用相关工具：先用 web_search/fetch_url 收集数据，再用 generate_pdf 或 generate_pptx 生成报告，最后告知用户文件保存路径。不得省略任何步骤。`;
 
 function buildRuntimeContextPrompt(enableTools = false): string {
   const now = new Date();

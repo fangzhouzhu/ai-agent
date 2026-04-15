@@ -111,6 +111,21 @@
   box-shadow: 0 0 6px rgba(125, 255, 153, 0.5);
 }
 
+.taskBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #f0a500;
+  color: #1a1a00;
+  font-size: 9px;
+  font-weight: 700;
+  box-shadow: 0 0 6px rgba(240, 165, 0, 0.5);
+}
+
 .kbViewArea {
   flex: 1;
   display: flex;

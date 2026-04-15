@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import ChatArea from './components/ChatArea'
 import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
+import TaskPanel from './components/TaskPanel'
 import {
   type Conversation,
   type ConvMeta,
@@ -235,8 +236,9 @@ const App: React.FC = () => {
     models: [],
   })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
-  const [currentView, setCurrentView] = useState<'chat' | 'kb'>('chat')
+  const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task'>('chat')
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([])
+  const [runningTaskCount, setRunningTaskCount] = useState(0)
 
   const ragFilesRef = useRef<RagFileMeta[]>([])
   const streamingMsgIdRef = useRef<string | null>(null)
@@ -297,6 +299,19 @@ const App: React.FC = () => {
     }
     init()
   }, [refreshModelConfig])
+
+  useEffect(() => {
+    const remove = window.electronAPI.task.onUpdate((task) => {
+      if (task.status === 'running') {
+        setRunningTaskCount((n) => n)
+      }
+      // 重新计算运行中任务数
+      window.electronAPI.task.list().then((list) => {
+        setRunningTaskCount(list.filter((t) => t.status === 'running').length)
+      })
+    })
+    return remove
+  }, [])
 
   useEffect(() => {
     const removeRagStatus = window.electronAPI.rag.onStatus((data) => {
@@ -504,7 +519,10 @@ const App: React.FC = () => {
       ...prev,
       activeOnlineProfileId: null,
       online: {
-        ...defaultModelConfig.online,
+        name: '',
+        provider: 'OpenAI',
+        baseUrl: onlineProviderPresets['OpenAI'],
+        apiKey: '',
       },
     }))
   }, [])
@@ -1208,6 +1226,7 @@ const App: React.FC = () => {
         currentView={currentView}
         onViewChange={setCurrentView}
         selectedKbCount={selectedKbIds.length}
+        runningTaskCount={runningTaskCount}
       />
       <div className={styles.main}>
         {currentView === 'kb' ? (
@@ -1215,6 +1234,8 @@ const App: React.FC = () => {
             selectedKbIds={selectedKbIds}
             onSelectionChange={setSelectedKbIds}
           />
+        ) : currentView === 'task' ? (
+          <TaskPanel />
         ) : (
           <>
             <div className={styles.topbar}>

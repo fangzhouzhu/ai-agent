@@ -9,9 +9,10 @@ interface Props {
   onNew: () => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
-  currentView: 'chat' | 'kb'
-  onViewChange: (view: 'chat' | 'kb') => void
+  currentView: 'chat' | 'kb' | 'task'
+  onViewChange: (view: 'chat' | 'kb' | 'task') => void
   selectedKbCount: number
+  runningTaskCount: number
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -24,6 +25,7 @@ const Sidebar: React.FC<Props> = ({
   currentView,
   onViewChange,
   selectedKbCount,
+  runningTaskCount,
 }) => {
   return (
     <div className={styles.sidebar}>
@@ -53,6 +55,15 @@ const Sidebar: React.FC<Props> = ({
           知识库
           {selectedKbCount > 0 && (
             <span className={styles.kbBadge}>{selectedKbCount}</span>
+          )}
+        </button>
+        <button
+          className={`${styles.viewTab} ${currentView === 'task' ? styles.viewTabActive : ''}`}
+          onClick={() => onViewChange('task')}
+        >
+          任务
+          {runningTaskCount > 0 && (
+            <span className={styles.taskBadge}>{runningTaskCount}</span>
           )}
         </button>
       </div>
@@ -103,6 +114,14 @@ const Sidebar: React.FC<Props> = ({
         <div className={styles.kbViewArea}>
           <div className={styles.kbViewHint}>
             在右侧管理知识库，点击 ○ 选用后可在对话中使用
+          </div>
+        </div>
+      )}
+
+      {currentView === 'task' && (
+        <div className={styles.kbViewArea}>
+          <div className={styles.kbViewHint}>
+            任务在右侧面板中新建和管理
           </div>
         </div>
       )}

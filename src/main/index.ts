@@ -37,6 +37,14 @@ import { retrieveFromKbs } from "./ragRetriever";
 import { deleteKbVectors } from "./ragStore";
 import { matchSkillForInput } from "./skills";
 import {
+  createAndRunTask,
+  listTasks,
+  getTask,
+  cancelTask,
+  deleteTask,
+  type Task,
+} from "./taskRunner";
+import {
   listConversations,
   loadConversation,
   saveConversation,
@@ -64,7 +72,7 @@ function shouldUseAgentTools(message: string): boolean {
 
   // 仅在明显需要工具时走 Agent，降低普通问答首字延迟。
   const toolIntentRegex =
-    /(读取文件|读文件|写文件|删除文件|列出目录|搜索文件|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch|股市|a股|港股|美股|股票|大盘|指数|行情|新闻|资讯|上证|深证|沪深|金价|油价)/;
+    /(读取文件|读文件|写文件|删除文件|列出目录|搜索文件|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch|股市|a股|港股|美股|股票|大盘|指数|行情|新闻|资讯|上证|深证|沪深|金价|油价|生成pdf|生成ppt|生成报告|写报告|分析报告|投资报告|研究报告|pdf|ppt|pptx|报告|演示文稿|幻灯片)/;
 
   return toolIntentRegex.test(text);
 }
@@ -622,6 +630,38 @@ ipcMain.handle("storage:get-active", () => {
 // 保存活跃 ID
 ipcMain.handle("storage:set-active", (_event, id: string | null) => {
   setActiveId(id);
+});
+
+// ---- 任务 IPC ----
+
+// 创建并执行任务（立即返回任务 ID，执行进度通过 task:update 事件推送）
+ipcMain.handle("task:create", (_event, prompt: string) => {
+  return createAndRunTask(prompt);
+});
+
+// 列出所有任务
+ipcMain.handle("task:list", () => {
+  return listTasks();
+});
+
+// 获取单个任务详情
+ipcMain.handle("task:get", (_event, id: string) => {
+  return getTask(id) ?? null;
+});
+
+// 取消运行中的任务
+ipcMain.handle("task:cancel", (_event, id: string) => {
+  return cancelTask(id);
+});
+
+// 删除任务记录
+ipcMain.handle("task:delete", (_event, id: string) => {
+  return deleteTask(id);
+});
+
+ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
+  const error = await shell.openPath(filePath);
+  return error || null; // null = success, string = error message
 });
 
 app.whenReady().then(async () => {
