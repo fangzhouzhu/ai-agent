@@ -622,38 +622,108 @@
   height: 14px;
 }
 
-.editBox {
-  border: 1px solid #3b3b3b;
-  border-radius: 10px;
-  background: #1c1c1c;
-  padding: 10px;
+/* ── 行内编辑栏 ── */
+.editBarWrapper {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.editInput {
+  align-items: center;
+  gap: 10px;
+  max-width: 840px;
+  margin: 8px auto;
   width: 100%;
-  min-height: 70px;
-  max-height: 180px;
-  resize: vertical;
-  border: 1px solid #444;
-  border-radius: 8px;
-  background: #111;
-  color: #f1f1f1;
-  font-size: 13px;
-  padding: 8px 10px;
-  outline: none;
+  padding: 0;
 }
 
-.editInput:focus {
-  border-color: #5d89ff;
-}
-
-.editActions {
+.editBarCancel {
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: #8a9ab8;
+  cursor: pointer;
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.editBarCancel:hover {
+  color: #4a5a88;
+  background: #e8f0ff;
+}
+
+.editBarCancel svg {
+  width: 16px;
+  height: 16px;
+}
+
+.editBarInner {
+  flex: 1;
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(135deg, #4a7cf0, #7c3aed, #00c8ff) border-box;
+  border: 1.5px solid transparent;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 3px rgba(74, 124, 240, 0.12),
+    0 4px 20px rgba(74, 124, 240, 0.1);
+  padding: 10px 14px;
+}
+
+.editBarInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #1a2650;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: none;
+  min-height: 24px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: block;
+}
+
+.editBarInput::placeholder {
+  color: #9ab0d0;
+}
+
+.editBarSubmit {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.editBarSubmit svg {
+  width: 17px;
+  height: 17px;
+}
+
+.editBarSubmit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6d28d9, #1d4ed8);
+  box-shadow: 0 0 14px rgba(124, 58, 237, 0.5);
+  transform: scale(1.05);
+}
+
+.editBarSubmit:disabled {
+  background: #dde8ff;
+  cursor: not-allowed;
+  color: #9ab0d0;
 }
 
 /* 打字光标 */

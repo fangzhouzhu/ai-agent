@@ -533,6 +533,7 @@ const MessageBubble: React.FC<Props> = ({
 }) => {
   const isUser = message.role === 'user'
   const cursorRef = useRef<HTMLSpanElement>(null)
+  const editInputRef = useRef<HTMLTextAreaElement>(null)
   const [isEditing, setIsEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(message.content)
 
@@ -551,6 +552,64 @@ const MessageBubble: React.FC<Props> = ({
     if (!next) return
     onEdit(message.id, next)
     setIsEditing(false)
+  }
+
+  const handleCancelEdit = () => {
+    setDraft(message.content)
+    setIsEditing(false)
+  }
+
+  // 编辑模式：全宽 InputBar 风格
+  if (isUser && isEditing) {
+    return (
+      <div className={styles.editBarWrapper}>
+        <button
+          className={styles.editBarCancel}
+          onClick={handleCancelEdit}
+          title="取消编辑"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+        <div className={styles.editBarInner}>
+          <textarea
+            ref={editInputRef}
+            className={styles.editBarInput}
+            value={draft}
+            autoFocus
+            spellCheck={false}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              // 自动调整高度
+              e.target.style.height = 'auto'
+              e.target.style.height = e.target.scrollHeight + 'px'
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSave()
+              }
+              if (e.key === 'Escape') handleCancelEdit()
+            }}
+            disabled={isLoading}
+            rows={1}
+          />
+        </div>
+        <button
+          className={styles.editBarSubmit}
+          onClick={handleSave}
+          disabled={isLoading || !draft.trim()}
+          title="发送"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5" />
+            <polyline points="5 12 12 5 19 12" />
+          </svg>
+        </button>
+      </div>
+    )
   }
 
   const shouldShowProcessPanel =
@@ -580,33 +639,7 @@ const MessageBubble: React.FC<Props> = ({
         {/* 消息内容 */}
         <div className={`${styles.bubble} ${isUser ? styles.userBubble : styles.aiBubble} ${message.isError ? styles.errorBubble : ''}`}>
           {isUser ? (
-            isEditing ? (
-              <div className={styles.editBox}>
-                <textarea
-                  className={styles.editInput}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  disabled={isLoading}
-                />
-                <div className={styles.editActions}>
-                  <button
-                    className={styles.actionBtn}
-                    onClick={() => {
-                      setDraft(message.content)
-                      setIsEditing(false)
-                    }}
-                    disabled={isLoading}
-                  >
-                    取消
-                  </button>
-                  <button className={styles.actionBtn} onClick={handleSave} disabled={isLoading || !draft.trim()}>
-                    保存
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <pre className={styles.userText}>{message.content}</pre>
-            )
+            <pre className={styles.userText}>{message.content}</pre>
           ) : message.isStreaming ? (
             <pre className={styles.assistantText}>
               {displayContent || ' '}

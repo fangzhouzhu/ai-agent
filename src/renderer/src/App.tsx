@@ -20,9 +20,7 @@ const TitleBar: React.FC = () => (
     WebkitAppRegion: 'drag' as any,
     userSelect: 'none',
   }}>
-    <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px', paddingLeft: '16px', letterSpacing: '0.04em' }}>
-      Centibot
-    </span>
+   
   </div>
 )
 
@@ -241,7 +239,6 @@ const App: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [useAgent, setUseAgent] = useState(true)
   const [ragFiles, setRagFiles] = useState<RagFileMeta[]>([])
   const [isRagProcessing, setIsRagProcessing] = useState(false)
   const [ragStatusText, setRagStatusText] = useState('')
@@ -260,6 +257,8 @@ const App: React.FC = () => {
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
   const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task'>('chat')
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([])
+  const [ragOnly, setRagOnly] = useState(true)
+  const [minScore, setMinScore] = useState(0.6)
   const [runningTaskCount, setRunningTaskCount] = useState(0)
 
   const ragFilesRef = useRef<RagFileMeta[]>([])
@@ -296,10 +295,11 @@ const App: React.FC = () => {
         console.error('electronAPI.storage 未就绪，请重启应用')
         return
       }
-      const [metas, activeIdStored, uploaded] = await Promise.all([
+      const [metas, activeIdStored, uploaded, kbUiState] = await Promise.all([
         window.electronAPI.storage.list(),
         window.electronAPI.storage.getActive(),
         window.electronAPI.rag.list(),
+        window.electronAPI.getKbUiState(),
       ])
 
       const convs: Conversation[] = metas.map((m) => ({
@@ -317,10 +317,24 @@ const App: React.FC = () => {
 
       setRagFiles(uploaded)
       ragFilesRef.current = uploaded
+      setSelectedKbIds(kbUiState.selectedIds)
+      setRagOnly(kbUiState.ragOnly)
+      setMinScore(kbUiState.minScore)
       await refreshModelConfig()
     }
     init()
   }, [refreshModelConfig])
+
+  // 持久化知识库 UI 状态
+  const kbUiStateInitializedRef = useRef(false)
+  useEffect(() => {
+    // 跳过初始化时的首次触发（避免用默认值覆盖已保存的状态）
+    if (!kbUiStateInitializedRef.current) {
+      kbUiStateInitializedRef.current = true
+      return
+    }
+    window.electronAPI.saveKbUiState(selectedKbIds, ragOnly, minScore)
+  }, [selectedKbIds, ragOnly, minScore])
 
   useEffect(() => {
     const remove = window.electronAPI.task.onUpdate((task) => {
@@ -1058,17 +1072,18 @@ const App: React.FC = () => {
       await window.electronAPI.sendMessage(
         history,
         userMsg.content,
-        useAgent,
+        true,
         ragFilesRef.current.map((file) => file.id),
-        selectedKbIds
+        selectedKbIds,
+        ragOnly
       )
     },
-    [isLoading, isRagProcessing, activeId, conversations, persistConversation, useAgent, ragFiles, selectedKbIds, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [isLoading, isRagProcessing, activeId, conversations, persistConversation, ragFiles, selectedKbIds, ragOnly, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   // 发送消息
   const handleSend = useCallback(
-    async (text: string, agentMode: boolean) => {
+    async (text: string) => {
       if (isLoading || isRagProcessing) return
 
       let convId = activeId
@@ -1228,12 +1243,13 @@ const App: React.FC = () => {
       await window.electronAPI.sendMessage(
         history,
         text,
-        agentMode,
+        true,
         currentRagFiles.map((file) => file.id),
-        selectedKbIds
+        selectedKbIds,
+        ragOnly
       )
     },
-    [isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, selectedKbIds, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, selectedKbIds, ragOnly, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   return (
@@ -1250,12 +1266,20 @@ const App: React.FC = () => {
         onViewChange={setCurrentView}
         selectedKbCount={selectedKbIds.length}
         runningTaskCount={runningTaskCount}
+        ragOnly={ragOnly}
+        onRagOnlyChange={setRagOnly}
+        minScore={minScore}
+        onMinScoreChange={setMinScore}
       />
       <div className={styles.main}>
         {currentView === 'kb' ? (
           <KnowledgeBasePanel
             selectedKbIds={selectedKbIds}
             onSelectionChange={setSelectedKbIds}
+            ragOnly={ragOnly}
+            onRagOnlyChange={setRagOnly}
+            minScore={minScore}
+            onMinScoreChange={setMinScore}
           />
         ) : currentView === 'task' ? (
           <TaskPanel />
@@ -1292,8 +1316,6 @@ const App: React.FC = () => {
               isLoading={isLoading}
               isRagProcessing={isRagProcessing}
               ragStatusText={ragStatusText}
-              useAgent={useAgent}
-              onToggleAgent={() => setUseAgent((v) => !v)}
               ragFiles={ragFiles}
               onPickFiles={handlePickRagFiles}
               onRemoveFile={handleRemoveRagFile}

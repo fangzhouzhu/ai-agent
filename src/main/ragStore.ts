@@ -86,7 +86,7 @@ export async function removeDocumentChunks(
   const names = await db.tableNames();
   if (!names.includes(kbId)) return;
   const tbl = await db.openTable(kbId);
-  await tbl.delete(`documentId = '${documentId.replace(/'/g, "''")}'`);
+  await tbl.delete(`"documentId" = '${documentId.replace(/'/g, "''")}'`);
 }
 
 export async function deleteKbVectors(kbId: string): Promise<void> {
@@ -121,22 +121,23 @@ export async function similaritySearch(
 
   let query = tbl
     .vectorSearch(queryEmbedding)
+    .distanceType("cosine")
     .limit(filterDocIds ? totalRows : topK);
 
   if (filterDocIds && filterDocIds.length > 0) {
     const ids = filterDocIds
       .map((id) => `'${id.replace(/'/g, "''")}'`)
       .join(", ");
-    query = query.where(`documentId IN (${ids})`);
+    query = query.where(`"documentId" IN (${ids})`);
   }
 
   const results = await query.toArray();
 
   const chunks = results.map((row) => {
     const chunk = fromRow(row as unknown as LanceRow);
-    // _distance from LanceDB is L2; convert to cosine-like score (1 - normalized_distance)
-    const dist: number = (row as Record<string, number>)["_distance"] ?? 0;
-    const score = 1 / (1 + dist);
+    // _distance is cosine distance (0 = identical, 2 = opposite); convert to similarity [0, 1]
+    const dist: number = (row as Record<string, number>)["_distance"] ?? 1;
+    const score = Math.max(0, 1 - dist);
     return { ...chunk, score };
   });
 

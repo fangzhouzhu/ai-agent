@@ -40,6 +40,10 @@ type KbIndexingProgress = {
 interface Props {
   selectedKbIds: string[]
   onSelectionChange: (ids: string[]) => void
+  ragOnly: boolean
+  onRagOnlyChange: (v: boolean) => void
+  minScore: number
+  onMinScoreChange: (v: number) => void
 }
 
 function formatSize(bytes: number): string {
@@ -75,7 +79,7 @@ const statusColor: Record<string, string> = {
   failed: '#e74c3c',
 }
 
-const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange }) => {
+const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange, ragOnly, onRagOnlyChange, minScore, onMinScoreChange }) => {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [documents, setDocuments] = useState<KbDocument[]>([])
@@ -85,6 +89,8 @@ const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange 
   const [newKbDesc, setNewKbDesc] = useState('')
   const [isLoadingDocs, setIsLoadingDocs] = useState(false)
   const [isAddingFiles, setIsAddingFiles] = useState(false)
+  const [editingKbId, setEditingKbId] = useState<string | null>(null)
+  const [editingKbName, setEditingKbName] = useState('')
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load KB list
@@ -157,6 +163,24 @@ const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange 
     },
     [activeKbId, selectedKbIds, onSelectionChange, refreshKbs],
   )
+
+  const handleStartEditKb = useCallback((kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingKbId(kb.id)
+    setEditingKbName(kb.name)
+  }, [])
+
+  const handleSaveEditKb = useCallback(async () => {
+    if (!editingKbId || !editingKbName.trim()) return
+    await window.electronAPI.kb.update(editingKbId, { name: editingKbName.trim() })
+    setEditingKbId(null)
+    await refreshKbs()
+  }, [editingKbId, editingKbName, refreshKbs])
+
+  const handleCancelEditKb = useCallback(() => {
+    setEditingKbId(null)
+    setEditingKbName('')
+  }, [])
 
   const handleToggleSelect = useCallback(
     (kbId: string, e: React.MouseEvent) => {
@@ -258,22 +282,43 @@ const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange 
               onClick={() => setActiveKbId(kb.id === activeKbId ? null : kb.id)}
             >
               <div className={styles.kbItemTop}>
-                <span className={styles.kbIcon}>📚</span>
-                <span className={styles.kbName}>{kb.name}</span>
+                {/* 勾选框在最左侧 */}
+                <button
+                  className={`${styles.selectBtn} ${selectedKbIds.includes(kb.id) ? styles.selectBtnActive : ''}`}
+                  onClick={(e) => handleToggleSelect(kb.id, e)}
+                  title={selectedKbIds.includes(kb.id) ? '取消选用' : '选用此知识库'}
+                />
+                {editingKbId === kb.id ? (
+                  <input
+                    className={styles.kbNameInput}
+                    value={editingKbName}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setEditingKbName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.stopPropagation(); void handleSaveEditKb() }
+                      if (e.key === 'Escape') { e.stopPropagation(); handleCancelEditKb() }
+                    }}
+                    onBlur={handleSaveEditKb}
+                  />
+                ) : (
+                  <span className={styles.kbName}>{kb.name}</span>
+                )}
+                {/* 操作按钮 hover 时显示 */}
                 <div className={styles.kbItemActions}>
                   <button
-                    className={`${styles.selectBtn} ${selectedKbIds.includes(kb.id) ? styles.selectBtnActive : ''}`}
-                    onClick={(e) => handleToggleSelect(kb.id, e)}
-                    title={selectedKbIds.includes(kb.id) ? '取消选用（聊天时不使用）' : '选用（聊天时使用）'}
+                    className={styles.editKbBtn}
+                    onClick={(e) => handleStartEditKb(kb, e)}
+                    title="重命名"
                   >
-                    {selectedKbIds.includes(kb.id) ? '✓' : '○'}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </button>
                   <button
                     className={styles.deleteKbBtn}
                     onClick={(e) => handleDeleteKb(kb.id, e)}
                     title="删除知识库"
                   >
-                    ✕
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
                   </button>
                 </div>
               </div>

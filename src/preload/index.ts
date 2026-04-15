@@ -187,6 +187,7 @@ const api = {
     useAgent: boolean,
     fileIds: string[] = [],
     kbIds: string[] = [],
+    ragOnly: boolean = true,
   ) =>
     ipcRenderer.invoke("chat:send", {
       history,
@@ -194,6 +195,7 @@ const api = {
       useAgent,
       fileIds,
       kbIds,
+      ragOnly,
     }),
 
   // 流式 token
@@ -278,6 +280,19 @@ const api = {
   listSkills: (): Promise<SkillConfig[]> => ipcRenderer.invoke("skills:list"),
   saveSkills: (skills: SkillConfig[]): Promise<SkillConfig[]> =>
     ipcRenderer.invoke("skills:save", skills),
+
+  // 知识库 UI 状态持久化
+  getKbUiState: (): Promise<{
+    selectedIds: string[];
+    ragOnly: boolean;
+    minScore: number;
+  }> => ipcRenderer.invoke("kb:get-ui-state"),
+  saveKbUiState: (
+    selectedIds: string[],
+    ragOnly: boolean,
+    minScore: number,
+  ): Promise<void> =>
+    ipcRenderer.invoke("kb:save-ui-state", selectedIds, ragOnly, minScore),
 
   // 中断当前请求
   abortChat: () => ipcRenderer.send("chat:abort"),

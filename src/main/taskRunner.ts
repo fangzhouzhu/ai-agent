@@ -307,7 +307,11 @@ async function runTask(task: Task): Promise<void> {
     if (provider === "openai-compatible") {
       await runTaskWithOpenAI(task, model);
     } else {
-      await runTaskWithOllama(task);
+      // Ollama 同样走 OpenAI-compatible 路径（Ollama 支持 /v1 兼容接口）
+      await runTaskWithOpenAI(task, model, {
+        baseUrl: "http://localhost:11434/v1",
+        apiKey: "ollama",
+      });
     }
 
     task.status = "completed";
@@ -325,11 +329,36 @@ async function runTask(task: Task): Promise<void> {
   pushUpdate(task);
 }
 
+// 带超时的 Promise 包装
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} 超时（${ms / 1000}s）`)), ms),
+    ),
+  ]);
+}
+
 // ─── OpenAI-compatible 执行路径（推荐，支持 Function Calling）────────────────
 
-async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
+async function runTaskWithOpenAI(
+  task: Task,
+  model: string,
+  settingsOverride?: { baseUrl: string; apiKey: string },
+): Promise<void> {
   const { getOnlineSettings } = await import("./agent");
-  const settings = getOnlineSettings();
+  const baseSettings = getOnlineSettings();
+  const settings = settingsOverride
+    ? {
+        ...baseSettings,
+        baseUrl: settingsOverride.baseUrl,
+        apiKey: settingsOverride.apiKey,
+      }
+    : baseSettings;
 
   // ── 阶段一：先让模型输出执行计划（不带工具）──────────────────────────────
   const planResponse = await invokeOpenAICompatibleChat({
@@ -382,13 +411,17 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
       });
     }
 
-    const response = await invokeOpenAICompatibleChat({
-      settings,
-      model,
-      messages,
-      tools:
-        toolCallCount < MAX_TOOL_CALLS ? OPENAI_COMPATIBLE_TOOLS : undefined,
-    });
+    const response = await withTimeout(
+      invokeOpenAICompatibleChat({
+        settings,
+        model,
+        messages,
+        tools:
+          toolCallCount < MAX_TOOL_CALLS ? OPENAI_COMPATIBLE_TOOLS : undefined,
+      }),
+      120_000,
+      "模型响应",
+    );
 
     const assistantContent = response.content || "";
 
@@ -464,7 +497,9 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
           resultStr = `工具 ${toolName} 不存在`;
         } else {
           try {
-            resultStr = String(await tool.invoke(args));
+            resultStr = String(
+              await withTimeout(tool.invoke(args), 45_000, `工具 ${toolName}`),
+            );
           } catch (e: any) {
             resultStr = `工具执行失败: ${e?.message || e}`;
           }

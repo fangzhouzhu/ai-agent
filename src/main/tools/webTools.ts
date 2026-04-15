@@ -381,6 +381,7 @@ export const fetchUrlTool = tool(
         headers: {
           "user-agent": "Mozilla/5.0",
         },
+        signal: AbortSignal.timeout(30000),
       });
 
       if (!res.ok) {

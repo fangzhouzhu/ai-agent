@@ -10,13 +10,11 @@ interface RagFileMeta {
 }
 
 interface Props {
-  onSend: (message: string, useAgent: boolean) => void
+  onSend: (message: string) => void
   onAbort: () => void
   isLoading: boolean
   isRagProcessing: boolean
   ragStatusText: string
-  useAgent: boolean
-  onToggleAgent: () => void
   ragFiles: RagFileMeta[]
   onPickFiles: () => void | Promise<void>
   onRemoveFile: (id: string) => void | Promise<void>
@@ -28,8 +26,6 @@ const InputBar: React.FC<Props> = ({
   isLoading,
   isRagProcessing,
   ragStatusText,
-  useAgent,
-  onToggleAgent,
   ragFiles,
   onPickFiles,
   onRemoveFile,
@@ -45,8 +41,8 @@ const InputBar: React.FC<Props> = ({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-    onSend(msg, useAgent)
-  }, [input, isBusy, onSend, useAgent])
+    onSend(msg)
+  }, [input, isBusy, onSend])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -69,24 +65,13 @@ const InputBar: React.FC<Props> = ({
       ? '文档正在分析中，请稍候，完成后即可提问...'
       : ragFiles.length > 0
         ? '基于已上传文档提问，例如：总结重点、提取结论、解释某一段...'
-        : useAgent
-          ? '输入消息，或告诉我操作哪个文件...'
-          : '输入消息...'
+        : '输入消息...'
 
   return (
     <div className={styles.container}>
       <div className={styles.inner}>
         <div className={styles.toolbar}>
           <div className={styles.toolbarLeft}>
-            <button
-              className={`${styles.agentToggle} ${useAgent ? styles.agentActive : ''}`}
-              onClick={onToggleAgent}
-              title={useAgent ? '已启用文件工具，点击关闭' : '点击启用文件工具'}
-            >
-              <span>⚙</span>
-              <span>{useAgent ? 'Agent 模式' : '普通对话'}</span>
-            </button>
-
             <button
               className={styles.uploadBtn}
               onClick={() => void onPickFiles()}
@@ -134,6 +119,7 @@ const InputBar: React.FC<Props> = ({
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
+            spellCheck={false}
             rows={1}
           />
           {isLoading ? (

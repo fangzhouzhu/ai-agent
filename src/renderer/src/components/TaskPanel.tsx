@@ -31,11 +31,8 @@ interface Props {
 const TaskPanel: React.FC<Props> = () => {
   const [tasks, setTasks] = useState<Task[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [prompt, setPrompt] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
   const stepsEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // 初始化加载任务列表
   useEffect(() => {
@@ -67,19 +64,6 @@ const TaskPanel: React.FC<Props> = () => {
   }, [selectedId, tasks])
 
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null
-
-  const handleCreate = useCallback(async () => {
-    const text = prompt.trim()
-    if (!text || isCreating) return
-    setIsCreating(true)
-    try {
-      const id = await window.electronAPI.task.create(text)
-      setPrompt('')
-      setSelectedId(id)
-    } finally {
-      setIsCreating(false)
-    }
-  }, [prompt, isCreating])
 
   const handleCancel = useCallback(async (id: string) => {
     await window.electronAPI.task.cancel(id)
@@ -114,13 +98,6 @@ const TaskPanel: React.FC<Props> = () => {
     })
   }, [])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      void handleCreate()
-    }
-  }, [handleCreate])
-
   return (
     <div className={styles.container}>
       {/* ── 左侧任务列表 ── */}
@@ -129,30 +106,10 @@ const TaskPanel: React.FC<Props> = () => {
           <span className={styles.leftTitle}>任务中心</span>
         </div>
 
-        {/* 新建任务输入区 */}
-        <div className={styles.newTaskArea}>
-          <textarea
-            ref={textareaRef}
-            className={styles.promptInput}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={'描述你要完成的任务...\n例如：搜索最近一个月A股信息，分析投资机会，生成PDF报告保存到桌面'}
-            rows={5}
-          />
-          <button
-            className={styles.createBtn}
-            onClick={() => void handleCreate()}
-            disabled={!prompt.trim() || isCreating}
-          >
-            {isCreating ? '创建中...' : '▶ 创建任务  Ctrl+Enter'}
-          </button>
-        </div>
-
         {/* 任务列表 */}
         <div className={styles.taskList}>
           {tasks.length === 0 && (
-            <div className={styles.emptyHint}>还没有任务，在上方输入任务描述后点击创建</div>
+            <div className={styles.emptyHint}>还没有任务</div>
           )}
           {[...tasks].sort((a, b) => b.createdAt - a.createdAt).map((task) => (
             <div

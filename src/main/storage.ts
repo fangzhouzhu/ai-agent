@@ -80,6 +80,9 @@ export interface ModelSettings {
   onlineProfiles?: OnlineProviderProfile[];
   activeOnlineProfileId?: string | null;
   skills?: SkillConfig[];
+  kbSelectedIds?: string[];
+  kbRagOnly?: boolean;
+  kbMinScore?: number;
 }
 
 function readJSON<T>(filePath: string, fallback: T): T {
@@ -180,6 +183,33 @@ export function getSkills(): SkillConfig[] {
 
 export function saveSkills(skills: SkillConfig[]): void {
   saveModelSettings({ skills });
+}
+
+// ---- 知识库 UI 状态 ----
+
+export function getKbUiState(): {
+  selectedIds: string[];
+  ragOnly: boolean;
+  minScore: number;
+} {
+  const s = getModelSettings();
+  return {
+    selectedIds: Array.isArray(s.kbSelectedIds) ? s.kbSelectedIds : [],
+    ragOnly: s.kbRagOnly !== false,
+    minScore: typeof s.kbMinScore === "number" ? s.kbMinScore : 0.6,
+  };
+}
+
+export function saveKbUiState(
+  selectedIds: string[],
+  ragOnly: boolean,
+  minScore: number,
+): void {
+  saveModelSettings({
+    kbSelectedIds: selectedIds,
+    kbRagOnly: ragOnly,
+    kbMinScore: minScore,
+  });
 }
 
 // ---- RAG 目录 ----

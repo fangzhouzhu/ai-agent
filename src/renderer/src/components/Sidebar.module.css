@@ -144,6 +144,195 @@
   border: 1px solid #3a88e8;
 }
 
+/* RAG mode toggle */
+.ragModeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 8px;
+}
+
+.ragModeInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ragModeLabel {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ragModeDesc {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.toggleTrack {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.25);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggleOn {
+  background: #7dff99;
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  display: block;
+}
+
+.toggleOn .toggleThumb {
+  transform: translateX(16px);
+}
+
+/* Score row */
+.scoreRow {
+  margin: 8px 8px 0;
+  padding: 10px 12px 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scoreHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scoreLabel {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.scoreValue {
+  color: #7dff99;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreSlider {
+  width: 100%;
+  accent-color: #7dff99;
+  cursor: pointer;
+  height: 4px;
+}
+
+.scoreHint {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+}
+
+/* Task create form */
+.taskCreateArea {
+  margin: 10px 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.taskCreateLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7dff99;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.taskPromptInput {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    box-shadow 0.15s;
+}
+
+.taskPromptInput::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.6;
+}
+
+.taskPromptInput:focus {
+  border-color: #7dff99;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(125, 255, 153, 0.15);
+}
+
+.taskCreateBtn {
+  width: 100%;
+  padding: 9px 0;
+  border-radius: 7px;
+  border: none;
+  background: linear-gradient(135deg, #3ecf6a 0%, #27ae52 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition:
+    filter 0.15s,
+    box-shadow 0.15s,
+    transform 0.1s;
+  box-shadow: 0 2px 10px rgba(46, 200, 90, 0.45);
+}
+
+.taskCreateBtn:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 4px 16px rgba(46, 200, 90, 0.6);
+  transform: translateY(-1px);
+}
+
+.taskCreateBtn:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.95);
+}
+
+.taskCreateBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 /* 自动模型路由 */
 .modelSection {
   padding: 10px 12px;

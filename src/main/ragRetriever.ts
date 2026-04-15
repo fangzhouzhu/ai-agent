@@ -29,11 +29,15 @@ export interface RetrievedChunk {
   content: string;
   score: number;
 }
+// 加入最低相关度阈值 MIN_RELEVANCE_SCORE = 0.45（混合分数 = 向量相似度 × 0.7 + 关键词命中率 × 0.3）。低于阈值的 chunks 全部过滤掉，返回空数组
+// 调高后，模型获取到的上下文质量更高，但也可能导致某些查询没有任何相关内容返回（触发后续的降级策略）。可以根据实际情况调整这个阈值，以在相关性和覆盖率之间找到最佳平衡点。
+const MIN_RELEVANCE_SCORE = 0.6;
 
 export async function retrieveFromKbs(
   kbIds: string[],
   query: string,
   topK = 6,
+  minScore = MIN_RELEVANCE_SCORE,
 ): Promise<RetrievedChunk[]> {
   const queryTokens = query
     .toLowerCase()
@@ -87,7 +91,10 @@ export async function retrieveFromKbs(
   // Sort by hybrid score
   unique.sort((a, b) => b.score - a.score);
 
-  return unique.slice(0, topK).map((r, i) => ({
+  // Filter by minimum relevance threshold; if nothing passes, return empty → triggers fallback
+  const relevant = unique.filter((r) => r.score >= minScore);
+
+  return relevant.slice(0, topK).map((r, i) => ({
     index: i + 1,
     source: r.source,
     kbName: r.kbName,

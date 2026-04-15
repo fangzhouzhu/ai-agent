@@ -12,6 +12,7 @@ import {
   getAgentModel,
   setRagModel,
   getRagModel,
+  getRagProvider,
   applyModelSettings,
   getModelSettingsSnapshot,
   getChatProvider,
@@ -59,6 +60,8 @@ import {
   saveModelSettings,
   getSkills,
   saveSkills,
+  getKbUiState,
+  saveKbUiState,
   type ConvMeta,
   type StoredMessage,
   type ModelSettings,
@@ -163,12 +166,14 @@ ipcMain.handle(
       useAgent,
       fileIds,
       kbIds,
+      ragOnly,
     }: {
       history: ChatMessage[];
       message: string;
       useAgent: boolean;
       fileIds?: string[];
       kbIds?: string[];
+      ragOnly?: boolean;
     },
   ) => {
     const webContents = event.sender;
@@ -191,9 +196,7 @@ ipcMain.handle(
 
       let useTools =
         !useRag &&
-        (useRealtimeTool ||
-          useWebSearchTool ||
-          (useAgent && shouldUseAgentTools(message)));
+        (useRealtimeTool || useWebSearchTool || shouldUseAgentTools(message));
       let useAdvancedModel =
         !useRag && (useTools || shouldUseAdvancedModel(message));
 
@@ -208,6 +211,27 @@ ipcMain.handle(
       } else if (!useRag && preferredScene === "agent") {
         useTools = true;
         useAdvancedModel = true;
+      }
+
+      // 用于 RAG 无命中回退时的路由判断（重新评估，不受 useRag 抑制）
+      const fallbackRealtimeTool = shouldUseRealtimeTool(message);
+      const fallbackWebSearchTool = shouldUseWebSearchTool(message);
+      let fallbackUseTools =
+        fallbackRealtimeTool ||
+        fallbackWebSearchTool ||
+        shouldUseAgentTools(message);
+      let fallbackUseAdvanced =
+        fallbackUseTools || shouldUseAdvancedModel(message);
+      if (
+        preferredScene === "chat" &&
+        !fallbackRealtimeTool &&
+        !fallbackWebSearchTool
+      ) {
+        fallbackUseTools = false;
+        fallbackUseAdvanced = false;
+      } else if (preferredScene === "agent") {
+        fallbackUseTools = true;
+        fallbackUseAdvanced = true;
       }
 
       const effectiveHistory = useRealtimeTool ? [] : history;
@@ -242,30 +266,78 @@ ipcMain.handle(
       if (useRag) {
         if (useKbRag) {
           // KB-based RAG: retrieve from persistent knowledge bases
-          const chunks = await retrieveFromKbs(kbIds!, message);
-          const context = chunks
-            .map(
-              (c) =>
-                `[${c.index}] 来源：${c.source}（知识库：${c.kbName}）\n${c.content}`,
-            )
-            .join("\n\n---\n\n");
-          const augmented: ChatMessage[] = [
-            ...effectiveHistory,
-            {
-              role: "user",
-              content: `请根据以下知识库内容回答问题。\n\n知识库内容：\n${context}\n\n---\n\n问题：${message}`,
-            },
-          ];
-          await chatWithRag(
-            augmented.slice(0, -1),
-            augmented[augmented.length - 1].content,
-            [],
-            (token) => {
-              webContents.send("chat:token", token);
-            },
-            signal,
-            matchedSkill?.skill,
+          const chunks = await retrieveFromKbs(
+            kbIds!,
+            message,
+            6,
+            getModelSettings().kbMinScore ?? 0.6,
           );
+
+          // 非严格模式下，若知识库无相关内容则回退：按原始意图路由（agent / 复杂任务 / 普通对话）
+          if (chunks.length === 0 && ragOnly === false) {
+            const fallbackModelInfo = {
+              model: describeRouteModel(
+                fallbackUseTools || fallbackUseAdvanced ? "agent" : "chat",
+              ),
+              scene: fallbackUseTools
+                ? "Agent/工具（知识库无结果）"
+                : fallbackUseAdvanced
+                  ? "复杂任务（知识库无结果）"
+                  : "普通对话（知识库无结果）",
+              skill: matchedSkill?.skill.name,
+            };
+            webContents.send("chat:model-info", fallbackModelInfo);
+            if (fallbackUseTools) {
+              await chatWithAgent(
+                fallbackRealtimeTool ? [] : history,
+                message,
+                (token) => {
+                  webContents.send("chat:token", token);
+                },
+                (toolName, input) => {
+                  webContents.send("chat:tool-call", { toolName, input });
+                },
+                (toolName, result) => {
+                  webContents.send("chat:tool-result", { toolName, result });
+                },
+                signal,
+                matchedSkill?.skill,
+              );
+            } else {
+              await chatStream(
+                fallbackRealtimeTool ? [] : history,
+                message,
+                (token) => {
+                  webContents.send("chat:token", token);
+                },
+                signal,
+                fallbackUseAdvanced ? getAgentModel() : getChatModel(),
+                fallbackUseAdvanced ? getAgentProvider() : getChatProvider(),
+                matchedSkill?.skill,
+              );
+            }
+          } else {
+            const context = chunks
+              .map(
+                (c) =>
+                  `[${c.index}] 来源：${c.source}（知识库：${c.kbName}）\n${c.content}`,
+              )
+              .join("\n\n---\n\n");
+            const augmentedUserMessage = `请根据以下知识库内容回答问题。\n\n知识库内容：\n${context}\n\n---\n\n问题：${message}`;
+            // 上下文已内嵌在用户消息中，直接用 chatStream 配合 RAG 模型，
+            // 避免 chatWithRag 内部用空 fileIds 再次检索导致“当前没有激活的文档”
+            await chatStream(
+              effectiveHistory,
+              augmentedUserMessage,
+              (token) => {
+                webContents.send("chat:token", token);
+              },
+              signal,
+              getRagModel(),
+              getRagProvider(),
+              matchedSkill?.skill,
+            );
+          }
         } else {
           await chatWithRag(
             effectiveHistory,
@@ -379,6 +451,17 @@ ipcMain.handle("skills:save", async (_event, skills: SkillConfig[]) => {
   saveSkills(skills);
   return getSkills();
 });
+
+ipcMain.handle("kb:get-ui-state", async () => {
+  return getKbUiState();
+});
+
+ipcMain.handle(
+  "kb:save-ui-state",
+  async (_event, selectedIds: string[], ragOnly: boolean, minScore: number) => {
+    saveKbUiState(selectedIds, ragOnly, minScore);
+  },
+);
 
 // IPC: 选择并上传文档到 RAG 索引
 ipcMain.handle("rag:pick-files", async (event) => {
