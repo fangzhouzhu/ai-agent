@@ -4,6 +4,28 @@ import ChatArea from './components/ChatArea'
 import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
 import TaskPanel from './components/TaskPanel'
+
+const TitleBar: React.FC = () => (
+  <div style={{
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '40px',
+    background: 'transparent',
+    display: 'flex',
+    alignItems: 'center',
+    zIndex: 9999,
+    borderBottom: '1px solid #e6e6e6',
+    WebkitAppRegion: 'drag' as any,
+    userSelect: 'none',
+  }}>
+    <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px', paddingLeft: '16px', letterSpacing: '0.04em' }}>
+      Centibot
+    </span>
+  </div>
+)
+
 import {
   type Conversation,
   type ConvMeta,
@@ -1216,6 +1238,7 @@ const App: React.FC = () => {
 
   return (
     <div className={styles.app}>
+      <TitleBar />
       <Sidebar
         conversations={conversations}
         activeId={activeId}

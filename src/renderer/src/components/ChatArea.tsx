@@ -87,17 +87,22 @@ const ChatArea: React.FC<Props> = ({
           <WelcomeScreen />
         ) : (
           <div className={styles.messages}>
-            {messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                isLoading={isLoading}
-                onCopy={onCopyMessage}
-                onEdit={onEditUserMessage}
-                onDelete={onDeleteMessage}
-                onRegenerate={onRegenerateMessage}
-              />
-            ))}
+            {(() => {
+              const lastUserIdx = messages.reduce((acc, m, i) => m.role === 'user' ? i : acc, -1)
+              const lastAiIdx = messages.reduce((acc, m, i) => m.role === 'assistant' ? i : acc, -1)
+              return messages.map((msg, idx) => (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  isLoading={isLoading}
+                  isLast={msg.role === 'user' ? idx === lastUserIdx : idx === lastAiIdx}
+                  onCopy={onCopyMessage}
+                  onEdit={onEditUserMessage}
+                  onDelete={onDeleteMessage}
+                  onRegenerate={onRegenerateMessage}
+                />
+              ))
+            })()}
             {isLoading && messages[messages.length - 1]?.role === 'user' && (
               <div className={styles.thinkingWrapper}>
                 <div className={styles.thinkingDots}>

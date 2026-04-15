@@ -120,8 +120,13 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    titleBarStyle: "hiddenInset",
-    backgroundColor: "#212121",
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#1f42d1",
+      symbolColor: "#ffffff",
+      height: 40,
+    },
+    backgroundColor: "#f0f4ff",
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
@@ -661,7 +666,7 @@ ipcMain.handle("task:delete", (_event, id: string) => {
 
 ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
   const error = await shell.openPath(filePath);
-  return error || null; // null = success, string = error message
+  return error || null;
 });
 
 app.whenReady().then(async () => {

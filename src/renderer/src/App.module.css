@@ -4,6 +4,8 @@
   width: 100vw;
   overflow: hidden;
   background: #f0f4ff;
+  padding-top: 40px;
+  box-sizing: border-box;
 }
 
 .main {

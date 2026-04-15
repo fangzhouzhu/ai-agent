@@ -10,6 +10,7 @@ import styles from './MessageBubble.module.css'
 interface Props {
   message: Message
   isLoading: boolean
+  isLast: boolean
   onCopy: (message: Message) => void
   onEdit: (messageId: string, content: string) => void
   onDelete: (messageId: string) => void
@@ -524,6 +525,7 @@ const CodeBlockWithCopy: React.FC<{
 const MessageBubble: React.FC<Props> = ({
   message,
   isLoading,
+  isLast,
   onCopy,
   onEdit,
   onDelete,
@@ -683,9 +685,11 @@ const MessageBubble: React.FC<Props> = ({
             </button>
             {isUser ? (
               <>
-                <button className={styles.actionBtn} onClick={() => setIsEditing(true)} disabled={isLoading} title="编辑消息" aria-label="编辑消息">
-                  <EditIcon />
-                </button>
+                {isLast && (
+                  <button className={styles.actionBtn} onClick={() => setIsEditing(true)} disabled={isLoading} title="编辑消息" aria-label="编辑消息">
+                    <EditIcon />
+                  </button>
+                )}
                 <button
                   className={`${styles.actionBtn} ${styles.dangerBtn}`}
                   onClick={() => onDelete(message.id)}
@@ -697,9 +701,11 @@ const MessageBubble: React.FC<Props> = ({
                 </button>
               </>
             ) : (
-              <button className={styles.actionBtn} onClick={() => onRegenerate(message.id)} disabled={isLoading} title="重新生成" aria-label="重新生成">
-                <RegenerateIcon />
-              </button>
+              isLast && (
+                <button className={styles.actionBtn} onClick={() => onRegenerate(message.id)} disabled={isLoading} title="重新生成" aria-label="重新生成">
+                  <RegenerateIcon />
+                </button>
+              )
             )}
           </div>
         )}
