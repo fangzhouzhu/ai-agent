@@ -26,6 +26,7 @@ import type { SkillConfig } from "./storage";
 export type TaskStatus =
   | "pending"
   | "running"
+  | "paused"
   | "completed"
   | "failed"
   | "cancelled";
@@ -76,7 +77,11 @@ function loadTasks(): void {
     const data = JSON.parse(fs.readFileSync(file, "utf-8")) as Task[];
     for (const task of data) {
       // 重启后把「执行中/等待中」的任务标记为失败
-      if (task.status === "running" || task.status === "pending") {
+      if (
+        task.status === "running" ||
+        task.status === "pending" ||
+        task.status === "paused"
+      ) {
         task.status = "failed";
         task.steps.push({
           id: uuidv4(),
@@ -138,13 +143,56 @@ export function getTask(id: string): Task | undefined {
   return tasks.get(id);
 }
 
+// 暂停恢复的 Promise resolver 映射
+const pauseResolvers = new Map<string, () => void>();
+
+/** 若任务处于暂停中，则等待恢复信号 */
+async function waitIfPaused(task: Task): Promise<void> {
+  if (task.status !== "paused") return;
+  await new Promise<void>((resolve) => {
+    pauseResolvers.set(task.id, resolve);
+  });
+}
+
 export function cancelTask(id: string): boolean {
   const task = tasks.get(id);
-  if (!task || task.status !== "running") return false;
+  if (!task || (task.status !== "running" && task.status !== "paused"))
+    return false;
+  // 若暂停中需先唤醒 loop，让它检测到 cancelled 后退出
+  const resolve = pauseResolvers.get(id);
+  if (resolve) {
+    pauseResolvers.delete(id);
+    resolve();
+  }
   task.status = "cancelled";
   task.updatedAt = Date.now();
   pushUpdate(task);
   saveTasks();
+  return true;
+}
+
+export function pauseTask(id: string): boolean {
+  const task = tasks.get(id);
+  if (!task || task.status !== "running") return false;
+  task.status = "paused";
+  task.updatedAt = Date.now();
+  pushUpdate(task);
+  saveTasks();
+  return true;
+}
+
+export function resumeTask(id: string): boolean {
+  const task = tasks.get(id);
+  if (!task || task.status !== "paused") return false;
+  task.status = "running";
+  task.updatedAt = Date.now();
+  pushUpdate(task);
+  saveTasks();
+  const resolve = pauseResolvers.get(id);
+  if (resolve) {
+    pauseResolvers.delete(id);
+    resolve();
+  }
   return true;
 }
 
@@ -177,13 +225,31 @@ export function createAndRunTask(prompt: string): string {
   tasks.set(id, task);
   saveTasks();
 
-  // 立即推送初始状态
   pushUpdate(task);
-
-  // 异步执行，不阻塞调用方
   void runTask(task);
 
   return id;
+}
+
+/**
+ * 重新运行一个已完成/失败/取消的任务（清空步骤重跑）。
+ */
+export function rerunTask(id: string): boolean {
+  const task = tasks.get(id);
+  if (!task || task.status === "running" || task.status === "pending")
+    return false;
+
+  task.status = "pending";
+  task.steps = [];
+  task.result = "";
+  task.outputFiles = [];
+  task.updatedAt = Date.now();
+
+  saveTasks();
+  pushUpdate(task);
+  void runTask(task);
+
+  return true;
 }
 
 // ─── 核心执行逻辑 ──────────────────────────────────────────────────────────────
@@ -196,24 +262,37 @@ function getTaskSystemPrompt(): string {
     day: "numeric",
     weekday: "long",
   });
-  return `你是一个任务执行助手。用户会给你一个需要完成的端到端任务。
-【当前真实日期】${dateStr}。所有涉及时间的操作（如"最近一个月""本周""近期"）均以此日期为准，不得使用训练数据中的假设日期。搜索时请在关键词中明确包含具体年月（如 ${now.getFullYear()}年${now.getMonth() + 1}月）。
-你必须通过调用工具来完成这个任务，可以使用以下工具：
-- web_search: 联网搜索信息
-- fetch_url: 抓取网页内容
-- write_file: 将内容写入文件
-- read_file: 读取文件内容
-- generate_pdf: 生成 PDF 报告
-- generate_pptx: 生成 PPT 演示文稿
+  const yearMonth = `${now.getFullYear()}年${now.getMonth() + 1}月`;
+  return `你是一个严格按计划执行的任务助手。
+【当前真实日期】${dateStr}。所有时间相关操作均以此为准，搜索关键词必须包含具体年月如"${yearMonth}"。
 
-执行原则：
-1. 先分析任务，制定计划（列出步骤）
-2. 按步骤依次调用工具收集信息
-3. 对收集到的信息进行分析和总结
-4. 如果任务要求生成报告，则调用 generate_pdf 或 generate_pptx
-5. 最后给出完整的任务结果报告
+可用工具：
+- web_search: 联网搜索（整个任务最多搜索3次，搜索后立即抓取内容，禁止反复搜索）
+- fetch_url: 抓取网页详细内容（从搜索结果中选最相关的URL）
+- write_file: 写入文件
+- read_file: 读取文件
+- generate_pdf: 生成PDF报告
+- generate_pptx: 生成PPT演示文稿
 
-【重要】每次搜索后，必须对重要的 URL 调用 fetch_url 获取详细内容，不要只依赖搜索摘要。`;
+【执行规则 - 必须严格遵守】
+1. 整个任务 web_search 最多调用3次，超出后系统会自动拒绝，请用已有信息直接生成报告
+2. 每次搜索后立即用 fetch_url 抓取1-2个最相关URL，不要再次搜索
+3. 信息收集完毕后，必须调用 generate_pdf 或 generate_pptx 生成文件
+4. 禁止循环搜索，获得搜索结果后直接进入下一计划步骤
+5. 整个任务最多执行15个工具调用`;
+}
+
+function getPlanPrompt(userPrompt: string): string {
+  return `请为以下任务制定一个清晰的执行计划，直接输出编号步骤列表，每步一行，不超过8步。不要解释，不要调用工具，只输出计划。
+
+任务：${userPrompt}
+
+示例格式：
+1. 搜索XXX信息
+2. 抓取关键页面内容
+3. 搜索YYY信息
+4. 分析汇总数据
+5. 生成PDF/PPT报告`;
 }
 
 async function runTask(task: Task): Promise<void> {
@@ -250,43 +329,76 @@ async function runTask(task: Task): Promise<void> {
 
 async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
   const { getOnlineSettings } = await import("./agent");
-
   const settings = getOnlineSettings();
 
-  addStep(task, {
-    type: "thinking",
-    label: "正在分析任务，制定执行计划...",
-    content: `任务：${task.prompt}`,
+  // ── 阶段一：先让模型输出执行计划（不带工具）──────────────────────────────
+  const planResponse = await invokeOpenAICompatibleChat({
+    settings,
+    model,
+    messages: [
+      { role: "system", content: getTaskSystemPrompt() },
+      { role: "user", content: getPlanPrompt(task.prompt) },
+    ],
+    // 不传 tools，强制输出纯文本计划
   });
 
+  const plan =
+    planResponse.content?.trim() || "（模型未输出计划，将直接执行任务）";
+  addStep(task, {
+    type: "plan",
+    label: "执行计划",
+    content: plan,
+  });
+
+  // ── 阶段二：带工具执行，携带计划上下文 ──────────────────────────────────
   const messages: CompatibleMessage[] = [
     { role: "system", content: getTaskSystemPrompt() },
-    { role: "user", content: task.prompt },
+    {
+      role: "user",
+      content: `任务：${task.prompt}\n\n已制定的执行计划：\n${plan}\n\n请严格按照上述计划，依次调用工具执行每个步骤。每个步骤完成后立即进入下一步，不要重复已完成的步骤。`,
+    },
   ];
 
-  // 最多 20 轮工具调用
+  // 限制 web_search 调用次数
+  let searchCallCount = 0;
+  const MAX_SEARCH_CALLS = 3;
+  let toolCallCount = 0;
+  const MAX_TOOL_CALLS = 15;
+
   for (let round = 0; round < 20; round++) {
+    await waitIfPaused(task);
     if (task.status === "cancelled") return;
+    if (toolCallCount >= MAX_TOOL_CALLS) {
+      addStep(task, {
+        type: "thinking",
+        label: "已达工具调用上限，整理输出结果",
+        content: `已执行 ${toolCallCount} 次工具调用，开始整理最终结果。`,
+      });
+      // 让模型总结已有内容
+      messages.push({
+        role: "user",
+        content:
+          "已收集足够信息，请立即整理并生成最终报告（调用generate_pdf或generate_pptx），或直接输出总结文本。",
+      });
+    }
 
     const response = await invokeOpenAICompatibleChat({
       settings,
       model,
       messages,
-      tools: OPENAI_COMPATIBLE_TOOLS,
+      tools:
+        toolCallCount < MAX_TOOL_CALLS ? OPENAI_COMPATIBLE_TOOLS : undefined,
     });
 
     const assistantContent = response.content || "";
 
-    // 如果有思考内容（无工具调用时的推理文字），显示出来
     if (assistantContent && response.toolCalls.length === 0) {
       task.result = assistantContent;
       addStep(task, {
         type: "output",
-        label: "任务完成，生成最终报告",
+        label: "任务完成",
         content: assistantContent,
       });
-
-      // 提取生成的文件路径
       const fileMatches = assistantContent.match(
         /[A-Za-z]:[\\\/][^\s，,。\n\r]+\.(pdf|pptx|txt|md)/gi,
       );
@@ -297,7 +409,6 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
     }
 
     if (response.toolCalls.length > 0) {
-      // 记录 assistant 消息（含工具调用）
       messages.push({
         role: "assistant",
         content: assistantContent,
@@ -305,6 +416,7 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
       });
 
       for (const toolCall of response.toolCalls) {
+        await waitIfPaused(task);
         if (task.status === "cancelled") return;
 
         const toolName = toolCall.function.name;
@@ -318,7 +430,27 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
           args = {};
         }
 
-        // 生成可读的工具调用记录
+        // 限制 web_search 调用次数
+        if (toolName === "web_search") {
+          if (searchCallCount >= MAX_SEARCH_CALLS) {
+            const query = String(args.query || args.q || JSON.stringify(args));
+            const skipMsg = `已达搜索上限（最多${MAX_SEARCH_CALLS}次），跳过搜索"${query}"。请直接使用已收集的信息生成最终报告。`;
+            addStep(task, {
+              type: "thinking",
+              label: "已达搜索上限",
+              content: skipMsg,
+            });
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: skipMsg,
+            });
+            continue;
+          }
+          searchCallCount++;
+        }
+
+        toolCallCount++;
         const callLabel = formatToolCallLabel(toolName, args);
         addStep(task, {
           type: "tool_call",
@@ -338,7 +470,6 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
           }
         }
 
-        // 截断超长结果避免超 token
         const truncated =
           resultStr.length > 3000
             ? resultStr.slice(0, 3000) + "\n…（内容已截断）"
@@ -350,7 +481,6 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
           content: truncated,
         });
 
-        // 收集输出文件路径
         const fileMatch = resultStr.match(
           /[A-Za-z]:[\\\/][^\s\n\r]+\.(pdf|pptx|txt|md)/i,
         );
@@ -370,11 +500,9 @@ async function runTaskWithOpenAI(task: Task, model: string): Promise<void> {
         });
       }
 
-      // 继续下一轮
       continue;
     }
 
-    // 没有工具调用也没有内容，跳出
     break;
   }
 }

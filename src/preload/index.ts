@@ -92,6 +92,7 @@ export type KbIndexingProgress = {
 export type TaskStatus =
   | "pending"
   | "running"
+  | "paused"
   | "completed"
   | "failed"
   | "cancelled";
@@ -367,6 +368,12 @@ const api = {
       ipcRenderer.invoke("task:get", id),
     cancel: (id: string): Promise<boolean> =>
       ipcRenderer.invoke("task:cancel", id),
+    pause: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("task:pause", id),
+    resume: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("task:resume", id),
+    rerun: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("task:rerun", id),
     delete: (id: string): Promise<boolean> =>
       ipcRenderer.invoke("task:delete", id),
     onUpdate: (callback: (task: Task) => void) => {

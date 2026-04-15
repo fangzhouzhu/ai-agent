@@ -41,7 +41,10 @@ import {
   listTasks,
   getTask,
   cancelTask,
+  pauseTask,
+  resumeTask,
   deleteTask,
+  rerunTask,
   type Task,
 } from "./taskRunner";
 import {
@@ -122,8 +125,6 @@ function createWindow(): void {
     autoHideMenuBar: true,
     titleBarStyle: "hidden",
     titleBarOverlay: {
-      color: "#1f42d1",
-      symbolColor: "#ffffff",
       height: 40,
     },
     backgroundColor: "#f0f4ff",
@@ -657,6 +658,21 @@ ipcMain.handle("task:get", (_event, id: string) => {
 // 取消运行中的任务
 ipcMain.handle("task:cancel", (_event, id: string) => {
   return cancelTask(id);
+});
+
+// 暂停运行中的任务
+ipcMain.handle("task:pause", (_event, id: string) => {
+  return pauseTask(id);
+});
+
+// 继续已暂停的任务
+ipcMain.handle("task:resume", (_event, id: string) => {
+  return resumeTask(id);
+});
+
+// 重新运行任务（清空步骤重跑）
+ipcMain.handle("task:rerun", (_event, id: string) => {
+  return rerunTask(id);
 });
 
 // 删除任务记录

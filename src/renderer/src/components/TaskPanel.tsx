@@ -18,6 +18,7 @@ const STEP_ICONS: Record<TaskStep['type'], string> = {
 const STATUS_LABELS: Record<Task['status'], string> = {
   pending: '等待中',
   running: '执行中',
+  paused: '已暂停',
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消',
@@ -82,6 +83,18 @@ const TaskPanel: React.FC<Props> = () => {
 
   const handleCancel = useCallback(async (id: string) => {
     await window.electronAPI.task.cancel(id)
+  }, [])
+
+  const handlePause = useCallback(async (id: string) => {
+    await window.electronAPI.task.pause(id)
+  }, [])
+
+  const handleResume = useCallback(async (id: string) => {
+    await window.electronAPI.task.resume(id)
+  }, [])
+
+  const handleRerun = useCallback(async (id: string) => {
+    await window.electronAPI.task.rerun(id)
   }, [])
 
   const handleDelete = useCallback(async (id: string) => {
@@ -187,23 +200,57 @@ const TaskPanel: React.FC<Props> = () => {
                 </div>
               </div>
               <div className={styles.detailActions}>
+                {/* 暂停（运行中） */}
                 {selectedTask.status === 'running' && (
                   <button
-                    className={styles.cancelBtn}
-                    onClick={() => void handleCancel(selectedTask.id)}
+                    className={`${styles.iconBtn} ${styles.iconBtnWarning}`}
+                    onClick={() => void handlePause(selectedTask.id)}
+                    title="暂停任务"
                   >
-                    停止
+                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
                   </button>
                 )}
+                {/* 继续（已暂停） */}
+                {selectedTask.status === 'paused' && (
+                  <button
+                    className={`${styles.iconBtn} ${styles.iconBtnPrimary}`}
+                    onClick={() => void handleResume(selectedTask.id)}
+                    title="继续任务"
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  </button>
+                )}
+                {/* 停止（运行中或已暂停） */}
+                {(selectedTask.status === 'running' || selectedTask.status === 'paused') && (
+                  <button
+                    className={`${styles.iconBtn} ${styles.iconBtnDangerOutline}`}
+                    onClick={() => void handleCancel(selectedTask.id)}
+                    title="停止任务"
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  </button>
+                )}
+                {/* 重新运行（已完成/失败/取消） */}
+                {(selectedTask.status === 'completed' || selectedTask.status === 'failed' || selectedTask.status === 'cancelled') && (
+                  <button
+                    className={`${styles.iconBtn} ${styles.iconBtnPrimary}`}
+                    onClick={() => void handleRerun(selectedTask.id)}
+                    title="重新运行"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                  </button>
+                )}
+                {/* 删除 */}
                 <button
-                  className={styles.deleteBtn}
+                  className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
                   onClick={() => {
                     if (window.confirm('确定删除此任务记录？')) {
                       void handleDelete(selectedTask.id)
                     }
                   }}
+                  title="删除任务"
                 >
-                  删除
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
                 </button>
               </div>
             </div>
@@ -250,6 +297,11 @@ const TaskPanel: React.FC<Props> = () => {
                 <div className={styles.waitingHint}>
                   <span className={styles.spinner} />
                   执行中...
+                </div>
+              )}
+              {selectedTask.status === 'paused' && (
+                <div className={styles.waitingHint}>
+                  ⏸ 已暂停，点击继续按钮恢复执行
                 </div>
               )}
 

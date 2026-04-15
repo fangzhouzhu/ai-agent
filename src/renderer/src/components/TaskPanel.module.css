@@ -184,6 +184,10 @@
 .status_cancelled {
   background: #6a7890;
 }
+.status_paused {
+  background: #8a55d0;
+  box-shadow: 0 0 6px rgba(138, 85, 208, 0.5);
+}
 
 @keyframes pulse {
   0%,
@@ -297,6 +301,10 @@
   background: #f0f0f0;
   color: #6a7890;
 }
+.badge_paused {
+  background: #f0eaff;
+  color: #6a30b8;
+}
 
 .detailTime {
   color: #8a9ab8;
@@ -310,33 +318,69 @@
 }
 
 .cancelBtn {
-  padding: 5px 14px;
-  border-radius: 6px;
-  border: 1px solid #f0a500;
-  background: transparent;
-  color: #b07700;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-
-.cancelBtn:hover {
-  background: #fff3d0;
+  display: none;
 }
 
 .deleteBtn {
-  padding: 5px 14px;
-  border-radius: 6px;
-  border: 1px solid #ffb0b0;
-  background: transparent;
-  color: #c0392b;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: background 0.12s;
+  display: none;
 }
 
-.deleteBtn:hover {
+/* 图标操作按钮 */
+.iconBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+  flex-shrink: 0;
+}
+
+.iconBtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.iconBtnPrimary {
+  color: #1f42d1;
+  border-color: #c5d5f5;
+}
+.iconBtnPrimary:hover {
+  background: #e8f0ff;
+  border-color: #1f42d1;
+}
+
+.iconBtnWarning {
+  color: #b07700;
+  border-color: #ffe0a0;
+}
+.iconBtnWarning:hover {
+  background: #fff3d0;
+  border-color: #f0a500;
+}
+
+.iconBtnDanger {
+  color: #c0392b;
+  border-color: #ffb0b0;
+}
+.iconBtnDanger:hover {
   background: #fde8e8;
+  border-color: #e74c3c;
+}
+
+.iconBtnDangerOutline {
+  color: #c0392b;
+  border-color: #ffb0b0;
+}
+.iconBtnDangerOutline:hover {
+  background: #fde8e8;
+  border-color: #e74c3c;
 }
 
 /* 步骤列表 */
