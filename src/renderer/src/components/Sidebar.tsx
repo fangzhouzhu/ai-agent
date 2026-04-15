@@ -29,7 +29,7 @@ const Sidebar: React.FC<Props> = ({
     <div className={styles.sidebar}>
       {/* 新建对话按钮 */}
       <div className={styles.header}>
-        <span className={styles.logo}>AI Agent</span>
+        <span className={styles.logo}>Centibot</span>
         <button className={styles.newBtn} onClick={onNew} title="新建对话">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <line x1="12" y1="5" x2="12" y2="19" />

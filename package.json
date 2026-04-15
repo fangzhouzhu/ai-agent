@@ -1,18 +1,23 @@
 {
-  "name": "ai-agent",
+  "name": "centibot",
   "version": "1.0.0",
-  "description": "Local AI Agent with Electron + React + LangChain + Ollama",
+  "description": "Centibot - Local AI Agent with Electron + React + LangChain + Ollama",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "dev:inspect": "electron-vite dev --inspect",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "dist:all": "electron-vite build && electron-builder -mwl"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^3.0.0",
     "@lancedb/lancedb": "^0.19.1",
+    "apache-arrow": "^18.1.0",
     "@langchain/community": "^0.3.0",
     "@langchain/core": "^0.3.0",
     "@langchain/ollama": "^0.2.0",
@@ -37,6 +42,7 @@
     "electron": "^33.0.0",
     "electron-vite": "^2.3.0",
     "typescript": "^5.6.3",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "electron-builder": "^26.9.0"
   }
 }

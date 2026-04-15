@@ -1,0 +1,36 @@
+appId: com.example.centibot
+productName: Centibot
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - node_modules/**
+  - "!node_modules/.cache/**"
+  - "!**/*.md"
+asar: false
+win:
+  target:
+    - nsis
+    - zip
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Centibot
+  uninstallDisplayName: Centibot
+  createDesktopShortcut: always
+mac:
+  target:
+    - dmg
+    - zip
+  icon: build/icon.icns
+linux:
+  target:
+    - AppImage
+    - deb
+    - zip
+  icon: build/icon.png
+electronDist: node_modules/electron/dist
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
