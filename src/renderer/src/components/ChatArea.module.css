@@ -9,7 +9,7 @@
 .scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 0 20px;
+  padding: 0 24px;
 }
 
 .messages {
@@ -26,6 +26,7 @@
   min-height: 420px;
   text-align: center;
   padding: 40px 24px;
+  position: relative;
 }
 
 .welcomeIcon {
@@ -35,20 +36,21 @@
 .welcomeBadge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid #b0c8f5;
-  background: #e8f0ff;
-  color: #3a5aaa;
+  border: 1px solid rgba(160, 180, 238, 0.5);
+  background: rgba(255, 255, 255, 0.8);
+  color: #3554a2;
   font-size: 11px;
   letter-spacing: 0.04em;
   margin-bottom: 14px;
+  box-shadow: 0 10px 24px rgba(49, 81, 172, 0.08);
 }
 
 .welcomeTitle {
-  font-size: 30px;
+  font-size: 34px;
   font-weight: 700;
-  color: #1a2650;
+  color: #14224b;
   margin-bottom: 10px;
 }
 
@@ -69,10 +71,10 @@
 }
 
 .feature {
-  background: #ffffff;
-  border: 1px solid #4a7cf0;
-  border-radius: 12px;
-  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(165, 183, 235, 0.36);
+  border-radius: 18px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -80,12 +82,17 @@
   text-align: left;
   transition:
     background 0.2s,
-    border-color 0.2s;
+    border-color 0.2s,
+    transform 0.2s,
+    box-shadow 0.2s;
+  box-shadow: 0 14px 36px rgba(58, 84, 164, 0.08);
 }
 
 .feature:hover {
-  background: #f0f6ff;
-  border-color: #2d60f0;
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(77, 115, 235, 0.45);
+  transform: translateY(-2px);
+  box-shadow: 0 20px 40px rgba(58, 84, 164, 0.12);
 }
 
 .feature strong {

@@ -37,7 +37,6 @@ const Sidebar: React.FC<Props> = ({
 }) => {
   return (
     <div className={styles.sidebar}>
-      {/* 新建对话按钮 */}
       <div className={styles.header}>
         <span className={styles.logo}>Centibot</span>
         <button className={styles.newBtn} onClick={onNew} title="新建对话">
@@ -48,7 +47,6 @@ const Sidebar: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* View switcher */}
       <div className={styles.viewTabs}>
         <button
           className={`${styles.viewTab} ${currentView === 'chat' ? styles.viewTabActive : ''}`}
@@ -61,18 +59,14 @@ const Sidebar: React.FC<Props> = ({
           onClick={() => onViewChange('kb')}
         >
           知识库
-          {selectedKbCount > 0 && (
-            <span className={styles.kbBadge}>{selectedKbCount}</span>
-          )}
+          {selectedKbCount > 0 && <span className={styles.kbBadge}>{selectedKbCount}</span>}
         </button>
         <button
           className={`${styles.viewTab} ${currentView === 'task' ? styles.viewTabActive : ''}`}
           onClick={() => onViewChange('task')}
         >
           任务
-          {runningTaskCount > 0 && (
-            <span className={styles.taskBadge}>{runningTaskCount}</span>
-          )}
+          {runningTaskCount > 0 && <span className={styles.taskBadge}>{runningTaskCount}</span>}
         </button>
       </div>
 
@@ -80,17 +74,14 @@ const Sidebar: React.FC<Props> = ({
         <>
           <div className={styles.modelSection}>
             <div className={styles.routingNote}>
-              已开启智能模型路由：普通聊天、复杂任务、文档问答会自动匹配更合适的本地或在线模型，可在左下角设置中调整。
+              现在统一使用一个全局模型。聊天页底部可以直接切换本地或在线模型，设置里只保留在线预设和技能管理。
             </div>
           </div>
 
-          {/* 会话列表 */}
           <div className={styles.section}>
             <div className={styles.sectionTitle}>历史对话</div>
             <div className={styles.list}>
-              {conversations.length === 0 && (
-                <div className={styles.empty}>暂无对话记录</div>
-              )}
+              {conversations.length === 0 && <div className={styles.empty}>暂无对话记录</div>}
               {[...conversations]
                 .sort((a, b) => b.updatedAt - a.updatedAt)
                 .map((conv) => (
@@ -99,7 +90,7 @@ const Sidebar: React.FC<Props> = ({
                     className={`${styles.item} ${conv.id === activeId ? styles.active : ''}`}
                     onClick={() => onSelect(conv.id)}
                   >
-                    <span className={styles.itemIcon}>💬</span>
+                    <span className={styles.itemIcon}>●</span>
                     <span className={styles.itemTitle}>{conv.title}</span>
                     <button
                       className={styles.deleteBtn}
@@ -109,7 +100,7 @@ const Sidebar: React.FC<Props> = ({
                       }}
                       title="删除"
                     >
-                      ✕
+                      ×
                     </button>
                   </div>
                 ))}
@@ -120,32 +111,24 @@ const Sidebar: React.FC<Props> = ({
 
       {currentView === 'kb' && (
         <div className={styles.kbViewArea}>
-          <div className={styles.kbViewHint}>
-            在右侧管理知识库，点击 ○ 选用后可在对话中使用
-          </div>
+          <div className={styles.kbViewHint}>在右侧管理知识库，勾选后即可在聊天中参与检索。</div>
 
-          {/* RAG mode toggle */}
           <div className={styles.ragModeRow}>
             <div className={styles.ragModeInfo}>
-              <span className={styles.ragModeLabel}>
-                {ragOnly ? '仅限知识库' : '知识库优先'}
-              </span>
+              <span className={styles.ragModeLabel}>{ragOnly ? '仅限知识库' : '知识库优先'}</span>
               <span className={styles.ragModeDesc}>
-                {ragOnly
-                  ? '选中知识库后，仅根据知识库内容回答'
-                  : '知识库无结果时自动用模型回答'}
+                {ragOnly ? '选中知识库后，仅根据知识库内容回答。' : '知识库没有结果时，再交给模型自由回答。'}
               </span>
             </div>
             <button
               className={`${styles.toggleTrack} ${ragOnly ? styles.toggleOn : ''}`}
               onClick={() => onRagOnlyChange(!ragOnly)}
-              title={ragOnly ? '开启：仅通过知识库回答' : '关闭：知识库优先，找不到再用模型'}
+              title={ragOnly ? '当前为仅限知识库模式' : '当前为知识库优先模式'}
             >
               <span className={styles.toggleThumb} />
             </button>
           </div>
 
-          {/* Relevance score threshold */}
           <div className={styles.scoreRow}>
             <div className={styles.scoreHeader}>
               <span className={styles.scoreLabel}>相关度阈值</span>
@@ -159,9 +142,9 @@ const Sidebar: React.FC<Props> = ({
               step={0.05}
               value={minScore}
               onChange={(e) => onMinScoreChange(parseFloat(e.target.value))}
-              title="越高精准度越高，越低覆盖越广"
+              title="数值越高越严格，越低越宽松"
             />
-            <span className={styles.scoreHint}>越高越精准 · 越低覆盖越广</span>
+            <span className={styles.scoreHint}>越高越精确，越低覆盖越广</span>
           </div>
         </div>
       )}
@@ -172,16 +155,11 @@ const Sidebar: React.FC<Props> = ({
         </div>
       )}
 
-      {/* 底部信息 */}
       <div className={styles.footer}>
         <div className={styles.footerInfo}>
-          <span>🟢 本地 / 在线模型</span>
+          <span>本地 / 在线模型</span>
         </div>
-        <button
-          className={styles.settingsBtn}
-          onClick={onOpenSettings}
-          title="模型配置"
-        >
+        <button className={styles.settingsBtn} onClick={onOpenSettings} title="打开设置">
           ⚙
         </button>
       </div>
@@ -189,7 +167,9 @@ const Sidebar: React.FC<Props> = ({
   )
 }
 
-const TaskCreateForm: React.FC<{ onViewChange: (view: 'chat' | 'kb' | 'task') => void }> = ({ onViewChange }) => {
+const TaskCreateForm: React.FC<{ onViewChange: (view: 'chat' | 'kb' | 'task') => void }> = ({
+  onViewChange,
+}) => {
   const [prompt, setPrompt] = useState('')
   const [isCreating, setIsCreating] = useState(false)
 
@@ -208,7 +188,7 @@ const TaskCreateForm: React.FC<{ onViewChange: (view: 'chat' | 'kb' | 'task') =>
 
   return (
     <div className={styles.taskCreateArea}>
-      <span className={styles.taskCreateLabel}>✦ 新建任务</span>
+      <span className={styles.taskCreateLabel}>新建任务</span>
       <textarea
         className={styles.taskPromptInput}
         value={prompt}
@@ -227,7 +207,7 @@ const TaskCreateForm: React.FC<{ onViewChange: (view: 'chat' | 'kb' | 'task') =>
         onClick={() => void handleCreate()}
         disabled={!prompt.trim() || isCreating}
       >
-        {isCreating ? '创建中...' : '▶ 创建任务'}
+        {isCreating ? '创建中...' : '创建任务'}
       </button>
     </div>
   )

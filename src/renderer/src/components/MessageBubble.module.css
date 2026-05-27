@@ -1,8 +1,8 @@
 .wrapper {
   display: flex;
   gap: 12px;
-  padding: 16px 0;
-  max-width: 840px;
+  padding: 20px 0;
+  max-width: 920px;
   margin: 0 auto;
   width: 100%;
 }
@@ -16,8 +16,8 @@
 }
 
 .avatar {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -29,13 +29,15 @@
 }
 
 .userAvatar {
-  background: linear-gradient(135deg, #7c3aed, #db2777);
+  background: linear-gradient(135deg, #2f63f4, #33c2b2);
   color: #fff;
+  box-shadow: 0 10px 24px rgba(47, 99, 244, 0.22);
 }
 
 .aiAvatar {
-  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  background: linear-gradient(135deg, #152c73, #3c6ef3);
   color: #fff;
+  box-shadow: 0 10px 24px rgba(23, 46, 121, 0.18);
 }
 
 .content {
@@ -47,27 +49,26 @@
 }
 
 .bubble {
-  padding: 12px 16px;
-  border-radius: 12px;
+  padding: 14px 18px;
+  border-radius: 18px;
   word-break: break-word;
   overflow-wrap: anywhere;
   max-width: 100%;
 }
 
 .userBubble {
-  background:
-    linear-gradient(#e8f0ff, #e8f0ff) padding-box,
-    linear-gradient(135deg, #4a7cf0, #00c8ff) border-box;
-  border: 1px solid transparent;
-  border-radius: 12px 4px 12px 12px;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95), rgba(229, 240, 255, 0.92));
+  border: 1px solid rgba(145, 176, 255, 0.45);
+  border-radius: 18px 8px 18px 18px;
   align-self: flex-end;
   max-width: 85%;
-  box-shadow: 0 2px 12px rgba(74, 124, 240, 0.18);
+  box-shadow: 0 16px 34px rgba(74, 124, 240, 0.12);
 }
 
 .aiBubble {
-  background: transparent;
-  padding: 4px 0;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(198, 213, 244, 0.4);
+  box-shadow: 0 14px 32px rgba(45, 78, 170, 0.08);
 }
 
 .errorBubble {
@@ -540,21 +541,21 @@
   gap: 6px;
   padding: 4px 8px;
   border-radius: 999px;
-  background: #1c2330;
-  border: 1px solid #334155;
+  background: rgba(243, 247, 255, 0.92);
+  border: 1px solid rgba(176, 192, 236, 0.5);
   font-size: 11px;
-  color: #cbd5e1;
+  color: #465c96;
   line-height: 1.2;
 }
 
 .metaLabel {
-  color: #94a3b8;
+  color: #7d90bd;
 }
 
 .sceneChip {
-  background: #1d2a22;
-  border-color: #355a46;
-  color: #d1fae5;
+  background: rgba(232, 247, 242, 0.92);
+  border-color: rgba(126, 195, 165, 0.4);
+  color: #2f7b5d;
 }
 
 .actions {
@@ -597,9 +598,9 @@
 }
 
 .actionBtn:hover {
-  background: #232323;
-  border-color: #3a3a3a;
-  color: #e5e5e5;
+  background: rgba(240, 244, 255, 0.96);
+  border-color: rgba(166, 182, 241, 0.5);
+  color: #2d4eaa;
 }
 
 .actionBtn:disabled {

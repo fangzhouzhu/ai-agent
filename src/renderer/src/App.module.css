@@ -3,7 +3,10 @@
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  background: #f0f4ff;
+  background:
+    radial-gradient(circle at top left, rgba(102, 145, 255, 0.16), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(45, 212, 191, 0.1), transparent 24%),
+    linear-gradient(180deg, #f5f7ff 0%, #eef3ff 100%);
   padding-top: 40px;
   box-sizing: border-box;
 }
@@ -20,17 +23,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
-  border-bottom: 1px solid #dce8ff;
-  background: #ffffff;
+  padding: 16px 28px;
+  border-bottom: 1px solid rgba(196, 212, 255, 0.6);
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(14px);
   -webkit-app-region: drag;
   flex-shrink: 0;
 }
 
 .convTitle {
-  font-size: 14px;
-  font-weight: 500;
-  color: #1a2650;
+  font-size: 15px;
+  font-weight: 700;
+  color: #14224b;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -39,16 +43,17 @@
 
 .modelBadge {
   font-size: 11px;
-  color: #4a5a88;
-  background: #eef3ff;
-  border: 1px solid #c5d5f5;
-  border-radius: 10px;
-  padding: 3px 10px;
+  color: #475b92;
+  background: rgba(243, 247, 255, 0.95);
+  border: 1px solid rgba(174, 190, 238, 0.45);
+  border-radius: 999px;
+  padding: 7px 12px;
   -webkit-app-region: no-drag;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 220px;
+  max-width: 320px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .modalOverlay {
@@ -68,11 +73,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #ffffff;
-  border: 1px solid #d0deff;
-  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff, #f8faff);
+  border: 1px solid rgba(199, 214, 255, 0.8);
+  border-radius: 22px;
   box-shadow:
-    0 20px 60px rgba(45, 78, 170, 0.12),
+    0 24px 80px rgba(45, 78, 170, 0.18),
     0 4px 20px rgba(0, 0, 0, 0.08);
 }
 
