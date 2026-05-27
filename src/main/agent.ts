@@ -327,16 +327,25 @@ export async function fetchOllamaModels(): Promise<string[]> {
   }
 }
 
+function stripReasoningContent(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, " ")
+    .trim();
+}
+
 function toLC(msg: ChatMessage) {
-  if (msg.role === "user") return new HumanMessage(msg.content);
-  if (msg.role === "assistant") return new AIMessage(msg.content);
-  return new SystemMessage(msg.content);
+  const content =
+    msg.role === "assistant" ? stripReasoningContent(msg.content) : msg.content;
+  if (msg.role === "user") return new HumanMessage(content);
+  if (msg.role === "assistant") return new AIMessage(content);
+  return new SystemMessage(content);
 }
 
 function toCompatibleMessage(msg: ChatMessage): CompatibleMessage {
   return {
     role: msg.role,
-    content: msg.content,
+    content:
+      msg.role === "assistant" ? stripReasoningContent(msg.content) : msg.content,
   };
 }
 
@@ -607,7 +616,7 @@ export async function chatWithRag(
     ? activeFileNames.join("、")
     : "当前没有激活的文档";
 
-  const skillPrompt = buildSkillPrompt(skill);
+const skillPrompt = buildSkillPrompt(skill);
   const ragPrompt = `你是一个文档分析助手。当前有效文档仅限：${fileScopeText}。
 请优先依据“检索上下文”回答问题，并尽量给出简洁结论。
 如果用户之前聊过其他文件、旧版本文件或已移除的文件，你必须忽略那些历史内容，不能沿用旧文件信息。

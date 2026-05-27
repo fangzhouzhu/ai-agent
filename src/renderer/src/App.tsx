@@ -263,6 +263,8 @@ const App: React.FC = () => {
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
   const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task'>('chat')
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([])
+  const [activeKbId, setActiveKbId] = useState<string | null>(null)
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [ragOnly, setRagOnly] = useState(true)
   const [minScore, setMinScore] = useState(0.6)
   const [runningTaskCount, setRunningTaskCount] = useState(0)
@@ -411,19 +413,16 @@ const App: React.FC = () => {
 
   // 新建对话
   const handleNew = useCallback(() => {
-    const conv = createConversation()
-    setConversations((prev) => [conv, ...prev])
-    setActiveId(conv.id)
+    setActiveId(null)
+    setCurrentView('chat')
     setRagContextId(uuidv4())
-    window.electronAPI.storage.save(
-      { id: conv.id, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt },
-      []
-    )
+    window.electronAPI.storage.setActive(null)
   }, [])
 
   // 切换对话
   const handleSelect = useCallback((id: string) => {
     setActiveId(id)
+    setCurrentView('chat')
   }, [])
 
   // 删除对话
@@ -1151,15 +1150,13 @@ const App: React.FC = () => {
       if (isLoading || isRagProcessing) return
 
       let convId = activeId
+      let targetConv = conversations.find((c) => c.id === convId)
       if (!convId) {
         const conv = createConversation()
+        targetConv = conv
         setConversations((prev) => [conv, ...prev])
         setActiveId(conv.id)
         convId = conv.id
-        window.electronAPI.storage.save(
-          { id: conv.id, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt },
-          []
-        )
       }
 
       const currentRagFiles = ragFilesRef.current
@@ -1182,7 +1179,6 @@ const App: React.FC = () => {
       resetTokenBuffer()
       streamingMsgIdRef.current = aiMsgId
 
-      const targetConv = conversations.find((c) => c.id === convId)
       const isFirstMsg = (targetConv?.messages.length ?? 0) === 0
       const newTitle = isFirstMsg ? generateTitle(text) : (targetConv?.title ?? '新对话')
 
@@ -1330,10 +1326,16 @@ const App: React.FC = () => {
         onViewChange={setCurrentView}
         selectedKbCount={selectedKbIds.length}
         runningTaskCount={runningTaskCount}
-        ragOnly={ragOnly}
-        onRagOnlyChange={setRagOnly}
-        minScore={minScore}
-        onMinScoreChange={setMinScore}
+        activeKbId={activeKbId}
+        activeTaskId={activeTaskId}
+        onSelectKb={(id) => {
+          setActiveKbId(id)
+          setCurrentView('kb')
+        }}
+        onSelectTask={(id) => {
+            setActiveTaskId(id)
+            setCurrentView('task')
+        }}
       />
       <div className={styles.main}>
         {currentView === 'kb' ? (
@@ -1344,19 +1346,19 @@ const App: React.FC = () => {
             onRagOnlyChange={setRagOnly}
             minScore={minScore}
             onMinScoreChange={setMinScore}
+            activeKbId={activeKbId}
+            onActiveKbIdChange={setActiveKbId}
           />
         ) : currentView === 'task' ? (
-          <TaskPanel />
+          <TaskPanel
+            selectedTaskId={activeTaskId}
+            onSelectedTaskIdChange={setActiveTaskId}
+          />
         ) : (
           <>
             <div className={styles.topbar}>
               <span className={styles.convTitle}>
                 {activeConversation?.title ?? '新对话'}
-              </span>
-              <span className={styles.modelBadge}>
-                当前模型 · {modelConfig.chat.provider === 'openai-compatible' ? '在线预设' : '本地 Ollama'}
-                {modelConfig.chat.model ? ` · ${modelConfig.chat.model}` : ''}
-                {selectedKbIds.length > 0 && ` · 知识库 ×${selectedKbIds.length}`}
               </span>
             </div>
 
@@ -1389,13 +1391,29 @@ const App: React.FC = () => {
       </div>
 
       {showModelConfig && (
-        <div className={styles.modalOverlay} onClick={() => setShowModelConfig(false)}>
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={styles.modalOverlay}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowModelConfig(false)
+          }}
+        >
+          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div>
                 <h3 className={styles.modalTitle}>设置</h3>
               </div>
-              <button className={styles.modalClose} onClick={() => setShowModelConfig(false)}>
+              <button
+                type="button"
+                className={styles.modalClose}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setShowModelConfig(false)
+                }}
+                aria-label="关闭设置"
+                title="关闭"
+              >
                 ×
               </button>
             </div>

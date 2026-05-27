@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useCallback } from 'react'
 import type { Conversation } from '../types/conversation'
 import styles from './Sidebar.module.css'
 
@@ -13,10 +13,8 @@ interface Props {
   onViewChange: (view: 'chat' | 'kb' | 'task') => void
   selectedKbCount: number
   runningTaskCount: number
-  ragOnly: boolean
-  onRagOnlyChange: (v: boolean) => void
-  minScore: number
-  onMinScoreChange: (v: number) => void
+  onSelectKb: (id: string | null) => void
+  onSelectTask: (id: string | null) => void
 }
 
 const Sidebar: React.FC<Props> = ({
@@ -30,188 +28,99 @@ const Sidebar: React.FC<Props> = ({
   onViewChange,
   selectedKbCount,
   runningTaskCount,
-  ragOnly,
-  onRagOnlyChange,
-  minScore,
-  onMinScoreChange,
+  onSelectKb,
+  onSelectTask,
 }) => {
+  const handleNewChat = useCallback(() => {
+    onNew()
+    onViewChange('chat')
+  }, [onNew, onViewChange])
+
+  const sortedConversations = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)
+
   return (
-    <div className={styles.sidebar}>
+    <aside className={styles.sidebar}>
       <div className={styles.header}>
-        <span className={styles.logo}>Centibot</span>
-        <button className={styles.newBtn} onClick={onNew} title="新建对话">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
+        <button className={styles.brandBtn} onClick={() => onViewChange('chat')}>
+          <span className={styles.logo}>Centibot</span>
+        </button>
+        <button className={styles.collapseBtn} title="侧栏">
+          ⌘
         </button>
       </div>
 
-      <div className={styles.viewTabs}>
-        <button
-          className={`${styles.viewTab} ${currentView === 'chat' ? styles.viewTabActive : ''}`}
-          onClick={() => onViewChange('chat')}
-        >
-          对话
-        </button>
-        <button
-          className={`${styles.viewTab} ${currentView === 'kb' ? styles.viewTabActive : ''}`}
-          onClick={() => onViewChange('kb')}
-        >
-          知识库
-          {selectedKbCount > 0 && <span className={styles.kbBadge}>{selectedKbCount}</span>}
-        </button>
-        <button
-          className={`${styles.viewTab} ${currentView === 'task' ? styles.viewTabActive : ''}`}
-          onClick={() => onViewChange('task')}
-        >
-          任务
-          {runningTaskCount > 0 && <span className={styles.taskBadge}>{runningTaskCount}</span>}
-        </button>
-      </div>
+      <div className={styles.scrollArea}>
+        <nav className={styles.primaryNav}>
+          <button className={styles.navItem} onClick={handleNewChat}>
+            <span className={styles.navIcon}>✎</span>
+            <span>新对话</span>
+          </button>
+          <button
+            className={`${styles.navItem} ${currentView === 'kb' ? styles.navItemActive : ''}`}
+            onClick={() => {
+              onSelectKb(null)
+              onViewChange('kb')
+            }}
+          >
+            <span className={styles.navIcon}>▦</span>
+            <span>知识库</span>
+            {selectedKbCount > 0 && <span className={styles.countBadge}>{selectedKbCount}</span>}
+          </button>
+          <button
+            className={`${styles.navItem} ${currentView === 'task' ? styles.navItemActive : ''}`}
+            onClick={() => {
+              onSelectTask(null)
+              onViewChange('task')
+            }}
+          >
+            <span className={styles.navIcon}>◇</span>
+            <span>任务</span>
+            {runningTaskCount > 0 && <span className={styles.countBadge}>{runningTaskCount}</span>}
+          </button>
+        </nav>
 
-      {currentView === 'chat' && (
-        <>
-          <div className={styles.modelSection}>
-            <div className={styles.routingNote}>
-              现在统一使用一个全局模型。聊天页底部可以直接切换本地或在线模型，设置里只保留在线预设和技能管理。
-            </div>
-          </div>
-
-          <div className={styles.section}>
-            <div className={styles.sectionTitle}>历史对话</div>
+        <section className={styles.section}>
+          <div className={styles.sectionTitle}>最近</div>
+          {sortedConversations.length === 0 ? (
+            <div className={styles.emptyText}>暂无对话记录</div>
+          ) : (
             <div className={styles.list}>
-              {conversations.length === 0 && <div className={styles.empty}>暂无对话记录</div>}
-              {[...conversations]
-                .sort((a, b) => b.updatedAt - a.updatedAt)
-                .map((conv) => (
-                  <div
-                    key={conv.id}
-                    className={`${styles.item} ${conv.id === activeId ? styles.active : ''}`}
-                    onClick={() => onSelect(conv.id)}
+              {sortedConversations.map((conv) => (
+                <button
+                  key={conv.id}
+                  className={`${styles.listItem} ${currentView === 'chat' && conv.id === activeId ? styles.active : ''}`}
+                  onClick={() => onSelect(conv.id)}
+                  title={conv.title}
+                >
+                  <span className={styles.itemTitle}>{conv.title}</span>
+                  <span
+                    className={styles.deleteBtn}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDelete(conv.id)
+                    }}
+                    title="删除"
                   >
-                    <span className={styles.itemIcon}>●</span>
-                    <span className={styles.itemTitle}>{conv.title}</span>
-                    <button
-                      className={styles.deleteBtn}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onDelete(conv.id)
-                      }}
-                      title="删除"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                    ×
+                  </span>
+                </button>
+              ))}
             </div>
-          </div>
-        </>
-      )}
-
-      {currentView === 'kb' && (
-        <div className={styles.kbViewArea}>
-          <div className={styles.kbViewHint}>
-            勾选知识库后，只有明确询问文档、资料或知识库内容时才会检索；普通寒暄会继续走正常聊天。
-          </div>
-
-          <div className={styles.ragModeRow}>
-            <div className={styles.ragModeInfo}>
-              <span className={styles.ragModeLabel}>{ragOnly ? '仅限知识库' : '知识库优先'}</span>
-              <span className={styles.ragModeDesc}>
-                {ragOnly ? '检索无结果时会直接提示未命中。' : '检索无结果或回答失败时，会回退普通回答。'}
-              </span>
-            </div>
-            <button
-              className={`${styles.toggleTrack} ${ragOnly ? styles.toggleOn : ''}`}
-              onClick={() => onRagOnlyChange(!ragOnly)}
-              title={ragOnly ? '当前为仅限知识库模式' : '当前为知识库优先模式'}
-            >
-              <span className={styles.toggleThumb} />
-            </button>
-          </div>
-
-          <div className={styles.scoreRow}>
-            <div className={styles.scoreHeader}>
-              <span className={styles.scoreLabel}>相关度阈值</span>
-              <span className={styles.scoreValue}>{minScore.toFixed(2)}</span>
-            </div>
-            <input
-              type="range"
-              className={styles.scoreSlider}
-              min={0.1}
-              max={0.9}
-              step={0.05}
-              value={minScore}
-              onChange={(e) => onMinScoreChange(parseFloat(e.target.value))}
-              title="数值越高越严格，越低越宽松"
-            />
-            <span className={styles.scoreHint}>越高越精确，越低覆盖越广</span>
-          </div>
-        </div>
-      )}
-
-      {currentView === 'task' && (
-        <div className={styles.kbViewArea}>
-          <TaskCreateForm onViewChange={onViewChange} />
-        </div>
-      )}
+          )}
+        </section>
+      </div>
 
       <div className={styles.footer}>
-        <div className={styles.footerInfo}>
-          <span>本地 / 在线模型</span>
+        <div className={styles.userAvatar}>C</div>
+        <div className={styles.footerText}>
+          <span>Centibot</span>
+          <small>本地 / 在线模型</small>
         </div>
         <button className={styles.settingsBtn} onClick={onOpenSettings} title="打开设置">
           ⚙
         </button>
       </div>
-    </div>
-  )
-}
-
-const TaskCreateForm: React.FC<{ onViewChange: (view: 'chat' | 'kb' | 'task') => void }> = ({
-  onViewChange,
-}) => {
-  const [prompt, setPrompt] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
-
-  const handleCreate = useCallback(async () => {
-    const text = prompt.trim()
-    if (!text || isCreating) return
-    setIsCreating(true)
-    try {
-      await window.electronAPI.task.create(text)
-      setPrompt('')
-      onViewChange('task')
-    } finally {
-      setIsCreating(false)
-    }
-  }, [prompt, isCreating, onViewChange])
-
-  return (
-    <div className={styles.taskCreateArea}>
-      <span className={styles.taskCreateLabel}>新建任务</span>
-      <textarea
-        className={styles.taskPromptInput}
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault()
-            void handleCreate()
-          }
-        }}
-        placeholder={'描述要完成的任务...\nCtrl+Enter 快速创建'}
-        rows={4}
-      />
-      <button
-        className={styles.taskCreateBtn}
-        onClick={() => void handleCreate()}
-        disabled={!prompt.trim() || isCreating}
-      >
-        {isCreating ? '创建中...' : '创建任务'}
-      </button>
-    </div>
+    </aside>
   )
 }
 

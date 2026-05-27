@@ -25,14 +25,25 @@ const STATUS_LABELS: Record<Task['status'], string> = {
 }
 
 interface Props {
-  // nothing — 自管理状态
+  selectedTaskId?: string | null
+  onSelectedTaskIdChange?: (id: string | null) => void
 }
 
-const TaskPanel: React.FC<Props> = () => {
+const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) => {
   const [tasks, setTasks] = useState<Task[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null)
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
+  const [prompt, setPrompt] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
   const stepsEndRef = useRef<HTMLDivElement>(null)
+  const selectedId = selectedTaskId ?? internalSelectedId
+  const setSelectedId = useCallback(
+    (id: string | null) => {
+      setInternalSelectedId(id)
+      onSelectedTaskIdChange?.(id)
+    },
+    [onSelectedTaskIdChange],
+  )
 
   // 初始化加载任务列表
   useEffect(() => {
@@ -42,7 +53,7 @@ const TaskPanel: React.FC<Props> = () => {
         setSelectedId(list[0].id)
       }
     })
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 实时监听任务更新
   useEffect(() => {
@@ -64,6 +75,21 @@ const TaskPanel: React.FC<Props> = () => {
   }, [selectedId, tasks])
 
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null
+
+  const handleCreate = useCallback(async () => {
+    const text = prompt.trim()
+    if (!text || isCreating) return
+    setIsCreating(true)
+    try {
+      const id = await window.electronAPI.task.create(text)
+      setPrompt('')
+      setSelectedId(id)
+      const list = await window.electronAPI.task.list()
+      setTasks(list)
+    } finally {
+      setIsCreating(false)
+    }
+  }, [prompt, isCreating, setSelectedId])
 
   const handleCancel = useCallback(async (id: string) => {
     await window.electronAPI.task.cancel(id)
@@ -104,6 +130,29 @@ const TaskPanel: React.FC<Props> = () => {
       <div className={styles.leftPanel}>
         <div className={styles.leftHeader}>
           <span className={styles.leftTitle}>任务中心</span>
+        </div>
+
+        <div className={styles.newTaskArea}>
+          <textarea
+            className={styles.promptInput}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                void handleCreate()
+              }
+            }}
+            placeholder={'描述要完成的任务...\nCtrl+Enter 快速创建'}
+            rows={4}
+          />
+          <button
+            className={styles.createBtn}
+            onClick={() => void handleCreate()}
+            disabled={!prompt.trim() || isCreating}
+          >
+            {isCreating ? '创建中...' : '新建任务'}
+          </button>
         </div>
 
         {/* 任务列表 */}

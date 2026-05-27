@@ -44,6 +44,8 @@ interface Props {
   onRagOnlyChange: (v: boolean) => void
   minScore: number
   onMinScoreChange: (v: number) => void
+  activeKbId?: string | null
+  onActiveKbIdChange?: (id: string | null) => void
 }
 
 function formatSize(bytes: number): string {
@@ -79,9 +81,18 @@ const statusColor: Record<string, string> = {
   failed: '#e74c3c',
 }
 
-const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange, ragOnly, onRagOnlyChange, minScore, onMinScoreChange }) => {
+const KnowledgeBasePanel: React.FC<Props> = ({
+  selectedKbIds,
+  onSelectionChange,
+  ragOnly,
+  onRagOnlyChange,
+  minScore,
+  onMinScoreChange,
+  activeKbId: controlledActiveKbId,
+  onActiveKbIdChange,
+}) => {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
-  const [activeKbId, setActiveKbId] = useState<string | null>(null)
+  const [internalActiveKbId, setInternalActiveKbId] = useState<string | null>(null)
   const [documents, setDocuments] = useState<KbDocument[]>([])
   const [progressMap, setProgressMap] = useState<Record<string, KbIndexingProgress>>({})
   const [isAddingKb, setIsAddingKb] = useState(false)
@@ -92,6 +103,14 @@ const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange,
   const [editingKbId, setEditingKbId] = useState<string | null>(null)
   const [editingKbName, setEditingKbName] = useState('')
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeKbId = controlledActiveKbId ?? internalActiveKbId
+  const setActiveKbId = useCallback(
+    (id: string | null) => {
+      setInternalActiveKbId(id)
+      onActiveKbIdChange?.(id)
+    },
+    [onActiveKbIdChange],
+  )
 
   // Load KB list
   const refreshKbs = useCallback(async () => {
@@ -338,6 +357,35 @@ const KnowledgeBasePanel: React.FC<Props> = ({ selectedKbIds, onSelectionChange,
 
       {/* Right panel: document list */}
       <div className={styles.rightPanel}>
+        <div className={styles.kbPageToolbar}>
+          <div>
+            <div className={styles.kbPageTitle}>知识库设置</div>
+            <div className={styles.kbPageHint}>
+              勾选知识库后，只有明确询问文档、资料或知识库内容时才会检索。
+            </div>
+          </div>
+          <div className={styles.kbToolbarControls}>
+            <button
+              className={`${styles.modeToggle} ${ragOnly ? styles.modeToggleActive : ''}`}
+              onClick={() => onRagOnlyChange(!ragOnly)}
+              title={ragOnly ? '当前为仅限知识库模式' : '当前为知识库优先模式'}
+            >
+              {ragOnly ? '仅限知识库' : '知识库优先'}
+            </button>
+            <label className={styles.scoreControl}>
+              <span>相关度 {minScore.toFixed(2)}</span>
+              <input
+                type="range"
+                min={0.1}
+                max={0.9}
+                step={0.05}
+                value={minScore}
+                onChange={(e) => onMinScoreChange(parseFloat(e.target.value))}
+              />
+            </label>
+          </div>
+        </div>
+
         {!activeKb ? (
           <div className={styles.noKbSelected}>
             <div className={styles.noKbIcon}>📚</div>

@@ -313,6 +313,68 @@
     #f4f7ff;
 }
 
+.kbPageToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  background: rgba(255, 255, 255, 0.86);
+  border-bottom: 1px solid #e0e8ff;
+  flex-shrink: 0;
+}
+
+.kbPageTitle {
+  color: #1a2650;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.kbPageHint {
+  margin-top: 3px;
+  color: #52678f;
+  font-size: 12px;
+}
+
+.kbToolbarControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.modeToggle {
+  border: 1px solid #c5d5f5;
+  border-radius: 999px;
+  background: #f5f8ff;
+  color: #2d4a88;
+  cursor: pointer;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.modeToggleActive {
+  border-color: #66c98c;
+  background: #e9fbef;
+  color: #176b39;
+}
+
+.scoreControl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #52678f;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.scoreControl input {
+  width: 120px;
+  accent-color: #2d4eaa;
+}
+
 .noKbSelected {
   flex: 1;
   display: flex;

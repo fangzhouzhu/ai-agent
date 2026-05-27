@@ -41,21 +41,6 @@
   -webkit-app-region: no-drag;
 }
 
-.modelBadge {
-  font-size: 11px;
-  color: #475b92;
-  background: rgba(243, 247, 255, 0.95);
-  border: 1px solid rgba(174, 190, 238, 0.45);
-  border-radius: 999px;
-  padding: 7px 12px;
-  -webkit-app-region: no-drag;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 320px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
 .modalOverlay {
   position: fixed;
   inset: 0;
@@ -104,12 +89,26 @@
 }
 
 .modalClose {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   border: none;
+  border-radius: 10px;
   background: transparent;
   color: #6a7890;
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
+  position: relative;
+  z-index: 2;
+}
+
+.modalClose:hover {
+  background: #eef3ff;
+  color: #1a2650;
 }
 
 .modalTabs {
