@@ -319,6 +319,7 @@ const ToolProcessPanel: React.FC<{
   scene?: string
 }> = ({ toolCalls, toolResults, isStreaming, scene }) => {
   const [expanded, setExpanded] = React.useState(isStreaming)
+  const isKnowledgeScene = scene === 'RAG' || scene === '知识库增强'
 
   useEffect(() => {
     if (isStreaming) {
@@ -332,8 +333,8 @@ const ToolProcessPanel: React.FC<{
     const analysisSummary =
       scene === '复杂任务'
         ? '正在分步骤分析问题，并判断是否需要调用工具辅助完成。'
-        : scene === 'RAG'
-          ? '正在结合已上传文档进行检索与整理。'
+        : isKnowledgeScene
+          ? '正在结合知识库内容进行检索与整理。'
           : '已判断当前问题需要借助工具来获取更可靠的信息。'
 
     const traceSteps: ToolTraceStep[] = [
@@ -348,12 +349,12 @@ const ToolProcessPanel: React.FC<{
     if (toolCalls.length === 0) {
       traceSteps.push({
         id: 'thinking',
-        title: scene === 'RAG' ? '检索上下文' : '思考处理中',
+        title: isKnowledgeScene ? '检索上下文' : '思考处理中',
         summary: isStreaming
-          ? scene === 'RAG'
+          ? isKnowledgeScene
             ? '正在检索相关片段并组织回答…'
             : '正在理解问题并规划处理步骤…'
-          : scene === 'RAG'
+          : isKnowledgeScene
             ? '已完成上下文整理。'
             : '已完成问题分析。',
         status: isStreaming ? 'running' : 'done',
@@ -396,7 +397,7 @@ const ToolProcessPanel: React.FC<{
     })
 
     return traceSteps
-  }, [toolCalls, toolResults, isStreaming])
+  }, [toolCalls, toolResults, isStreaming, isKnowledgeScene])
 
   return (
     <div className={styles.processPanel}>
@@ -615,7 +616,7 @@ const MessageBubble: React.FC<Props> = ({
   const shouldShowProcessPanel =
     !isUser &&
     ((message.toolCalls?.length ?? 0) > 0 ||
-      ['Agent/工具', '复杂任务', 'RAG'].includes(message.modelInfo?.scene ?? ''))
+      ['Agent/工具', '复杂任务', 'RAG', '知识库增强'].includes(message.modelInfo?.scene ?? ''))
   const displayContent = isUser ? message.content : sanitizeAssistantDisplayContent(message.content)
 
   return (

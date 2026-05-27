@@ -118,6 +118,39 @@ function shouldUseAdvancedModel(message: string): boolean {
   );
 }
 
+function isCasualChat(message: string): boolean {
+  const compact = message.trim().toLowerCase();
+  return /^(你好|您好|嗨|hi|hello|在吗|早上好|下午好|晚上好|谢谢|好的|ok|嗯|好)$/i.test(
+    compact,
+  );
+}
+
+function shouldUseKnowledgeBase(message: string): boolean {
+  const text = message.trim().toLowerCase();
+  if (!text || isCasualChat(text)) return false;
+
+  const kbIntentRegex =
+    /(知识库|文档|文件|资料|材料|原文|上下文|根据|依据|上传|检索|查找|总结|概括|摘要|讲了什么|说了什么|主要内容|出处|来源|引用|pdf|word|docx|txt|表格|合同|手册|报告|政策|说明书)/i;
+
+  return kbIntentRegex.test(text);
+}
+
+function getReadableError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err || "未知错误");
+}
+
+function buildKnowledgeBaseFailureMessage(err: unknown): string {
+  const reason = getReadableError(err);
+  return [
+    "知识库检索已经触发，但模型服务没有成功返回回答。",
+    "",
+    `失败原因：${reason}`,
+    "",
+    "你可以检查当前模型/API 是否可用，或切换到本地 Ollama 模型后重试。",
+  ].join("\n");
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -187,7 +220,8 @@ ipcMain.handle(
 
     try {
       const useFileRag = Array.isArray(fileIds) && fileIds.length > 0;
-      const useKbRag = Array.isArray(kbIds) && kbIds.length > 0;
+      const hasSelectedKbs = Array.isArray(kbIds) && kbIds.length > 0;
+      const useKbRag = hasSelectedKbs && shouldUseKnowledgeBase(message);
       const useRag = useFileRag || useKbRag;
       const matchedSkill = matchSkillForInput(message, getSkills());
       const preferredScene = matchedSkill?.skill.preferredScene ?? "auto";
@@ -235,11 +269,56 @@ ipcMain.handle(
       }
 
       const effectiveHistory = useRealtimeTool ? [] : history;
+      const runFallbackChat = async (reason: string) => {
+        const fallbackModelInfo = {
+          model: describeRouteModel(
+            fallbackUseTools || fallbackUseAdvanced ? "agent" : "chat",
+          ),
+          scene: fallbackUseTools
+            ? `Agent/工具（${reason}）`
+            : fallbackUseAdvanced
+              ? `复杂任务（${reason}）`
+              : `普通对话（${reason}）`,
+          skill: matchedSkill?.skill.name,
+        };
+        webContents.send("chat:model-info", fallbackModelInfo);
+
+        if (fallbackUseTools) {
+          await chatWithAgent(
+            fallbackRealtimeTool ? [] : history,
+            message,
+            (token) => {
+              webContents.send("chat:token", token);
+            },
+            (toolName, input) => {
+              webContents.send("chat:tool-call", { toolName, input });
+            },
+            (toolName, result) => {
+              webContents.send("chat:tool-result", { toolName, result });
+            },
+            signal,
+            matchedSkill?.skill,
+          );
+          return;
+        }
+
+        await chatStream(
+          fallbackRealtimeTool ? [] : history,
+          message,
+          (token) => {
+            webContents.send("chat:token", token);
+          },
+          signal,
+          fallbackUseAdvanced ? getAgentModel() : getChatModel(),
+          fallbackUseAdvanced ? getAgentProvider() : getChatProvider(),
+          matchedSkill?.skill,
+        );
+      };
 
       const modelInfo = useRag
         ? {
             model: describeRouteModel("rag"),
-            scene: "RAG",
+            scene: useKbRag ? "知识库增强" : "RAG",
             skill: matchedSkill?.skill.name,
           }
         : useTools
@@ -273,47 +352,14 @@ ipcMain.handle(
             getModelSettings().kbMinScore ?? 0.6,
           );
 
-          // 非严格模式下，若知识库无相关内容则回退：按原始意图路由（agent / 复杂任务 / 普通对话）
-          if (chunks.length === 0 && ragOnly === false) {
-            const fallbackModelInfo = {
-              model: describeRouteModel(
-                fallbackUseTools || fallbackUseAdvanced ? "agent" : "chat",
-              ),
-              scene: fallbackUseTools
-                ? "Agent/工具（知识库无结果）"
-                : fallbackUseAdvanced
-                  ? "复杂任务（知识库无结果）"
-                  : "普通对话（知识库无结果）",
-              skill: matchedSkill?.skill.name,
-            };
-            webContents.send("chat:model-info", fallbackModelInfo);
-            if (fallbackUseTools) {
-              await chatWithAgent(
-                fallbackRealtimeTool ? [] : history,
-                message,
-                (token) => {
-                  webContents.send("chat:token", token);
-                },
-                (toolName, input) => {
-                  webContents.send("chat:tool-call", { toolName, input });
-                },
-                (toolName, result) => {
-                  webContents.send("chat:tool-result", { toolName, result });
-                },
-                signal,
-                matchedSkill?.skill,
-              );
+          // 没有命中时不要再把空上下文交给模型，避免看起来“命中了 RAG 但没有回答”。
+          if (chunks.length === 0) {
+            if (ragOnly === false) {
+              await runFallbackChat("知识库无结果");
             } else {
-              await chatStream(
-                fallbackRealtimeTool ? [] : history,
-                message,
-                (token) => {
-                  webContents.send("chat:token", token);
-                },
-                signal,
-                fallbackUseAdvanced ? getAgentModel() : getChatModel(),
-                fallbackUseAdvanced ? getAgentProvider() : getChatProvider(),
-                matchedSkill?.skill,
+              webContents.send(
+                "chat:token",
+                "没有在选中的知识库中找到足够相关的内容。你可以降低相关度阈值、换一种问法，或切换为“知识库优先”让模型在无结果时继续普通回答。",
               );
             }
           } else {
@@ -326,17 +372,35 @@ ipcMain.handle(
             const augmentedUserMessage = `请根据以下知识库内容回答问题。\n\n知识库内容：\n${context}\n\n---\n\n问题：${message}`;
             // 上下文已内嵌在用户消息中，直接用 chatStream 配合 RAG 模型，
             // 避免 chatWithRag 内部用空 fileIds 再次检索导致“当前没有激活的文档”
-            await chatStream(
-              effectiveHistory,
-              augmentedUserMessage,
-              (token) => {
-                webContents.send("chat:token", token);
-              },
-              signal,
-              getRagModel(),
-              getRagProvider(),
-              matchedSkill?.skill,
-            );
+            try {
+              await chatStream(
+                effectiveHistory,
+                augmentedUserMessage,
+                (token) => {
+                  webContents.send("chat:token", token);
+                },
+                signal,
+                getRagModel(),
+                getRagProvider(),
+                matchedSkill?.skill,
+              );
+            } catch (ragErr) {
+              if (ragOnly === false) {
+                try {
+                  await runFallbackChat("知识库回答失败，已回退");
+                } catch {
+                  webContents.send(
+                    "chat:token",
+                    buildKnowledgeBaseFailureMessage(ragErr),
+                  );
+                }
+              } else {
+                webContents.send(
+                  "chat:token",
+                  buildKnowledgeBaseFailureMessage(ragErr),
+                );
+              }
+            }
           }
         } else {
           await chatWithRag(

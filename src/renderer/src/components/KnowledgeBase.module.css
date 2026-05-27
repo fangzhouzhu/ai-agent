@@ -8,7 +8,9 @@
 .leftPanel {
   width: 220px;
   min-width: 180px;
-  background: #2d4eaa;
+  background:
+    radial-gradient(circle at top left, rgba(125, 255, 153, 0.12), transparent 28%),
+    linear-gradient(180deg, #17307d 0%, #21459f 52%, #19367f 100%);
   display: flex;
   flex-direction: column;
   border-right: 1px solid rgba(255, 255, 255, 0.1);
@@ -122,26 +124,26 @@
 }
 
 .emptyHint {
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 12px;
+  color: rgba(235, 244, 255, 0.74);
+  font-size: 12.5px;
   text-align: center;
   padding: 20px 12px;
 }
 
 .kbItem {
-  padding: 10px 12px 8px;
+  padding: 11px 12px 9px;
   cursor: pointer;
   border-left: 3px solid transparent;
   transition: background 0.15s;
 }
 
 .kbItem:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.11);
 }
 
 .kbItemActive {
-  background: rgba(255, 255, 255, 0.13);
-  border-left-color: #fff;
+  background: linear-gradient(90deg, rgba(125, 255, 153, 0.16), rgba(255, 255, 255, 0.08));
+  border-left-color: #7dff99;
 }
 
 .kbItemTop {
@@ -157,7 +159,7 @@
 
 .kbName {
   flex: 1;
-  font-size: 13px;
+  font-size: 13.5px;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
@@ -285,18 +287,18 @@
 }
 
 .kbStats {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 11.5px;
+  color: rgba(235, 244, 255, 0.66);
   margin-top: 3px;
   padding-left: 22px;
 }
 
 .activeNotice {
-  padding: 8px 12px;
-  font-size: 11px;
-  color: #7dff99;
-  background: rgba(125, 255, 153, 0.1);
-  border-top: 1px solid rgba(125, 255, 153, 0.2);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #ecfff1;
+  background: rgba(54, 156, 84, 0.24);
+  border-top: 1px solid rgba(125, 255, 153, 0.28);
   text-align: center;
 }
 
@@ -306,7 +308,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #f0f4ff;
+  background:
+    radial-gradient(circle at top right, rgba(74, 124, 240, 0.08), transparent 24%),
+    #f4f7ff;
 }
 
 .noKbSelected {
@@ -316,7 +320,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: #8b9dc3;
+  color: #52678f;
 }
 
 .noKbIcon {
@@ -333,7 +337,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.86);
   border-bottom: 1px solid #e0e8ff;
   gap: 12px;
 }
@@ -345,7 +349,7 @@
 }
 
 .rightTitle > span:first-child {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: #2d4eaa;
 }
@@ -353,7 +357,7 @@
 .rightDesc {
   font-size: 12px !important;
   font-weight: 400 !important;
-  color: #8b9dc3 !important;
+  color: #52678f !important;
 }
 
 .addFileBtn {
@@ -395,13 +399,13 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: #8b9dc3;
+  color: #52678f;
   font-size: 14px;
 }
 
 .emptyDocsHint {
-  font-size: 12px;
-  color: #b0bec5;
+  font-size: 12.5px;
+  color: #6d7fa2;
 }
 
 /* Document table */
@@ -419,7 +423,7 @@
   grid-template-columns: 1fr 70px 60px 120px 100px 64px;
   padding: 6px 10px;
   font-size: 11px;
-  color: #8b9dc3;
+  color: #52678f;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -434,14 +438,15 @@
   border-radius: 8px;
   align-items: center;
   font-size: 13px;
-  color: #3a4a6b;
+  color: #26395f;
   border: 1px solid transparent;
   transition: background 0.12s;
 }
 
 .docRow:hover {
-  background: #e8f0ff;
-  border-color: #dce8ff;
+  background: #ffffff;
+  border-color: #c9dcff;
+  box-shadow: 0 8px 20px rgba(45, 78, 170, 0.08);
 }
 
 .colName {
@@ -466,8 +471,8 @@
 }
 
 .statusBadge {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 700;
 }
 
 .progressBar {
@@ -486,7 +491,7 @@
 
 .colDate {
   font-size: 11px;
-  color: #8b9dc3;
+  color: #60749c;
 }
 
 .colActions {

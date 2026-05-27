@@ -111,13 +111,15 @@ const Sidebar: React.FC<Props> = ({
 
       {currentView === 'kb' && (
         <div className={styles.kbViewArea}>
-          <div className={styles.kbViewHint}>在右侧管理知识库，勾选后即可在聊天中参与检索。</div>
+          <div className={styles.kbViewHint}>
+            勾选知识库后，只有明确询问文档、资料或知识库内容时才会检索；普通寒暄会继续走正常聊天。
+          </div>
 
           <div className={styles.ragModeRow}>
             <div className={styles.ragModeInfo}>
               <span className={styles.ragModeLabel}>{ragOnly ? '仅限知识库' : '知识库优先'}</span>
               <span className={styles.ragModeDesc}>
-                {ragOnly ? '选中知识库后，仅根据知识库内容回答。' : '知识库没有结果时，再交给模型自由回答。'}
+                {ragOnly ? '检索无结果时会直接提示未命中。' : '检索无结果或回答失败时，会回退普通回答。'}
               </span>
             </div>
             <button

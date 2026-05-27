@@ -70,6 +70,10 @@ function saveTasks(): void {
   }
 }
 
+function isTaskCancelled(task: Task): boolean {
+  return task.status === "cancelled";
+}
+
 function loadTasks(): void {
   try {
     const file = getTasksFile();
@@ -316,7 +320,7 @@ async function runTask(task: Task): Promise<void> {
 
     task.status = "completed";
   } catch (err: any) {
-    if (task.status === "cancelled") return;
+    if (isTaskCancelled(task)) return;
     task.status = "failed";
     addStep(task, {
       type: "error",
@@ -396,7 +400,7 @@ async function runTaskWithOpenAI(
 
   for (let round = 0; round < 20; round++) {
     await waitIfPaused(task);
-    if (task.status === "cancelled") return;
+    if (isTaskCancelled(task)) return;
     if (toolCallCount >= MAX_TOOL_CALLS) {
       addStep(task, {
         type: "thinking",
@@ -450,7 +454,7 @@ async function runTaskWithOpenAI(
 
       for (const toolCall of response.toolCalls) {
         await waitIfPaused(task);
-        if (task.status === "cancelled") return;
+        if (isTaskCancelled(task)) return;
 
         const toolName = toolCall.function.name;
         let args: Record<string, unknown>;

@@ -254,39 +254,6 @@ const InputBar: React.FC<Props> = ({
   return (
     <div className={styles.container}>
       <div className={styles.inner}>
-        <div className={styles.toolbar}>
-          <div className={styles.toolbarLeft}>
-            <button
-              className={styles.uploadBtn}
-              onClick={() => void onPickFiles()}
-              disabled={isBusy}
-              title="上传文档用于 RAG 分析"
-            >
-              上传文档
-            </button>
-
-            <select
-              className={styles.modelSelect}
-              value={currentValue}
-              onChange={(e) => void handleModelChange(e.target.value)}
-              disabled={normalizedOptions.length === 0}
-              title="发送消息时所有场景统一生效"
-            >
-              {normalizedOptions.length === 0 ? (
-                <option value="">未检测到可用模型</option>
-              ) : (
-                normalizedOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-
-          <span className={styles.hint}>Enter 发送，Shift+Enter 换行</span>
-        </div>
-
         {(isRagProcessing || ragFiles.length > 0) && (
           <div className={styles.fileList}>
             {isRagProcessing && (
@@ -312,7 +279,7 @@ const InputBar: React.FC<Props> = ({
           </div>
         )}
 
-        <div className={styles.inputRow}>
+        <div className={styles.composer}>
           <textarea
             ref={textareaRef}
             className={styles.textarea}
@@ -323,24 +290,59 @@ const InputBar: React.FC<Props> = ({
             spellCheck={false}
             rows={1}
           />
-          {isLoading ? (
-            <button className={styles.stopBtn} onClick={onAbort} title="停止生成">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              className={styles.sendBtn}
-              onClick={handleSend}
-              disabled={!input.trim() || isBusy}
-              title="发送消息"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
-            </button>
-          )}
+
+          <div className={styles.composerFooter}>
+            <div className={styles.footerControls}>
+              <button
+                className={styles.uploadBtn}
+                onClick={() => void onPickFiles()}
+                disabled={isBusy}
+                title="上传文档用于 RAG 分析"
+              >
+                上传文档
+              </button>
+
+              <select
+                className={styles.modelSelect}
+                value={currentValue}
+                onChange={(e) => void handleModelChange(e.target.value)}
+                disabled={normalizedOptions.length === 0}
+                title="发送消息时所有场景统一生效"
+              >
+                {normalizedOptions.length === 0 ? (
+                  <option value="">未检测到可用模型</option>
+                ) : (
+                  normalizedOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div className={styles.footerActions}>
+              <span className={styles.hint}>Enter 发送，Shift+Enter 换行</span>
+              {isLoading ? (
+                <button className={styles.stopBtn} onClick={onAbort} title="停止生成">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  className={styles.sendBtn}
+                  onClick={handleSend}
+                  disabled={!input.trim() || isBusy}
+                  title="发送消息"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
