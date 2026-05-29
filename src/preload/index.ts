@@ -20,6 +20,7 @@ export type StoredMessage = {
   toolResults?: { toolName: string; result: string }[];
   modelInfo?: { model: string; scene: string };
   ragContextId?: string;
+  durationMs?: number;
   isError?: boolean;
 };
 

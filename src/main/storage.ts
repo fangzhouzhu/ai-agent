@@ -34,6 +34,7 @@ export interface StoredMessage {
   toolResults?: { toolName: string; result: string }[];
   modelInfo?: { model: string; scene: string; skill?: string };
   ragContextId?: string;
+  durationMs?: number;
   isError?: boolean;
 }
 

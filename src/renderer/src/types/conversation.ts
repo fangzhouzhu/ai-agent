@@ -14,6 +14,7 @@ export interface Message {
   toolResults?: { toolName: string; result: string }[];
   modelInfo?: MessageModelInfo;
   ragContextId?: string;
+  durationMs?: number;
   isStreaming?: boolean;
   isError?: boolean;
 }
@@ -71,6 +72,7 @@ export function toStoredMessage(m: Message) {
     toolResults: m.toolResults,
     modelInfo: m.modelInfo,
     ragContextId: m.ragContextId,
+    durationMs: m.durationMs,
     isError: m.isError,
   };
 }

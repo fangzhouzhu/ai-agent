@@ -1011,6 +1011,7 @@ const App: React.FC = () => {
       }))
 
       const aiMsgId = uuidv4()
+      const responseStartedAt = Date.now()
       const nextAiMsg: Message = {
         id: aiMsgId,
         role: 'assistant',
@@ -1096,13 +1097,14 @@ const App: React.FC = () => {
 
       const finalize = (errorUpdate?: Partial<Message>) => {
         flushAllQueuedTokens(activeId, aiMsgId)
+        const durationMs = Math.max(0, Date.now() - responseStartedAt)
         setConversations((prev) => {
           const updated = prev.map((c) =>
             c.id === activeId
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
-                    m.id === aiMsgId ? { ...m, isStreaming: false, ...errorUpdate } : m
+                    m.id === aiMsgId ? { ...m, isStreaming: false, durationMs, ...errorUpdate } : m
                   ),
                   updatedAt: Date.now(),
                 }
@@ -1166,6 +1168,7 @@ const App: React.FC = () => {
         ragContextId: activeRagContextId,
       }
       const aiMsgId = uuidv4()
+      const responseStartedAt = Date.now()
       const aiMsg: Message = {
         id: aiMsgId,
         role: 'assistant',
@@ -1263,13 +1266,14 @@ const App: React.FC = () => {
 
       const finalize = (errorUpdate?: Partial<Message>) => {
         flushAllQueuedTokens(convId, aiMsgId)
+        const durationMs = Math.max(0, Date.now() - responseStartedAt)
         setConversations((prev) => {
           const updated = prev.map((c) =>
             c.id === convId
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
-                    m.id === aiMsgId ? { ...m, isStreaming: false, ...errorUpdate } : m
+                    m.id === aiMsgId ? { ...m, isStreaming: false, durationMs, ...errorUpdate } : m
                   ),
                   updatedAt: Date.now(),
                 }

@@ -395,7 +395,10 @@ function coerceInlineArgumentValue(rawValue: string): unknown {
   }
 }
 
-function parseInlineTaggedToolCalls(content: string): {
+function parseInlineTaggedToolCalls(
+  content: string,
+  options: { preserveThink?: boolean } = {},
+): {
   sanitizedContent: string;
   toolCalls: CompatibleToolCall[];
 } {
@@ -436,8 +439,11 @@ function parseInlineTaggedToolCalls(content: string): {
     })
     .filter((item): item is CompatibleToolCall => Boolean(item));
 
-  const sanitizedContent = content
-    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+  const contentWithThoughts = options.preserveThink
+    ? content
+    : content.replace(/<think>[\s\S]*?<\/think>/gi, " ");
+
+  const sanitizedContent = contentWithThoughts
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -629,6 +635,18 @@ export async function streamOpenAICompatibleChat(options: {
   let buffer = "";
   let rawResponse = "";
   let emittedSanitizedContent = "";
+  let reasoningOpen = false;
+
+  const emitAvailableContent = () => {
+    const sanitized = parseInlineTaggedToolCalls(rawResponse, {
+      preserveThink: true,
+    }).sanitizedContent;
+    const nextChunk = sanitized.slice(emittedSanitizedContent.length);
+    emittedSanitizedContent = sanitized;
+    if (nextChunk) {
+      onToken(nextChunk);
+    }
+  };
 
   while (true) {
     signal?.throwIfAborted();
@@ -647,7 +665,14 @@ export async function streamOpenAICompatibleChat(options: {
 
         const payload = trimmed.slice(5).trim();
         if (!payload) continue;
-        if (payload === "[DONE]") return emittedSanitizedContent;
+        if (payload === "[DONE]") {
+          if (reasoningOpen) {
+            rawResponse += "\n</think>\n";
+            reasoningOpen = false;
+            emitAvailableContent();
+          }
+          return emittedSanitizedContent;
+        }
 
         try {
           const data = JSON.parse(payload) as {
@@ -659,22 +684,36 @@ export async function streamOpenAICompatibleChat(options: {
             }>;
           };
           const delta = data.choices?.[0]?.delta;
+          const reasoning = delta?.reasoning_content || "";
           const token = delta?.content || "";
-          if (token) {
-            rawResponse += token;
-            const sanitized =
-              parseInlineTaggedToolCalls(rawResponse).sanitizedContent;
-            const nextChunk = sanitized.slice(emittedSanitizedContent.length);
-            emittedSanitizedContent = sanitized;
-            if (nextChunk) {
-              onToken(nextChunk);
+          if (reasoning) {
+            if (!reasoningOpen) {
+              rawResponse += "<think>\n";
+              reasoningOpen = true;
             }
+            rawResponse += reasoning;
+          }
+          if (token) {
+            if (reasoningOpen) {
+              rawResponse += "\n</think>\n";
+              reasoningOpen = false;
+            }
+            rawResponse += token;
+          }
+          if (reasoning || token) {
+            emitAvailableContent();
           }
         } catch {
           // 忽略非 JSON 心跳包
         }
       }
     }
+  }
+
+  if (reasoningOpen) {
+    rawResponse += "\n</think>\n";
+    reasoningOpen = false;
+    emitAvailableContent();
   }
 
   return emittedSanitizedContent;

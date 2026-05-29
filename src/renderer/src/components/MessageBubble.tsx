@@ -39,6 +39,10 @@ type ToolTraceStep = {
   summary: string
   status: 'done' | 'running'
 }
+type AssistantContentParts = {
+  answer: string
+  thought: string
+}
 
 function parseDetailLines(text: string): DetailItem[] {
   return text
@@ -110,14 +114,190 @@ function summarizeResult(result?: string): string {
   return summary.length > 90 ? `${summary.slice(0, 90)}…` : summary
 }
 
-function sanitizeAssistantDisplayContent(text: string): string {
+function stripToolMarkup(text: string): string {
   return text
-    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, ' ')
     .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/gi, ' ')
     .replace(/<arg_key>[\s\S]*?(?:<\/arg_key>|$)/gi, ' ')
     .replace(/<arg_value>[\s\S]*?(?:<\/arg_value>|$)/gi, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+function findLikelyAnswerStart(text: string): number | null {
+  let previousLineWasBlank = false
+  let sawFinalizeCue = false
+  let offset = 0
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) {
+      previousLineWasBlank = true
+      offset += rawLine.length + 1
+      continue
+    }
+
+    if (/(?:let'?s|lets)\s+finalize|final\s+(?:answer|response|version)|最终答案|最终回答/i.test(line)) {
+      sawFinalizeCue = true
+      previousLineWasBlank = true
+      offset += rawLine.length + 1
+      continue
+    }
+
+    const looksLikeChineseAnswer =
+      /[\u4e00-\u9fff]/.test(line) &&
+      !/^[-*•\d.)]/.test(line) &&
+      !/(?:user|constraint|format|prompt|instruction|analy[sz]e|determine|checking|用户|约束|格式|提示词)/i.test(line)
+
+    if ((previousLineWasBlank || sawFinalizeCue) && looksLikeChineseAnswer) {
+      return offset + rawLine.search(/\S/)
+    }
+
+    previousLineWasBlank = false
+    offset += rawLine.length + 1
+  }
+
+  return null
+}
+
+function isLikelyThoughtLeakLine(line: string): boolean {
+  return /^(?:[*_`>\s-]*)?(?:wait\b|okay\b|actually\b|let'?s\b|lets\b|check\b|checking\b|revised draft\b|draft\b|final output generation\b|no latex\b)/i.test(line) ||
+    /(?:system prompt|instruction|constraint|format|markdown|current time|reveal specific model identity)/i.test(line)
+}
+
+function findTrailingThoughtStart(text: string): number | null {
+  const lines = text.split(/\r?\n/)
+  let offset = 0
+  let sawAnswerContent = false
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index]
+    const line = rawLine.trim()
+
+    if (!line) {
+      offset += rawLine.length + 1
+      continue
+    }
+
+    if (sawAnswerContent) {
+      const codeBlockLooksLikeThought =
+        /^```/.test(line) &&
+        lines
+          .slice(index + 1, index + 8)
+          .some((nextLine) => isLikelyThoughtLeakLine(nextLine.trim()))
+
+      if (isLikelyThoughtLeakLine(line) || codeBlockLooksLikeThought) {
+        return offset + rawLine.search(/\S/)
+      }
+    }
+
+    if (/[\u4e00-\u9fff]/.test(line) && !isLikelyThoughtLeakLine(line)) {
+      sawAnswerContent = true
+    }
+
+    offset += rawLine.length + 1
+  }
+
+  return null
+}
+
+function splitTrailingThoughtContent(text: string): AssistantContentParts {
+  const trailingThoughtStart = findTrailingThoughtStart(text)
+  if (trailingThoughtStart !== null && trailingThoughtStart > 0) {
+    return {
+      answer: text.slice(0, trailingThoughtStart).trim(),
+      thought: text.slice(trailingThoughtStart).trim(),
+    }
+  }
+
+  return { answer: text.trim(), thought: '' }
+}
+
+function splitPlainThoughtContent(text: string): AssistantContentParts | null {
+  const trimmed = text.trim()
+  if (!/^(?:#{1,6}\s*)?(?:thinking process|thought process|reasoning process|思考过程|推理过程)\s*[:：]?/i.test(trimmed)) {
+    return null
+  }
+
+  const answerMarkers = [
+    /\n\s*(?:#{1,6}\s*)?(?:final answer|final response|answer|最终答案|最终回答|正式回答|直接回答)\s*[:：]\s*/i,
+    /\n\s*(?:\*\*)?(?:final answer|final response|最终答案|最终回答)(?:\*\*)?\s*[:：]?\s*/i,
+    /\n\s*(?:let'?s|lets)\s+finalize(?:\s+the\s+(?:text|answer|response))?\.?\s*/i,
+    /\n\s*(?:okay,\s*)?(?:final|final version|final response)\s*[:：.]?\s*/i,
+    /\n\s*(?:draft\s*\d+)\s*[:：.]?\s*/i,
+  ]
+  const marker = answerMarkers
+    .map((pattern) => {
+      const match = pattern.exec(trimmed)
+      return match ? { index: match.index, end: match.index + match[0].length } : null
+    })
+    .filter((item): item is { index: number; end: number } => item !== null)
+    .sort((a, b) => a.index - b.index)[0]
+
+  if (!marker) {
+    const likelyAnswerStart = findLikelyAnswerStart(trimmed)
+    if (likelyAnswerStart !== null && likelyAnswerStart > 0) {
+      return {
+        thought: trimmed.slice(0, likelyAnswerStart).trim(),
+        answer: trimmed.slice(likelyAnswerStart).trim(),
+      }
+    }
+
+    return { thought: trimmed, answer: '' }
+  }
+
+  return {
+    thought: trimmed.slice(0, marker.index).trim(),
+    answer: trimmed.slice(marker.end).trim(),
+  }
+}
+
+function splitAssistantDisplayContent(text: string): AssistantContentParts {
+  const thoughts: string[] = []
+  const withoutTaggedThought = text.replace(/<think>([\s\S]*?)(?:<\/think>|$)/gi, (_, thought) => {
+    const cleanThought = String(thought ?? '').trim()
+    if (cleanThought) thoughts.push(cleanThought)
+    return ' '
+  })
+
+  const plainContent = stripToolMarkup(withoutTaggedThought)
+  const likelyAnswerStart = findLikelyAnswerStart(plainContent)
+  if (likelyAnswerStart !== null && likelyAnswerStart > 0) {
+    const leakedThought = plainContent.slice(0, likelyAnswerStart).trim()
+    if (leakedThought) thoughts.push(leakedThought)
+    const answerParts = splitTrailingThoughtContent(plainContent.slice(likelyAnswerStart))
+    if (answerParts.thought) thoughts.push(answerParts.thought)
+    return {
+      thought: thoughts.join('\n\n'),
+      answer: answerParts.answer,
+    }
+  }
+
+  const plainThought = splitPlainThoughtContent(plainContent)
+  if (plainThought) {
+    if (plainThought.thought) thoughts.push(plainThought.thought)
+    const answerParts = splitTrailingThoughtContent(plainThought.answer)
+    if (answerParts.thought) thoughts.push(answerParts.thought)
+    return {
+      thought: thoughts.join('\n\n'),
+      answer: answerParts.answer,
+    }
+  }
+
+  const answerParts = splitTrailingThoughtContent(plainContent)
+  if (answerParts.thought) thoughts.push(answerParts.thought)
+  return {
+    thought: thoughts.join('\n\n'),
+    answer: answerParts.answer,
+  }
+}
+
+function formatThoughtDuration(durationMs?: number): string {
+  if (durationMs === undefined) return ''
+
+  const seconds = durationMs / 1000
+  if (seconds < 1) return `${Math.max(0.1, seconds).toFixed(1)} 秒`
+  if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, '')} 秒`
+  return `${Math.round(seconds)} 秒`
 }
 
 function renderResultPreview(toolName: string, result: string) {
@@ -307,6 +487,41 @@ const ToolCallBadge: React.FC<{ toolName: string; input: unknown; result?: strin
           <span className={styles.toolLabel}>结果</span>
           {renderResultPreview(toolName, result)}
         </div>
+      )}
+    </div>
+  )
+}
+
+const ThoughtPanel: React.FC<{
+  thought: string
+  isStreaming?: boolean
+  durationMs?: number
+}> = ({ thought, isStreaming, durationMs }) => {
+  const [expanded, setExpanded] = React.useState(false)
+  const canExpand = thought.trim().length > 0
+  const durationText = formatThoughtDuration(durationMs)
+  const title = isStreaming
+    ? '正在思考'
+    : durationText
+      ? `思考了 ${durationText}`
+      : '已完成思考'
+
+  return (
+    <div className={styles.thoughtPanel}>
+      <button
+        type="button"
+        className={styles.thoughtHeader}
+        onClick={() => canExpand && setExpanded((prev) => !prev)}
+        disabled={!canExpand}
+        aria-expanded={expanded}
+        title={canExpand ? (expanded ? '收起思考过程' : '展开思考过程') : title}
+      >
+        <span className={styles.thoughtChevron}>{canExpand ? (expanded ? 'v' : '>') : ''}</span>
+        <span>{title}</span>
+      </button>
+
+      {canExpand && expanded && (
+        <pre className={styles.thoughtBody}>{thought}</pre>
       )}
     </div>
   )
@@ -617,7 +832,11 @@ const MessageBubble: React.FC<Props> = ({
     !isUser &&
     ((message.toolCalls?.length ?? 0) > 0 ||
       ['Agent/工具', '复杂任务', 'RAG', '知识库增强'].includes(message.modelInfo?.scene ?? ''))
-  const displayContent = isUser ? message.content : sanitizeAssistantDisplayContent(message.content)
+  const assistantContentParts = splitAssistantDisplayContent(message.content)
+  const displayContent = isUser ? message.content : assistantContentParts.answer
+  const thoughtContent = isUser ? '' : assistantContentParts.thought
+  const shouldShowThoughtPanel =
+    !isUser && (Boolean(thoughtContent) || Boolean(message.isStreaming) || message.durationMs !== undefined)
 
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
@@ -627,6 +846,14 @@ const MessageBubble: React.FC<Props> = ({
       </div>
 
       <div className={styles.content}>
+        {shouldShowThoughtPanel && (
+          <ThoughtPanel
+            thought={thoughtContent}
+            isStreaming={message.isStreaming}
+            durationMs={message.durationMs}
+          />
+        )}
+
         {/* 工具执行过程 */}
         {shouldShowProcessPanel && (
           <ToolProcessPanel
