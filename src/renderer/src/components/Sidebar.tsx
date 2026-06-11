@@ -42,17 +42,15 @@ const Sidebar: React.FC<Props> = ({
     <aside className={styles.sidebar}>
       <div className={styles.header}>
         <button className={styles.brandBtn} onClick={() => onViewChange('chat')}>
+          <span className={styles.logoMark} aria-hidden="true" />
           <span className={styles.logo}>Centibot</span>
-        </button>
-        <button className={styles.collapseBtn} title="侧栏">
-          ⌘
         </button>
       </div>
 
       <div className={styles.scrollArea}>
         <nav className={styles.primaryNav}>
-          <button className={styles.navItem} onClick={handleNewChat}>
-            <span className={styles.navIcon}>✎</span>
+          <button className={`${styles.navItem} ${styles.newChatBtn}`} onClick={handleNewChat}>
+            <span className={styles.navIcon}>＋</span>
             <span>新对话</span>
           </button>
           <button
@@ -62,7 +60,7 @@ const Sidebar: React.FC<Props> = ({
               onViewChange('kb')
             }}
           >
-            <span className={styles.navIcon}>▦</span>
+            <span className={styles.navIcon}>▣</span>
             <span>知识库</span>
             {selectedKbCount > 0 && <span className={styles.countBadge}>{selectedKbCount}</span>}
           </button>
@@ -92,6 +90,7 @@ const Sidebar: React.FC<Props> = ({
                   onClick={() => onSelect(conv.id)}
                   title={conv.title}
                 >
+                  <span className={styles.itemIcon}>☵</span>
                   <span className={styles.itemTitle}>{conv.title}</span>
                   <span
                     className={styles.deleteBtn}
@@ -100,6 +99,7 @@ const Sidebar: React.FC<Props> = ({
                       onDelete(conv.id)
                     }}
                     title="删除"
+                    aria-label="删除"
                   >
                     ×
                   </span>
@@ -114,9 +114,9 @@ const Sidebar: React.FC<Props> = ({
         <div className={styles.userAvatar}>C</div>
         <div className={styles.footerText}>
           <span>Centibot</span>
-          <small>本地 / 在线模型</small>
+          <small>专业 · 智能 · 高效</small>
         </div>
-        <button className={styles.settingsBtn} onClick={onOpenSettings} title="打开设置">
+        <button className={styles.settingsBtn} onClick={onOpenSettings} title="打开设置" aria-label="打开设置">
           ⚙
         </button>
       </div>

@@ -11,12 +11,13 @@ const TitleBar: React.FC = () => (
     top: 0,
     left: 0,
     right: 0,
-    height: '40px',
-    background: 'transparent',
+    height: '38px',
+    background: 'linear-gradient(180deg, rgba(244, 248, 255, 0.96), rgba(238, 244, 255, 0.84))',
     display: 'flex',
     alignItems: 'center',
     zIndex: 9999,
-    borderBottom: '1px solid #e6e6e6',
+    borderBottom: '1px solid rgba(207, 218, 247, 0.72)',
+    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.9)',
     WebkitAppRegion: 'drag' as any,
     userSelect: 'none',
   }}>
@@ -1422,22 +1423,35 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className={styles.modalTabs}>
-              <button
-                className={`${styles.modalTab} ${settingsTab === 'models' ? styles.modalTabActive : ''}`}
-                onClick={() => setSettingsTab('models')}
-              >
-                在线预设
-              </button>
-              <button
-                className={`${styles.modalTab} ${settingsTab === 'skills' ? styles.modalTabActive : ''}`}
-                onClick={() => setSettingsTab('skills')}
-              >
-                Skills 配置
-              </button>
-            </div>
+            <div className={styles.modalLayout}>
+              <aside className={styles.settingsSidebar}>
+                <div className={styles.settingsNavTitle}>设置菜单</div>
+                <button
+                  type="button"
+                  className={`${styles.settingsNavItem} ${settingsTab === 'models' ? styles.settingsNavItemActive : ''}`}
+                  onClick={() => setSettingsTab('models')}
+                >
+                  <span className={styles.settingsNavIcon}>◉</span>
+                  <span className={styles.settingsNavText}>
+                    <span>在线预设</span>
+                    <small>模型、API 与 RAG</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.settingsNavItem} ${settingsTab === 'skills' ? styles.settingsNavItemActive : ''}`}
+                  onClick={() => setSettingsTab('skills')}
+                >
+                  <span className={styles.settingsNavIcon}>✦</span>
+                  <span className={styles.settingsNavText}>
+                    <span>Skills 配置</span>
+                    <small>本地技能与提示词</small>
+                  </span>
+                </button>
+              </aside>
 
-            <div className={styles.modalBody}>
+              <div className={styles.modalContent}>
+                <div className={styles.modalBody}>
             {settingsTab === 'models' && (
               <>
             <div className={styles.modalSection}>
@@ -1880,18 +1894,20 @@ const App: React.FC = () => {
                 </div>
               </div>
             )}
-            </div>
+                </div>
 
-            <div className={styles.modalActions}>
-              <button className={styles.secondaryBtn} onClick={() => void refreshModelConfig()}>
-                刷新配置
-              </button>
-              <button className={styles.secondaryBtn} onClick={() => setShowModelConfig(false)}>
-                取消
-              </button>
-              <button className={styles.primaryBtn} onClick={() => void handleSaveModelConfig()}>
-                保存设置
-              </button>
+                <div className={styles.modalActions}>
+                  <button className={styles.secondaryBtn} onClick={() => void refreshModelConfig()}>
+                    刷新配置
+                  </button>
+                  <button className={styles.secondaryBtn} onClick={() => setShowModelConfig(false)}>
+                    取消
+                  </button>
+                  <button className={styles.primaryBtn} onClick={() => void handleSaveModelConfig()}>
+                    保存设置
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

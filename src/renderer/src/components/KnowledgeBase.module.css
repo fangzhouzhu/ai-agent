@@ -1,155 +1,151 @@
 .container {
+  position: relative;
+  z-index: 1;
   display: flex;
   height: 100%;
-  background: #f0f4ff;
+  background: transparent;
+  overflow: hidden;
 }
 
-/* ---- Left panel ---- */
 .leftPanel {
-  width: 220px;
-  min-width: 180px;
-  background:
-    radial-gradient(circle at top left, rgba(125, 255, 153, 0.12), transparent 28%),
-    linear-gradient(180deg, #17307d 0%, #21459f 52%, #19367f 100%);
+  width: 248px;
+  min-width: 220px;
+  background: rgba(255, 255, 255, 0.58);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(203, 216, 248, 0.78);
   flex-shrink: 0;
+  backdrop-filter: blur(18px);
 }
 
 .leftHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 14px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 18px 16px 12px;
+  border-bottom: 1px solid rgba(217, 226, 250, 0.74);
 }
 
 .leftTitle {
-  color: #fff;
-  font-weight: 600;
+  color: #102052;
+  font-weight: 850;
   font-size: 15px;
 }
 
 .addKbBtn {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  background: transparent;
+  border: none;
+  background: linear-gradient(135deg, #4d6bff, #20b7c7);
   color: #fff;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s;
+  box-shadow: 0 12px 22px rgba(54, 103, 226, 0.22);
 }
 
 .addKbBtn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
 }
 
-/* RAG mode toggle row */
-/* New KB form */
 .newKbForm {
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-bottom: 1px solid rgba(217, 226, 250, 0.74);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .newKbInput {
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 6px;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(183, 199, 241, 0.78);
+  border-radius: 10px;
+  color: #102052;
   font-size: 13px;
-  padding: 6px 10px;
+  padding: 8px 10px;
   outline: none;
   width: 100%;
-  box-sizing: border-box;
 }
 
 .newKbInput::placeholder {
-  color: rgba(255, 255, 255, 0.45);
+  color: #96a6c3;
 }
 
 .newKbInput:focus {
-  border-color: rgba(255, 255, 255, 0.6);
+  border-color: #5b7cff;
+  box-shadow: 0 0 0 3px rgba(91, 124, 255, 0.1);
 }
 
 .newKbActions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+}
+
+.confirmBtn,
+.cancelBtn {
+  flex: 1;
+  padding: 7px 0;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .confirmBtn {
-  flex: 1;
-  padding: 5px 0;
-  border-radius: 5px;
   border: none;
-  background: rgba(255, 255, 255, 0.9);
-  color: #2d4eaa;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.confirmBtn:hover {
-  background: #fff;
+  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  color: #fff;
 }
 
 .cancelBtn {
-  flex: 1;
-  padding: 5px 0;
-  border-radius: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.cancelBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(184, 200, 240, 0.84);
+  background: rgba(255, 255, 255, 0.78);
+  color: #52658f;
 }
 
 .kbList {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 0;
+  padding: 10px 10px;
 }
 
 .emptyHint {
-  color: rgba(235, 244, 255, 0.74);
+  color: #7383a2;
   font-size: 12.5px;
   text-align: center;
   padding: 20px 12px;
 }
 
 .kbItem {
-  padding: 11px 12px 9px;
+  padding: 11px 10px;
   cursor: pointer;
-  border-left: 3px solid transparent;
-  transition: background 0.15s;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .kbItem:hover {
-  background: rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(203, 216, 248, 0.72);
 }
 
 .kbItemActive {
-  background: linear-gradient(90deg, rgba(125, 255, 153, 0.16), rgba(255, 255, 255, 0.08));
-  border-left-color: #7dff99;
+  background: rgba(237, 244, 255, 0.92);
+  border-color: rgba(91, 124, 255, 0.5);
+  box-shadow: 0 10px 22px rgba(53, 81, 154, 0.08);
 }
 
 .kbItemTop {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .kbIcon {
@@ -160,32 +156,28 @@
 .kbName {
   flex: 1;
   font-size: 13.5px;
-  color: #fff;
+  color: #162652;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 800;
 }
 
 .kbNameInput {
   flex: 1;
   font-size: 13px;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 4px;
-  padding: 1px 6px;
+  color: #162652;
+  background: #fff;
+  border: 1px solid rgba(183, 199, 241, 0.78);
+  border-radius: 8px;
+  padding: 3px 7px;
   outline: none;
   min-width: 0;
 }
 
-.kbNameInput:focus {
-  border-color: #fff;
-  background: rgba(255, 255, 255, 0.2);
-}
-
 .kbItemActions {
   display: flex;
-  gap: 2px;
+  gap: 3px;
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.15s;
@@ -196,11 +188,11 @@
 }
 
 .selectBtn {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.4);
-  background: transparent;
+  border: 1.5px solid rgba(128, 145, 184, 0.72);
+  background: #fff;
   cursor: pointer;
   flex-shrink: 0;
   position: relative;
@@ -220,120 +212,100 @@
 }
 
 .selectBtn:hover {
-  border-color: rgba(255, 255, 255, 0.7);
+  border-color: #5b7cff;
 }
 
 .selectBtnActive {
-  border-color: #7dff99;
-  background: rgba(125, 255, 153, 0.15);
+  border-color: #20b77a;
+  background: rgba(225, 250, 239, 0.98);
 }
 
 .selectBtnActive::after {
-  background: #7dff99;
+  background: #20b77a;
 }
 
-.deleteKbBtn {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.35);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    color 0.15s,
-    background 0.15s;
-  padding: 0;
-}
-
-.deleteKbBtn svg {
-  width: 12px;
-  height: 12px;
-}
-
-.deleteKbBtn:hover {
-  color: #ff7070;
-  background: rgba(255, 80, 80, 0.12);
-}
-
+.deleteKbBtn,
 .editKbBtn {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.35);
+  color: #8796b2;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition:
-    color 0.15s,
-    background 0.15s;
   padding: 0;
 }
 
+.deleteKbBtn svg,
 .editKbBtn svg {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
 }
 
 .editKbBtn:hover {
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.1);
+  color: #315ff1;
+  background: #edf4ff;
+}
+
+.deleteKbBtn:hover {
+  color: #d33a48;
+  background: #fff3f5;
 }
 
 .kbStats {
   font-size: 11.5px;
-  color: rgba(235, 244, 255, 0.66);
-  margin-top: 3px;
-  padding-left: 22px;
+  color: #7483a2;
+  margin-top: 5px;
+  padding-left: 25px;
 }
 
 .activeNotice {
+  margin: 10px;
   padding: 10px 12px;
   font-size: 12px;
-  color: #ecfff1;
-  background: rgba(54, 156, 84, 0.24);
-  border-top: 1px solid rgba(125, 255, 153, 0.28);
+  color: #128160;
+  background: rgba(225, 250, 239, 0.94);
+  border: 1px solid rgba(80, 193, 145, 0.42);
+  border-radius: 12px;
   text-align: center;
+  font-weight: 800;
 }
 
-/* ---- Right panel ---- */
 .rightPanel {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    radial-gradient(circle at top right, rgba(74, 124, 240, 0.08), transparent 24%),
-    #f4f7ff;
+  background: transparent;
 }
 
-.kbPageToolbar {
+.kbPageToolbar,
+.rightHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 20px;
-  background: rgba(255, 255, 255, 0.86);
-  border-bottom: 1px solid #e0e8ff;
+  padding: 16px 22px;
+  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid rgba(211, 222, 249, 0.84);
   flex-shrink: 0;
+  backdrop-filter: blur(18px);
 }
 
 .kbPageTitle {
-  color: #1a2650;
-  font-size: 15px;
-  font-weight: 700;
+  color: #102052;
+  font-size: 16px;
+  font-weight: 850;
 }
 
 .kbPageHint {
-  margin-top: 3px;
-  color: #52678f;
+  margin-top: 4px;
+  color: #5f6f93;
   font-size: 12px;
+  line-height: 1.5;
 }
 
 .kbToolbarControls {
@@ -345,63 +317,57 @@
 }
 
 .modeToggle {
-  border: 1px solid #c5d5f5;
+  border: 1px solid rgba(184, 200, 240, 0.84);
   border-radius: 999px;
-  background: #f5f8ff;
-  color: #2d4a88;
+  background: rgba(255, 255, 255, 0.88);
+  color: #31528d;
   cursor: pointer;
-  padding: 7px 12px;
+  padding: 8px 13px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 850;
 }
 
 .modeToggleActive {
-  border-color: #66c98c;
-  background: #e9fbef;
-  color: #176b39;
+  border-color: rgba(80, 193, 145, 0.58);
+  background: rgba(225, 250, 239, 0.98);
+  color: #128160;
 }
 
 .scoreControl {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #52678f;
+  color: #5f6f93;
   font-size: 12px;
   white-space: nowrap;
 }
 
 .scoreControl input {
   width: 120px;
-  accent-color: #2d4eaa;
+  accent-color: #4d6bff;
 }
 
-.noKbSelected {
+.noKbSelected,
+.emptyDocs,
+.loading {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: #52678f;
+  color: #5f6f93;
 }
 
 .noKbIcon {
   font-size: 44px;
-  opacity: 0.5;
+  opacity: 0.54;
 }
 
-.noKbText {
+.noKbText,
+.loading,
+.emptyDocs {
   font-size: 14px;
-}
-
-.rightHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px 12px;
-  background: rgba(255, 255, 255, 0.86);
-  border-bottom: 1px solid #e0e8ff;
-  gap: 12px;
 }
 
 .rightTitle {
@@ -412,32 +378,32 @@
 
 .rightTitle > span:first-child {
   font-size: 16px;
-  font-weight: 600;
-  color: #2d4eaa;
+  font-weight: 850;
+  color: #102052;
 }
 
 .rightDesc {
   font-size: 12px !important;
-  font-weight: 400 !important;
-  color: #52678f !important;
+  font-weight: 500 !important;
+  color: #5f6f93 !important;
 }
 
 .addFileBtn {
-  padding: 7px 16px;
-  border-radius: 8px;
-  border: 1.5px solid #4a7cf0;
-  background: #fff;
-  color: #4a7cf0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  color: #fff;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 850;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s;
+  transition: all 0.16s;
+  box-shadow: 0 12px 24px rgba(54, 103, 226, 0.2);
 }
 
 .addFileBtn:hover:not(:disabled) {
-  background: #4a7cf0;
-  color: #fff;
+  transform: translateY(-1px);
 }
 
 .addFileBtn:disabled {
@@ -445,70 +411,54 @@
   cursor: not-allowed;
 }
 
-.loading {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #8b9dc3;
-  font-size: 14px;
-}
-
-.emptyDocs {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #52678f;
-  font-size: 14px;
-}
-
 .emptyDocsHint {
   font-size: 12.5px;
-  color: #6d7fa2;
+  color: #71809f;
 }
 
-/* Document table */
 .docTable {
   flex: 1;
   overflow-y: auto;
-  padding: 10px 16px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 6px;
 }
 
 .docTableHeader {
   display: grid;
   grid-template-columns: 1fr 70px 60px 120px 100px 64px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font-size: 11px;
-  color: #52678f;
-  font-weight: 600;
+  color: #7282a0;
+  font-weight: 850;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid #e0e8ff;
-  margin-bottom: 4px;
+  letter-spacing: 0;
 }
 
 .docRow {
   display: grid;
   grid-template-columns: 1fr 70px 60px 120px 100px 64px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 11px 12px;
+  border-radius: 12px;
   align-items: center;
   font-size: 13px;
   color: #26395f;
-  border: 1px solid transparent;
-  transition: background 0.12s;
+  border: 1px solid rgba(204, 216, 247, 0.8);
+  background: rgba(255, 255, 255, 0.74);
+  transition:
+    background 0.16s,
+    border-color 0.16s,
+    box-shadow 0.16s,
+    transform 0.16s;
+  box-shadow: 0 10px 24px rgba(45, 78, 170, 0.05);
 }
 
 .docRow:hover {
   background: #ffffff;
-  border-color: #c9dcff;
-  box-shadow: 0 8px 20px rgba(45, 78, 170, 0.08);
+  border-color: rgba(91, 124, 255, 0.42);
+  box-shadow: 0 14px 30px rgba(45, 78, 170, 0.1);
+  transform: translateY(-1px);
 }
 
 .colName {
@@ -516,7 +466,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   padding-right: 8px;
-  font-weight: 500;
+  font-weight: 800;
+  color: #162652;
 }
 
 .colSize,
@@ -529,25 +480,25 @@
 .colStatus {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .statusBadge {
   font-size: 12.5px;
-  font-weight: 700;
+  font-weight: 850;
 }
 
 .progressBar {
-  height: 3px;
+  height: 4px;
   background: #dce8ff;
-  border-radius: 2px;
+  border-radius: 999px;
   overflow: hidden;
-  width: 80px;
+  width: 86px;
 }
 
 .progressFill {
   height: 100%;
-  background: #4a7cf0;
+  background: linear-gradient(90deg, #4d6bff, #20b7c7);
   transition: width 0.3s;
 }
 
@@ -564,12 +515,12 @@
 
 .rebuildBtn,
 .removeDocBtn {
-  width: 24px;
-  height: 24px;
-  border-radius: 5px;
-  border: 1px solid #dce8ff;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(184, 200, 240, 0.84);
   background: #fff;
-  color: #8b9dc3;
+  color: #8090ad;
   font-size: 13px;
   cursor: pointer;
   display: flex;
@@ -579,11 +530,31 @@
 }
 
 .rebuildBtn:hover {
-  color: #4a7cf0;
-  border-color: #4a7cf0;
+  color: #315ff1;
+  border-color: #5b7cff;
 }
 
 .removeDocBtn:hover {
-  color: #e74c3c;
-  border-color: #e74c3c;
+  color: #d33a48;
+  border-color: rgba(245, 169, 178, 0.8);
+  background: #fff3f5;
+}
+
+@media (max-width: 960px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .leftPanel {
+    width: 100%;
+    min-height: 220px;
+    max-height: 34vh;
+    border-right: none;
+    border-bottom: 1px solid rgba(203, 216, 248, 0.78);
+  }
+
+  .docTableHeader,
+  .docRow {
+    grid-template-columns: 1fr 64px 54px 104px 80px 58px;
+  }
 }

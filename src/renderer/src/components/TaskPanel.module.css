@@ -1,140 +1,141 @@
 .container {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: 1;
   min-height: 0;
-  background: #f0f4ff;
+  background: transparent;
   overflow: hidden;
 }
 
-/* ── 左侧面板 ── */
 .leftPanel {
-  width: 280px;
-  min-width: 240px;
-  background: #2d4eaa;
+  width: 290px;
+  min-width: 250px;
+  background: rgba(255, 255, 255, 0.58);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(203, 216, 248, 0.78);
   flex-shrink: 0;
   overflow: hidden;
+  backdrop-filter: blur(18px);
 }
 
 .leftHeader {
   display: flex;
   align-items: center;
-  padding: 16px 14px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 18px 16px 12px;
+  border-bottom: 1px solid rgba(217, 226, 250, 0.74);
 }
 
 .leftTitle {
-  color: #fff;
-  font-weight: 700;
+  color: #102052;
+  font-weight: 850;
   font-size: 15px;
 }
 
-/* 新建任务区 */
 .newTaskArea {
-  padding: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 14px;
+  border-bottom: 1px solid rgba(217, 226, 250, 0.74);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .promptInput {
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(183, 199, 241, 0.78);
+  border-radius: 12px;
+  color: #102052;
   font-size: 12.5px;
-  padding: 9px 11px;
+  padding: 10px 11px;
   outline: none;
   resize: none;
   font-family: inherit;
   line-height: 1.5;
-  transition: border-color 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .promptInput::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: #96a6c3;
 }
 
 .promptInput:focus {
-  border-color: rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.14);
+  border-color: #5b7cff;
+  box-shadow: 0 0 0 3px rgba(91, 124, 255, 0.1);
 }
 
 .createBtn {
   width: 100%;
-  padding: 9px 12px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 999px;
   border: none;
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  background: linear-gradient(135deg, #4d6bff, #20b7c7);
   color: #fff;
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 850;
   cursor: pointer;
   transition:
     opacity 0.15s,
-    transform 0.1s;
-  letter-spacing: 0.02em;
+    transform 0.15s,
+    box-shadow 0.15s;
+  box-shadow: 0 12px 24px rgba(54, 103, 226, 0.2);
 }
 
 .createBtn:hover:not(:disabled) {
-  opacity: 0.9;
   transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(54, 103, 226, 0.26);
 }
 
 .createBtn:disabled {
-  opacity: 0.45;
+  opacity: 0.48;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
-/* 任务列表 */
 .taskList {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
-}
-
-.taskList::-webkit-scrollbar {
-  width: 4px;
-}
-
-.taskList::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
+  padding: 10px;
 }
 
 .taskItem {
-  padding: 10px 12px;
+  padding: 12px 10px;
   cursor: pointer;
-  border-left: 3px solid transparent;
-  transition: background 0.12s;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition:
+    background 0.16s,
+    border-color 0.16s,
+    box-shadow 0.16s;
 }
 
 .taskItem:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(203, 216, 248, 0.72);
 }
 
 .taskItemActive {
-  background: rgba(255, 255, 255, 0.12);
-  border-left-color: #7ac8ff;
+  background: rgba(237, 244, 255, 0.92);
+  border-color: rgba(91, 124, 255, 0.5);
+  box-shadow: 0 10px 22px rgba(53, 81, 154, 0.08);
 }
 
 .taskItemHeader {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 4px;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .taskItemTitle {
-  color: #e8f0ff;
+  color: #162652;
   font-size: 12.5px;
-  font-weight: 500;
-  line-height: 1.3;
+  font-weight: 800;
+  line-height: 1.4;
   flex: 1;
   overflow: hidden;
   display: -webkit-box;
@@ -146,47 +147,48 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-left: 17px;
+  padding-left: 18px;
 }
 
 .statusLabel {
-  color: rgba(255, 255, 255, 0.5);
+  color: #617195;
   font-size: 11px;
+  font-weight: 700;
 }
 
 .stepCount {
-  color: rgba(255, 255, 255, 0.4);
+  color: #8493ae;
   font-size: 11px;
 }
 
-/* 状态圆点 */
 .statusDot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 4px;
 }
 
 .status_pending {
-  background: #8a9ab8;
+  background: #9aa8bf;
 }
 .status_running {
   background: #f0a500;
-  box-shadow: 0 0 6px rgba(240, 165, 0, 0.6);
+  box-shadow: 0 0 0 4px rgba(240, 165, 0, 0.14);
   animation: pulse 1.5s infinite;
 }
 .status_completed {
-  background: #27ae60;
+  background: #20b77a;
 }
 .status_failed {
-  background: #e74c3c;
+  background: #d33a48;
 }
 .status_cancelled {
-  background: #6a7890;
+  background: #6f7f9f;
 }
 .status_paused {
   background: #8a55d0;
-  box-shadow: 0 0 6px rgba(138, 85, 208, 0.5);
+  box-shadow: 0 0 0 4px rgba(138, 85, 208, 0.14);
 }
 
 @keyframes pulse {
@@ -195,28 +197,26 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.4;
+    opacity: 0.45;
   }
 }
 
 .emptyHint {
-  color: rgba(255, 255, 255, 0.4);
+  color: #7383a2;
   font-size: 12px;
   padding: 16px 12px;
   line-height: 1.5;
 }
 
-/* ── 右侧详情面板 ── */
 .rightPanel {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #f0f4ff;
+  background: transparent;
 }
 
-/* 空状态 */
 .emptyDetail {
   flex: 1;
   display: flex;
@@ -228,42 +228,51 @@
 }
 
 .emptyIcon {
-  font-size: 48px;
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  color: #fff;
+  font-size: 26px;
   line-height: 1;
+  box-shadow: 0 18px 38px rgba(54, 103, 226, 0.24);
 }
 
 .emptyTitle {
-  color: #1a2650;
+  color: #102052;
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 850;
 }
 
 .emptyDesc {
-  color: #4a5a88;
+  color: #5f6f93;
   font-size: 14px;
   text-align: center;
   line-height: 1.7;
-  max-width: 460px;
+  max-width: 480px;
 }
 
-/* 任务标题栏 */
 .detailHeader {
-  padding: 16px 20px 12px;
-  border-bottom: 1px solid #d0deff;
-  background: #fff;
+  padding: 17px 22px 14px;
+  border-bottom: 1px solid rgba(211, 222, 249, 0.84);
+  background: rgba(255, 255, 255, 0.72);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   flex-shrink: 0;
+  backdrop-filter: blur(18px);
 }
 
 .detailTitle {
-  color: #1a2650;
+  color: #102052;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 850;
   line-height: 1.4;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
 
 .detailMeta {
@@ -275,30 +284,30 @@
 .statusBadge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
-  border-radius: 20px;
+  padding: 3px 10px;
+  border-radius: 999px;
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 850;
 }
 
 .badge_pending {
-  background: #e8f0ff;
-  color: #4a5a88;
+  background: #edf4ff;
+  color: #52658f;
 }
 .badge_running {
-  background: #fff3d0;
-  color: #b07700;
+  background: #fff4d8;
+  color: #a86f00;
 }
 .badge_completed {
-  background: #d4f8e0;
-  color: #1a6b35;
+  background: #ddf8eb;
+  color: #128160;
 }
 .badge_failed {
-  background: #fde8e8;
-  color: #c0392b;
+  background: #fff0f1;
+  color: #c12f3f;
 }
 .badge_cancelled {
-  background: #f0f0f0;
+  background: #eef1f7;
   color: #6a7890;
 }
 .badge_paused {
@@ -307,7 +316,7 @@
 }
 
 .detailTime {
-  color: #8a9ab8;
+  color: #7c8ba8;
   font-size: 12px;
 }
 
@@ -317,29 +326,30 @@
   flex-shrink: 0;
 }
 
-.cancelBtn {
-  display: none;
-}
-
+.cancelBtn,
 .deleteBtn {
   display: none;
 }
 
-/* 图标操作按钮 */
 .iconBtn {
-  width: 32px;
-  height: 32px;
-  border-radius: 7px;
-  border: 1px solid transparent;
-  background: transparent;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  border: 1px solid rgba(184, 200, 240, 0.84);
+  background: rgba(255, 255, 255, 0.84);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition:
-    background 0.12s,
-    border-color 0.12s;
+    background 0.14s,
+    border-color 0.14s,
+    transform 0.14s;
   flex-shrink: 0;
+}
+
+.iconBtn:hover {
+  transform: translateY(-1px);
 }
 
 .iconBtn svg {
@@ -348,93 +358,75 @@
 }
 
 .iconBtnPrimary {
-  color: #1f42d1;
-  border-color: #c5d5f5;
+  color: #315ff1;
 }
 .iconBtnPrimary:hover {
-  background: #e8f0ff;
-  border-color: #1f42d1;
+  background: #edf4ff;
+  border-color: #5b7cff;
 }
 
 .iconBtnWarning {
-  color: #b07700;
+  color: #a86f00;
   border-color: #ffe0a0;
 }
 .iconBtnWarning:hover {
-  background: #fff3d0;
+  background: #fff4d8;
   border-color: #f0a500;
 }
 
-.iconBtnDanger {
-  color: #c0392b;
-  border-color: #ffb0b0;
-}
-.iconBtnDanger:hover {
-  background: #fde8e8;
-  border-color: #e74c3c;
-}
-
+.iconBtnDanger,
 .iconBtnDangerOutline {
-  color: #c0392b;
-  border-color: #ffb0b0;
+  color: #c12f3f;
+  border-color: rgba(245, 169, 178, 0.8);
 }
+.iconBtnDanger:hover,
 .iconBtnDangerOutline:hover {
-  background: #fde8e8;
-  border-color: #e74c3c;
+  background: #fff0f1;
+  border-color: #d33a48;
 }
 
-/* 步骤列表 */
 .stepList {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 16px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.stepList::-webkit-scrollbar {
-  width: 5px;
-}
-
-.stepList::-webkit-scrollbar-thumb {
-  background: #b0c8f5;
-  border-radius: 3px;
+  gap: 8px;
 }
 
 .stepItem {
-  border-radius: 8px;
-  border: 1px solid #d0deff;
-  background: #fff;
+  border-radius: 14px;
+  border: 1px solid rgba(204, 216, 247, 0.8);
+  background: rgba(255, 255, 255, 0.78);
   overflow: hidden;
   flex-shrink: 0;
+  box-shadow: 0 10px 24px rgba(45, 78, 170, 0.05);
 }
 
 .step_thinking {
-  border-color: #b0c8f5;
+  border-color: rgba(143, 169, 239, 0.72);
 }
 .step_tool_call {
-  border-color: #d0deff;
+  border-color: rgba(204, 216, 247, 0.8);
 }
 .step_tool_result {
-  border-color: #dce8ff;
-  background: #f8fbff;
+  background: rgba(248, 251, 255, 0.9);
 }
 .step_output {
-  border-color: #27ae60;
-  background: #f2fff6;
+  border-color: rgba(80, 193, 145, 0.58);
+  background: rgba(242, 255, 248, 0.9);
 }
 .step_error {
-  border-color: #e74c3c;
-  background: #fff5f5;
+  border-color: rgba(245, 169, 178, 0.82);
+  background: rgba(255, 245, 246, 0.9);
 }
 
 .stepHeader {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
+  padding: 10px 13px;
 }
 
 .stepIcon {
@@ -443,56 +435,55 @@
 }
 
 .stepLabel {
-  color: #1a2650;
+  color: #162652;
   font-size: 13px;
   flex: 1;
-  font-weight: 500;
+  font-weight: 800;
 }
 
 .expandIcon {
-  color: #8a9ab8;
+  color: #8493ae;
   font-size: 11px;
   flex-shrink: 0;
 }
 
 .stepContent {
   margin: 0;
-  padding: 8px 12px 10px;
-  border-top: 1px solid #eef3ff;
+  padding: 9px 13px 11px;
+  border-top: 1px solid #e4ebfb;
   font-size: 12px;
-  color: #4a5a88;
+  color: #53638a;
   font-family: "Consolas", "Monaco", monospace;
   white-space: pre-wrap;
   word-break: break-all;
-  background: #f8fbff;
+  background: rgba(247, 250, 255, 0.86);
   max-height: 300px;
   overflow-y: auto;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .outputContent {
-  border-top: 1px solid #c8f0d8;
-  padding: 10px 12px;
-  background: #f2fff6;
+  border-top: 1px solid rgba(80, 193, 145, 0.28);
+  padding: 11px 13px;
+  background: rgba(242, 255, 248, 0.9);
 }
 
 .outputPre {
   margin: 0;
   font-size: 13px;
-  color: #1a4a2a;
+  color: #145c42;
   font-family: inherit;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.6;
 }
 
-/* 等待提示 */
 .waitingHint {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  color: #4a5a88;
+  color: #5f6f93;
   font-size: 13px;
   flex-shrink: 0;
 }
@@ -500,8 +491,8 @@
 .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid #b0c8f5;
-  border-top-color: #3b82f6;
+  border: 2px solid #c7d7ff;
+  border-top-color: #4d6bff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
@@ -516,17 +507,16 @@
   }
 }
 
-/* 输出文件区 */
 .outputFiles {
-  padding: 12px 16px;
-  border-top: 1px solid #d0deff;
-  background: #fff;
+  padding: 14px 18px;
+  border-top: 1px solid rgba(211, 222, 249, 0.84);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .outputFilesTitle {
-  color: #4a5a88;
+  color: #53638a;
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 800;
   margin-bottom: 6px;
 }
 
@@ -535,7 +525,7 @@
   align-items: center;
   gap: 6px;
   padding: 5px 0;
-  color: #1f42d1;
+  color: #315ff1;
   font-size: 13px;
   font-family: "Consolas", monospace;
   cursor: pointer;
@@ -544,4 +534,18 @@
 
 .outputFile:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .leftPanel {
+    width: 100%;
+    min-height: 240px;
+    max-height: 38vh;
+    border-right: none;
+    border-bottom: 1px solid rgba(203, 216, 248, 0.78);
+  }
 }

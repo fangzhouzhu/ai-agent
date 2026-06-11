@@ -14,11 +14,11 @@ interface Props {
 
 const WelcomeScreen: React.FC = () => (
   <div className={styles.welcome}>
-    <div className={styles.welcomeIcon}>�</div>
-    <div className={styles.welcomeBadge}>Local Workspace</div>
-    <h1 className={styles.welcomeTitle}>开始一个新会话</h1>
+    <div className={styles.welcomeIcon}>A</div>
+    <div className={styles.welcomeBadge}>Local AI Workspace</div>
+    <h1 className={styles.welcomeTitle}>开始一场新对话</h1>
     <p className={styles.welcomeSubtitle}>
-      在这里可以处理文档、调用工具、切换模型，完成日常整理与分析工作。
+      连接本地模型、知识库和自动化任务，把日常整理、检索与分析放在一个轻量工作台里完成。
     </p>
     <div className={styles.features}>
       <div className={styles.feature}>
@@ -27,7 +27,7 @@ const WelcomeScreen: React.FC = () => (
       </div>
       <div className={styles.feature}>
         <strong>文档分析</strong>
-        <span>上传文件后提取重点</span>
+        <span>上传资料后提取重点</span>
       </div>
       <div className={styles.feature}>
         <strong>工具操作</strong>
