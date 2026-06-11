@@ -19,6 +19,9 @@ const STATUS_LABELS: Record<Task['status'], string> = {
   pending: '等待中',
   running: '执行中',
   paused: '已暂停',
+  waiting_for_approval: '待确认',
+  waiting_for_input: '待输入',
+  blocked: '已阻塞',
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消',
@@ -217,17 +220,17 @@ const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) 
                   </button>
                 )}
                 {/* 继续（已暂停） */}
-                {selectedTask.status === 'paused' && (
+                {(selectedTask.status === 'paused' || selectedTask.status === 'blocked') && (
                   <button
                     className={`${styles.iconBtn} ${styles.iconBtnPrimary}`}
                     onClick={() => void handleResume(selectedTask.id)}
-                    title="继续任务"
+                    title={selectedTask.status === 'blocked' ? '继续执行' : '继续任务'}
                   >
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                   </button>
                 )}
                 {/* 停止（运行中或已暂停） */}
-                {(selectedTask.status === 'running' || selectedTask.status === 'paused') && (
+                {(['running', 'paused', 'waiting_for_approval', 'waiting_for_input', 'blocked'] as const).includes(selectedTask.status) && (
                   <button
                     className={`${styles.iconBtn} ${styles.iconBtnDangerOutline}`}
                     onClick={() => void handleCancel(selectedTask.id)}
@@ -237,7 +240,7 @@ const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) 
                   </button>
                 )}
                 {/* 重新运行（已完成/失败/取消） */}
-                {(selectedTask.status === 'completed' || selectedTask.status === 'failed' || selectedTask.status === 'cancelled') && (
+                {(selectedTask.status === 'completed' || selectedTask.status === 'failed' || selectedTask.status === 'cancelled' || selectedTask.status === 'blocked') && (
                   <button
                     className={`${styles.iconBtn} ${styles.iconBtnPrimary}`}
                     onClick={() => void handleRerun(selectedTask.id)}
@@ -308,6 +311,16 @@ const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) 
               {selectedTask.status === 'paused' && (
                 <div className={styles.waitingHint}>
                   ⏸ 已暂停，点击继续按钮恢复执行
+                </div>
+              )}
+              {selectedTask.status === 'blocked' && (
+                <div className={styles.waitingHint}>
+                  当前任务停在 {selectedTask.checkpoint?.node ?? '未知'}，可继续执行或重新运行
+                </div>
+              )}
+              {(selectedTask.status === 'waiting_for_approval' || selectedTask.status === 'waiting_for_input') && (
+                <div className={styles.waitingHint}>
+                  任务正在等待用户处理
                 </div>
               )}
 

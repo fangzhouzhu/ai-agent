@@ -190,6 +190,16 @@
   background: #8a55d0;
   box-shadow: 0 0 0 4px rgba(138, 85, 208, 0.14);
 }
+.status_waiting_for_approval,
+.status_waiting_for_input {
+  background: #2f78ff;
+  box-shadow: 0 0 0 4px rgba(47, 120, 255, 0.14);
+  animation: pulse 1.5s infinite;
+}
+.status_blocked {
+  background: #d66b00;
+  box-shadow: 0 0 0 4px rgba(214, 107, 0, 0.14);
+}
 
 @keyframes pulse {
   0%,
@@ -313,6 +323,15 @@
 .badge_paused {
   background: #f0eaff;
   color: #6a30b8;
+}
+.badge_waiting_for_approval,
+.badge_waiting_for_input {
+  background: #edf4ff;
+  color: #315ff1;
+}
+.badge_blocked {
+  background: #fff4e6;
+  color: #a65300;
 }
 
 .detailTime {

@@ -4,6 +4,7 @@ import ChatArea from './components/ChatArea'
 import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
 import TaskPanel from './components/TaskPanel'
+import SkillsPanel from './components/SkillsPanel'
 
 const TitleBar: React.FC = () => (
   <div style={{
@@ -104,6 +105,21 @@ type ApiTestState = {
   latencyMs?: number
   balanceInfo?: string
   testedAt?: number
+}
+
+type ToolPolicy = {
+  name: string
+  risk: Array<'read' | 'write' | 'delete' | 'network' | 'system'>
+  requiresConfirmation: boolean
+  description: string
+}
+
+type TraceSummary = {
+  traceId: string
+  startedAt: number
+  updatedAt: number
+  eventCount: number
+  lastEventType: string
 }
 
 const defaultModelConfig: ModelRouteConfig = {
@@ -242,6 +258,21 @@ function formatSkillKeywords(keywords: string[]): string {
   return keywords.join(', ')
 }
 
+function normalizeDraftSkills(skills: SkillConfig[]): SkillConfig[] {
+  return skills
+    .map((skill) => ({
+      ...skill,
+      name: skill.name.trim(),
+      description: skill.description.trim(),
+      systemPrompt: skill.systemPrompt.trim(),
+      keywords: Array.from(new Set(skill.keywords.map((item) => item.trim()).filter(Boolean))),
+      preferredScene: 'auto' as SkillPreferredScene,
+      priority: Math.max(0, Math.min(100, Number(skill.priority) || 0)),
+      updatedAt: Date.now(),
+    }))
+    .sort((a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt)
+}
+
 const App: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -253,8 +284,13 @@ const App: React.FC = () => {
   const [modelConfig, setModelConfig] = useState<ModelRouteConfig>(defaultModelConfig)
   const [draftModelConfig, setDraftModelConfig] = useState<ModelRouteConfig>(defaultModelConfig)
   const [showModelConfig, setShowModelConfig] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'models' | 'skills'>('models')
+  const [settingsTab, setSettingsTab] = useState<'models' | 'skills' | 'tools' | 'diagnostics'>('models')
   const [draftSkills, setDraftSkills] = useState<SkillConfig[]>([])
+  const [skillEditorDraft, setSkillEditorDraft] = useState<SkillConfig | null>(null)
+  const [skillEditorMode, setSkillEditorMode] = useState<'new' | 'edit' | null>(null)
+  const [skillEditorSessionId, setSkillEditorSessionId] = useState(() => uuidv4())
+  const [toolPolicies, setToolPolicies] = useState<ToolPolicy[]>([])
+  const [traceSummaries, setTraceSummaries] = useState<TraceSummary[]>([])
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null)
   const [apiTestState, setApiTestState] = useState<ApiTestState>({
     status: 'idle',
@@ -262,7 +298,7 @@ const App: React.FC = () => {
     models: [],
   })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
-  const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task'>('chat')
+  const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task' | 'skills'>('chat')
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([])
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
@@ -275,12 +311,15 @@ const App: React.FC = () => {
   const tokenQueueRef = useRef('')
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const typingTargetRef = useRef<{ convId: string; msgId: string } | null>(null)
+  const skillFormRef = useRef<HTMLFormElement | null>(null)
 
   const refreshModelConfig = useCallback(async () => {
-    const [availableModels, savedConfig, savedSkills] = await Promise.all([
+    const [availableModels, savedConfig, savedSkills, policies, traces] = await Promise.all([
       window.electronAPI.listModels(),
       window.electronAPI.getModelConfig(),
       window.electronAPI.listSkills(),
+      window.electronAPI.listToolPolicies(),
+      window.electronAPI.diagnostics.listTraces(),
     ])
 
     const nextConfig = normalizeModelConfig(savedConfig)
@@ -292,9 +331,12 @@ const App: React.FC = () => {
     setModelConfig(nextConfig)
     setDraftModelConfig(nextConfig)
     setDraftSkills(nextSkills)
-    setActiveSkillId((current) =>
-      nextSkills.some((skill) => skill.id === current) ? current : (nextSkills[0]?.id ?? null)
-    )
+    setSkillEditorDraft(nextSkills[0] ? { ...nextSkills[0], keywords: [...nextSkills[0].keywords] } : null)
+    setSkillEditorMode(nextSkills[0] ? 'edit' : null)
+    setSkillEditorSessionId(uuidv4())
+    setToolPolicies(policies)
+    setTraceSummaries(traces)
+    setActiveSkillId(nextSkills[0]?.id ?? null)
     setApiTestState({ status: 'idle', message: '', models: [] })
   }, [])
   // 初始化：从文件加载索引
@@ -557,35 +599,117 @@ const App: React.FC = () => {
   }, [])
 
   const updateDraftSkill = useCallback((skillId: string, patch: Partial<SkillConfig>) => {
-    setDraftSkills((prev) =>
-      prev.map((skill) =>
-        skill.id === skillId
-          ? {
-              ...skill,
-              ...patch,
-              updatedAt: Date.now(),
-            }
-          : skill
-      )
+    setSkillEditorDraft((prev) =>
+      prev?.id === skillId
+        ? {
+            ...prev,
+            ...patch,
+            updatedAt: Date.now(),
+          }
+        : prev
     )
   }, [])
 
   const handleAddSkill = useCallback(() => {
     const nextSkill = createEmptySkill()
-    setDraftSkills((prev) => [nextSkill, ...prev])
+    setSkillEditorDraft(nextSkill)
+    setSkillEditorMode('new')
+    setSkillEditorSessionId(uuidv4())
     setActiveSkillId(nextSkill.id)
   }, [])
 
-  const handleDeleteSkill = useCallback((skillId: string) => {
-    setDraftSkills((prev) => prev.filter((skill) => skill.id !== skillId))
-    setActiveSkillId((current) => (current === skillId ? null : current))
+  const handleSelectSkill = useCallback((skill: SkillConfig) => {
+    setActiveSkillId(skill.id)
+    setSkillEditorDraft({ ...skill, keywords: [...skill.keywords] })
+    setSkillEditorMode('edit')
+    setSkillEditorSessionId(uuidv4())
   }, [])
+
+  const handleDeleteSkill = useCallback(async (skillId: string) => {
+    if (skillEditorMode === 'new' && skillEditorDraft?.id === skillId) {
+      setSkillEditorDraft(null)
+      setSkillEditorMode(null)
+      setSkillEditorSessionId(uuidv4())
+      setActiveSkillId(draftSkills[0]?.id ?? null)
+      return
+    }
+
+    const nextSkills = draftSkills.filter((skill) => skill.id !== skillId)
+    const savedSkills = await window.electronAPI.saveSkills(normalizeDraftSkills(nextSkills))
+    setDraftSkills(savedSkills)
+    const nextActive = savedSkills[0] ?? null
+    setActiveSkillId(nextActive?.id ?? null)
+    setSkillEditorDraft(nextActive ? { ...nextActive, keywords: [...nextActive.keywords] } : null)
+    setSkillEditorMode(nextActive ? 'edit' : null)
+    setSkillEditorSessionId(uuidv4())
+  }, [draftSkills, skillEditorDraft, skillEditorMode])
 
   const handleOpenModelConfig = useCallback(async () => {
     await refreshModelConfig()
     setSettingsTab('models')
     setShowModelConfig(true)
   }, [refreshModelConfig])
+
+  const handleCloseSettings = useCallback(() => {
+    setShowModelConfig(false)
+  }, [])
+
+  const readSkillEditorDraft = useCallback((): SkillConfig | null => {
+    if (!skillEditorDraft) return null
+    const form = skillFormRef.current
+    if (!form) return skillEditorDraft
+    const formData = new FormData(form)
+    return {
+      ...skillEditorDraft,
+      name: String(formData.get('name') ?? skillEditorDraft.name),
+      description: String(formData.get('description') ?? skillEditorDraft.description),
+      systemPrompt: String(formData.get('systemPrompt') ?? skillEditorDraft.systemPrompt),
+      keywords: parseSkillKeywords(String(formData.get('keywords') ?? '')),
+      priority: Number(formData.get('priority') ?? skillEditorDraft.priority) || 0,
+      preferredScene: 'auto',
+      updatedAt: Date.now(),
+    }
+  }, [skillEditorDraft])
+
+  const handleSaveSkills = useCallback(async () => {
+    const currentDraft = readSkillEditorDraft()
+    if (!currentDraft) return
+
+    if (!currentDraft.name.trim()) {
+      window.alert('请先填写技能名称')
+      return
+    }
+
+    if (!currentDraft.systemPrompt.trim()) {
+      window.alert('请先填写自定义提示词')
+      return
+    }
+
+    const duplicateName = draftSkills.find(
+      (skill) =>
+        skill.id !== currentDraft.id &&
+        skill.name.trim() === currentDraft.name.trim(),
+    )
+    if (duplicateName) {
+      window.alert('技能名称不能重复')
+      return
+    }
+
+    const skillsToSave =
+      skillEditorMode === 'new'
+        ? [currentDraft, ...draftSkills]
+        : draftSkills.map((skill) =>
+            skill.id === currentDraft.id ? currentDraft : skill,
+          )
+    const savedSkills = await window.electronAPI.saveSkills(normalizeDraftSkills(skillsToSave))
+    setDraftSkills(savedSkills)
+    const savedActive =
+      savedSkills.find((skill) => skill.id === currentDraft.id) ?? savedSkills[0] ?? null
+    setActiveSkillId(savedActive?.id ?? null)
+    setSkillEditorDraft(savedActive ? { ...savedActive, keywords: [...savedActive.keywords] } : null)
+    setSkillEditorMode(savedActive ? 'edit' : null)
+    setSkillEditorSessionId(uuidv4())
+  }, [draftSkills, readSkillEditorDraft, skillEditorMode])
 
   const handleInlineRouteUpdate = useCallback(
     async (_key: 'chat' | 'agent' | 'rag', patch: Partial<RouteModelConfig>) => {
@@ -683,24 +807,39 @@ const App: React.FC = () => {
       }
     }
 
-    const invalidSkill = draftSkills.find((skill) => !skill.name.trim())
+    const currentSkillDraft = readSkillEditorDraft()
+    const skillsToSave = currentSkillDraft
+      ? skillEditorMode === 'new'
+        ? [currentSkillDraft, ...draftSkills]
+        : draftSkills.map((skill) =>
+            skill.id === currentSkillDraft.id ? currentSkillDraft : skill,
+          )
+      : draftSkills
+
+    const invalidSkill = skillsToSave.find((skill) => !skill.name.trim())
     if (invalidSkill) {
       setActiveSkillId(invalidSkill.id)
       window.alert('请先为每个技能填写名称')
       return
     }
 
-    const normalizedSkills = draftSkills
-      .map((skill) => ({
-        ...skill,
-        name: skill.name.trim(),
-        description: skill.description.trim(),
-        systemPrompt: skill.systemPrompt.trim(),
-        keywords: Array.from(new Set(skill.keywords.map((item) => item.trim()).filter(Boolean))),
-        priority: Math.max(0, Math.min(100, Number(skill.priority) || 0)),
-        updatedAt: Date.now(),
-      }))
-      .sort((a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt)
+    const invalidPrompt = skillsToSave.find((skill) => !skill.systemPrompt.trim())
+    if (invalidPrompt) {
+      setActiveSkillId(invalidPrompt.id)
+      window.alert('请先为每个技能填写自定义提示词')
+      return
+    }
+
+    const duplicateSkill = skillsToSave.find((skill, index) =>
+      skillsToSave.findIndex((item) => item.name.trim() === skill.name.trim()) !== index
+    )
+    if (duplicateSkill) {
+      setActiveSkillId(duplicateSkill.id)
+      window.alert('技能名称不能重复')
+      return
+    }
+
+    const normalizedSkills = normalizeDraftSkills(skillsToSave)
 
     const [savedConfig, savedSkills] = await Promise.all([
       window.electronAPI.saveModelConfig(toSettingsPayload(draftModelConfig)),
@@ -714,8 +853,13 @@ const App: React.FC = () => {
     setActiveSkillId((current) =>
       savedSkills.some((skill) => skill.id === current) ? current : (savedSkills[0]?.id ?? null)
     )
+    const savedActive =
+      savedSkills.find((skill) => skill.id === currentSkillDraft?.id) ?? savedSkills[0] ?? null
+    setSkillEditorDraft(savedActive ? { ...savedActive, keywords: [...savedActive.keywords] } : null)
+    setSkillEditorMode(savedActive ? 'edit' : null)
+    setSkillEditorSessionId(uuidv4())
     setShowModelConfig(false)
-  }, [draftModelConfig, draftSkills])
+  }, [draftModelConfig, draftSkills, readSkillEditorDraft, skillEditorMode])
 
   const handleTestOnlineApi = useCallback(async () => {
     const testModel =
@@ -790,7 +934,7 @@ const App: React.FC = () => {
   const sortedDraftSkills = [...draftSkills].sort(
     (a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt
   )
-  const activeSkillDraft = draftSkills.find((skill) => skill.id === activeSkillId) ?? null
+  const activeSkillDraft = skillEditorDraft
 
   const handlePickRagFiles = useCallback(async () => {
     setIsRagProcessing(true)
@@ -1359,6 +1503,8 @@ const App: React.FC = () => {
             selectedTaskId={activeTaskId}
             onSelectedTaskIdChange={setActiveTaskId}
           />
+        ) : currentView === 'skills' ? (
+          <SkillsPanel />
         ) : (
           <>
             <div className={styles.topbar}>
@@ -1399,7 +1545,7 @@ const App: React.FC = () => {
         <div
           className={styles.modalOverlay}
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setShowModelConfig(false)
+            if (e.target === e.currentTarget) handleCloseSettings()
           }}
         >
           <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
@@ -1411,11 +1557,7 @@ const App: React.FC = () => {
                 type="button"
                 className={styles.modalClose}
                 onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setShowModelConfig(false)
-                }}
+                onClick={handleCloseSettings}
                 aria-label="关闭设置"
                 title="关闭"
               >
@@ -1439,13 +1581,24 @@ const App: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  className={`${styles.settingsNavItem} ${settingsTab === 'skills' ? styles.settingsNavItemActive : ''}`}
-                  onClick={() => setSettingsTab('skills')}
+                  className={`${styles.settingsNavItem} ${settingsTab === 'tools' ? styles.settingsNavItemActive : ''}`}
+                  onClick={() => setSettingsTab('tools')}
                 >
-                  <span className={styles.settingsNavIcon}>✦</span>
+                  <span className={styles.settingsNavIcon}>◇</span>
                   <span className={styles.settingsNavText}>
-                    <span>Skills 配置</span>
-                    <small>本地技能与提示词</small>
+                    <span>工具权限</span>
+                    <small>风险等级与确认</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.settingsNavItem} ${settingsTab === 'diagnostics' ? styles.settingsNavItemActive : ''}`}
+                  onClick={() => setSettingsTab('diagnostics')}
+                >
+                  <span className={styles.settingsNavIcon}>⌁</span>
+                  <span className={styles.settingsNavText}>
+                    <span>日志诊断</span>
+                    <small>Trace 与运行状态</small>
                   </span>
                 </button>
               </aside>
@@ -1712,7 +1865,7 @@ const App: React.FC = () => {
                         className={`${styles.skillCard} ${
                           skill.id === activeSkillId ? styles.skillCardActive : ''
                         }`}
-                        onClick={() => setActiveSkillId(skill.id)}
+                        onClick={() => handleSelectSkill(skill)}
                       >
                         <div className={styles.skillCardHeader}>
                           <span className={styles.skillCardName}>{skill.name || '未命名技能'}</span>
@@ -1729,15 +1882,6 @@ const App: React.FC = () => {
                         </div>
                         <div className={styles.skillCardMeta}>
                           <span>优先级 {skill.priority}</span>
-                          <span>
-                            {skill.preferredScene === 'auto'
-                              ? '自动路由'
-                              : skill.preferredScene === 'chat'
-                                ? '普通聊天'
-                                : skill.preferredScene === 'agent'
-                                  ? 'Agent / 工具'
-                                  : 'RAG 优先'}
-                          </span>
                         </div>
                         {skill.keywords.length > 0 && (
                           <div className={styles.modelList}>
@@ -1755,16 +1899,33 @@ const App: React.FC = () => {
 
                 <div className={styles.skillEditor}>
                   {activeSkillDraft ? (
-                    <>
+                    <form
+                      ref={skillFormRef}
+                      key={skillEditorSessionId}
+                      className={styles.skillEditorForm}
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        void handleSaveSkills()
+                      }}
+                    >
                       <div className={styles.skillEditorHeader}>
                         <div>
                           <div className={styles.routeTitle}>{activeSkillDraft.name || '未命名技能'}</div>
                           <div className={styles.routeHint}>
-                            技能只保存在当前设备本地，可影响提示词和自动路由策略。
+                            {skillEditorMode === 'new'
+                              ? '新技能尚未保存，保存后会出现在左侧列表。'
+                              : '技能只保存在当前设备本地，可影响提示词和自动路由策略。'}
                           </div>
                         </div>
                         <div className={styles.profileActions}>
                           <button
+                            type="submit"
+                            className={styles.miniPrimaryBtn}
+                          >
+                            保存
+                          </button>
+                          <button
+                            type="button"
                             className={styles.miniBtn}
                             onClick={() =>
                               updateDraftSkill(activeSkillDraft.id, {
@@ -1775,10 +1936,11 @@ const App: React.FC = () => {
                             {activeSkillDraft.enabled ? '停用' : '启用'}
                           </button>
                           <button
+                            type="button"
                             className={`${styles.miniBtn} ${styles.dangerBtn}`}
                             onClick={() => {
                               if (window.confirm(`确定删除技能“${activeSkillDraft.name || '未命名技能'}”吗？`)) {
-                                handleDeleteSkill(activeSkillDraft.id)
+                                void handleDeleteSkill(activeSkillDraft.id)
                               }
                             }}
                           >
@@ -1792,30 +1954,10 @@ const App: React.FC = () => {
                           <span>技能名称</span>
                           <input
                             className={styles.fieldInput}
-                            value={activeSkillDraft.name}
-                            onChange={(e) =>
-                              updateDraftSkill(activeSkillDraft.id, { name: e.target.value })
-                            }
+                            name="name"
+                            defaultValue={activeSkillDraft.name}
                             placeholder="例如：写作助手 / 前端代码审查"
                           />
-                        </label>
-
-                        <label className={styles.fieldItem}>
-                          <span>优先路由</span>
-                          <select
-                            className={styles.fieldSelect}
-                            value={activeSkillDraft.preferredScene}
-                            onChange={(e) =>
-                              updateDraftSkill(activeSkillDraft.id, {
-                                preferredScene: e.target.value as SkillPreferredScene,
-                              })
-                            }
-                          >
-                            <option value="auto">自动判断</option>
-                            <option value="chat">普通聊天</option>
-                            <option value="agent">Agent / 工具</option>
-                            <option value="rag">RAG 优先</option>
-                          </select>
                         </label>
 
                         <label className={styles.fieldItem}>
@@ -1825,12 +1967,8 @@ const App: React.FC = () => {
                             type="number"
                             min={0}
                             max={100}
-                            value={activeSkillDraft.priority}
-                            onChange={(e) =>
-                              updateDraftSkill(activeSkillDraft.id, {
-                                priority: Number(e.target.value) || 0,
-                              })
-                            }
+                            name="priority"
+                            defaultValue={activeSkillDraft.priority}
                           />
                         </label>
 
@@ -1838,12 +1976,8 @@ const App: React.FC = () => {
                           <span>触发关键词</span>
                           <input
                             className={styles.fieldInput}
-                            value={formatSkillKeywords(activeSkillDraft.keywords)}
-                            onChange={(e) =>
-                              updateDraftSkill(activeSkillDraft.id, {
-                                keywords: parseSkillKeywords(e.target.value),
-                              })
-                            }
+                            name="keywords"
+                            defaultValue={formatSkillKeywords(activeSkillDraft.keywords)}
                             placeholder="例如：润色, 摘要, 邮件"
                           />
                         </label>
@@ -1853,12 +1987,8 @@ const App: React.FC = () => {
                         <span>技能说明</span>
                         <input
                           className={styles.fieldInput}
-                          value={activeSkillDraft.description}
-                          onChange={(e) =>
-                            updateDraftSkill(activeSkillDraft.id, {
-                              description: e.target.value,
-                            })
-                          }
+                          name="description"
+                          defaultValue={activeSkillDraft.description}
                           placeholder="简要说明这个技能适合解决什么任务"
                         />
                       </label>
@@ -1867,16 +1997,12 @@ const App: React.FC = () => {
                         <span>自定义提示词</span>
                         <textarea
                           className={styles.fieldTextarea}
-                          value={activeSkillDraft.systemPrompt}
-                          onChange={(e) =>
-                            updateDraftSkill(activeSkillDraft.id, {
-                              systemPrompt: e.target.value,
-                            })
-                          }
+                          name="systemPrompt"
+                          defaultValue={activeSkillDraft.systemPrompt}
                           placeholder="例如：你是一名资深前端架构师，回答时先给结论，再给可执行步骤与代码示例。"
                         />
                       </label>
-                    </>
+                    </form>
                   ) : (
                     <div className={styles.emptyHint}>从左侧选择一个技能，或先新建技能。</div>
                   )}
@@ -1891,6 +2017,58 @@ const App: React.FC = () => {
                 <div className={styles.embedNote}>
                   向量检索固定使用 `nomic-embed-text:latest`。
                   {hasEmbeddingModel ? ' 当前已安装。' : ' 当前未检测到，请先用 `ollama pull nomic-embed-text` 安装。'}
+                </div>
+              </div>
+            )}
+
+            {settingsTab === 'tools' && (
+              <div className={styles.modalSection}>
+                <div className={styles.modalLabel}>工具权限</div>
+                <div className={styles.policyGrid}>
+                  {toolPolicies.map((policy) => (
+                    <div key={policy.name} className={styles.policyCard}>
+                      <div className={styles.policyHeader}>
+                        <div>
+                          <div className={styles.policyName}>{policy.name}</div>
+                          <div className={styles.policyDesc}>{policy.description}</div>
+                        </div>
+                        <span className={`${styles.policyConfirm} ${policy.requiresConfirmation ? styles.policyConfirmOn : styles.policyConfirmOff}`}>
+                          {policy.requiresConfirmation ? '需确认' : '自动执行'}
+                        </span>
+                      </div>
+                      <div className={styles.policyRiskRow}>
+                        {policy.risk.map((risk) => (
+                          <span key={risk} className={styles.policyRisk}>{risk}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {toolPolicies.length === 0 && (
+                    <div className={styles.emptyHint}>暂无工具策略数据。</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {settingsTab === 'diagnostics' && (
+              <div className={styles.modalSection}>
+                <div className={styles.modalLabel}>日志与诊断</div>
+                <div className={styles.traceList}>
+                  {traceSummaries.map((trace) => (
+                    <div key={trace.traceId} className={styles.traceCard}>
+                      <div className={styles.traceHeader}>
+                        <code>{trace.traceId}</code>
+                        <span>{trace.lastEventType}</span>
+                      </div>
+                      <div className={styles.traceMeta}>
+                        <span>{trace.eventCount} 个事件</span>
+                        <span>更新于 {new Date(trace.updatedAt).toLocaleString('zh-CN')}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {traceSummaries.length === 0 && (
+                    <div className={styles.emptyHint}>暂无 Trace。执行一次聊天、RAG 或任务后会出现在这里。</div>
+                  )}
                 </div>
               </div>
             )}

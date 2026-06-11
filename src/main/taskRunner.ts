@@ -12,7 +12,7 @@ import { BrowserWindow, app } from "electron";
 import { join } from "path";
 import * as fs from "fs";
 import { v4 as uuidv4 } from "uuid";
-import { allTools } from "./tools";
+import { executeTool } from "./runtime/ToolExecutor";
 import {
   invokeOpenAICompatibleChat,
   type CompatibleMessage,
@@ -27,6 +27,9 @@ export type TaskStatus =
   | "pending"
   | "running"
   | "paused"
+  | "waiting_for_approval"
+  | "waiting_for_input"
+  | "blocked"
   | "completed"
   | "failed"
   | "cancelled";
@@ -47,6 +50,13 @@ export type Task = {
   steps: TaskStep[];
   result: string; // 最终输出（Markdown）
   outputFiles: string[]; // 生成的文件路径
+  checkpoint?: {
+    node: string;
+    round: number;
+    toolCallCount: number;
+    updatedAt: number;
+    canResume: boolean;
+  };
   createdAt: number;
   updatedAt: number;
 };
@@ -74,24 +84,43 @@ function isTaskCancelled(task: Task): boolean {
   return task.status === "cancelled";
 }
 
+function updateCheckpoint(
+  task: Task,
+  patch: Partial<NonNullable<Task["checkpoint"]>>,
+): void {
+  task.checkpoint = {
+    node: task.checkpoint?.node ?? "start",
+    round: task.checkpoint?.round ?? 0,
+    toolCallCount: task.checkpoint?.toolCallCount ?? 0,
+    canResume: true,
+    ...patch,
+    updatedAt: Date.now(),
+  };
+  task.updatedAt = Date.now();
+}
+
 function loadTasks(): void {
   try {
     const file = getTasksFile();
     if (!fs.existsSync(file)) return;
     const data = JSON.parse(fs.readFileSync(file, "utf-8")) as Task[];
     for (const task of data) {
-      // 重启后把「执行中/等待中」的任务标记为失败
+      // 重启后保留上下文，不直接判失败，方便用户查看并重新恢复。
       if (
         task.status === "running" ||
         task.status === "pending" ||
-        task.status === "paused"
+        task.status === "paused" ||
+        task.status === "waiting_for_approval" ||
+        task.status === "waiting_for_input"
       ) {
-        task.status = "failed";
+        task.status = "blocked";
+        updateCheckpoint(task, { canResume: false });
         task.steps.push({
           id: uuidv4(),
           type: "error",
-          label: "应用重启，任务中断",
-          content: "应用重启导致任务中断，如需继续请重新创建任务。",
+          label: "应用重启，任务已暂停在断点",
+          content:
+            "应用重启导致任务执行中断。已保留已有步骤和最近 checkpoint，可点击重新运行继续完成任务。",
           timestamp: Date.now(),
         });
         task.updatedAt = Date.now();
@@ -160,7 +189,16 @@ async function waitIfPaused(task: Task): Promise<void> {
 
 export function cancelTask(id: string): boolean {
   const task = tasks.get(id);
-  if (!task || (task.status !== "running" && task.status !== "paused"))
+  if (
+    !task ||
+    ![
+      "running",
+      "paused",
+      "waiting_for_approval",
+      "waiting_for_input",
+      "blocked",
+    ].includes(task.status)
+  )
     return false;
   // 若暂停中需先唤醒 loop，让它检测到 cancelled 后退出
   const resolve = pauseResolvers.get(id);
@@ -187,11 +225,22 @@ export function pauseTask(id: string): boolean {
 
 export function resumeTask(id: string): boolean {
   const task = tasks.get(id);
-  if (!task || task.status !== "paused") return false;
+  if (!task || (task.status !== "paused" && task.status !== "blocked"))
+    return false;
   task.status = "running";
   task.updatedAt = Date.now();
   pushUpdate(task);
   saveTasks();
+  if (task.status === "running" && task.checkpoint?.canResume === false) {
+    addStep(task, {
+      type: "thinking",
+      label: "从保留上下文继续执行",
+      content:
+        "当前版本会保留历史步骤后继续执行任务；精确节点级断点续跑将在任务图 Runtime 中启用。",
+    });
+    void runTask(task);
+    return true;
+  }
   const resolve = pauseResolvers.get(id);
   if (resolve) {
     pauseResolvers.delete(id);
@@ -222,6 +271,13 @@ export function createAndRunTask(prompt: string): string {
     steps: [],
     result: "",
     outputFiles: [],
+    checkpoint: {
+      node: "created",
+      round: 0,
+      toolCallCount: 0,
+      updatedAt: now,
+      canResume: true,
+    },
     createdAt: now,
     updatedAt: now,
   };
@@ -247,6 +303,12 @@ export function rerunTask(id: string): boolean {
   task.steps = [];
   task.result = "";
   task.outputFiles = [];
+  updateCheckpoint(task, {
+    node: "rerun",
+    round: 0,
+    toolCallCount: 0,
+    canResume: true,
+  });
   task.updatedAt = Date.now();
 
   saveTasks();
@@ -301,6 +363,7 @@ function getPlanPrompt(userPrompt: string): string {
 
 async function runTask(task: Task): Promise<void> {
   task.status = "running";
+  updateCheckpoint(task, { node: "running", canResume: true });
   pushUpdate(task);
   saveTasks();
 
@@ -319,9 +382,11 @@ async function runTask(task: Task): Promise<void> {
     }
 
     task.status = "completed";
+    updateCheckpoint(task, { node: "completed", canResume: false });
   } catch (err: any) {
     if (isTaskCancelled(task)) return;
     task.status = "failed";
+    updateCheckpoint(task, { node: "failed", canResume: true });
     addStep(task, {
       type: "error",
       label: "任务执行失败",
@@ -382,6 +447,12 @@ async function runTaskWithOpenAI(
     label: "执行计划",
     content: plan,
   });
+  updateCheckpoint(task, {
+    node: "plan",
+    round: 0,
+    toolCallCount: 0,
+    canResume: true,
+  });
 
   // ── 阶段二：带工具执行，携带计划上下文 ──────────────────────────────────
   const messages: CompatibleMessage[] = [
@@ -401,6 +472,12 @@ async function runTaskWithOpenAI(
   for (let round = 0; round < 20; round++) {
     await waitIfPaused(task);
     if (isTaskCancelled(task)) return;
+    updateCheckpoint(task, {
+      node: "execute",
+      round,
+      toolCallCount,
+      canResume: true,
+    });
     if (toolCallCount >= MAX_TOOL_CALLS) {
       addStep(task, {
         type: "thinking",
@@ -488,6 +565,12 @@ async function runTaskWithOpenAI(
         }
 
         toolCallCount++;
+        updateCheckpoint(task, {
+          node: `tool:${toolName}`,
+          round,
+          toolCallCount,
+          canResume: true,
+        });
         const callLabel = formatToolCallLabel(toolName, args);
         addStep(task, {
           type: "tool_call",
@@ -495,18 +578,13 @@ async function runTaskWithOpenAI(
           content: JSON.stringify(args, null, 2),
         });
 
-        const tool = allTools.find((t) => t.name === toolName);
         let resultStr: string;
-        if (!tool) {
-          resultStr = `工具 ${toolName} 不存在`;
-        } else {
-          try {
-            resultStr = String(
-              await withTimeout(tool.invoke(args), 45_000, `工具 ${toolName}`),
-            );
-          } catch (e: any) {
-            resultStr = `工具执行失败: ${e?.message || e}`;
-          }
+        try {
+          resultStr = (
+            await executeTool(toolName, args, { timeoutMs: 45_000 })
+          ).result;
+        } catch (e: any) {
+          resultStr = `工具执行失败: ${e?.message || e}`;
         }
 
         const truncated =

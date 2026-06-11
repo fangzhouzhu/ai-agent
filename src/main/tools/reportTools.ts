@@ -4,15 +4,14 @@ import * as fs from "fs";
 import * as path from "path";
 import PDFDocument from "pdfkit";
 import PptxGenJS from "pptxgenjs";
+import { ensureWritableTarget, getDefaultArtifactDir } from "./policy";
 
 // ─── 工具函数 ─────────────────────────────────────────────────────────────────
 
 function resolveOutputPath(filePath: string): string {
-  const resolved = path.resolve(filePath);
-  const dir = path.dirname(resolved);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  const safeInput = filePath?.trim() || path.join(getDefaultArtifactDir(), "report");
+  const resolved = path.resolve(safeInput);
+  ensureWritableTarget(resolved);
   return resolved;
 }
 

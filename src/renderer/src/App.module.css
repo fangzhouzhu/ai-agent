@@ -70,11 +70,13 @@
   padding: 22px;
   background: rgba(29, 47, 91, 0.24);
   backdrop-filter: blur(14px);
+  -webkit-app-region: no-drag;
 }
 
 .modal {
   width: min(980px, 100%);
-  max-height: 86vh;
+  height: min(688px, calc(100vh - 44px));
+  max-height: calc(100vh - 44px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -87,6 +89,11 @@
     0 30px 90px rgba(46, 76, 154, 0.22),
     0 8px 26px rgba(35, 51, 94, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  -webkit-app-region: no-drag;
+}
+
+.modal * {
+  -webkit-app-region: no-drag;
 }
 
 .modalHeader {
@@ -96,6 +103,8 @@
   gap: 14px;
   padding: 20px 22px 12px;
   border-bottom: 1px solid rgba(217, 226, 250, 0.8);
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }
 
 .modalTitle {
@@ -125,6 +134,10 @@
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 .modalClose:hover {
@@ -148,6 +161,7 @@
   background:
     radial-gradient(circle at 20% 6%, rgba(91, 124, 255, 0.1), transparent 32%),
     rgba(247, 250, 255, 0.7);
+  overflow-y: auto;
 }
 
 .settingsNavTitle {
@@ -241,12 +255,15 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  -webkit-app-region: no-drag;
 }
 
 .modalBody {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-app-region: no-drag;
 }
 
 .modalSection {
@@ -302,6 +319,9 @@
   font-size: 12px;
   color: #273b6b;
   font-weight: 700;
+  position: relative;
+  z-index: 1;
+  -webkit-app-region: no-drag;
 }
 
 .fieldSelect,
@@ -315,6 +335,12 @@
   padding: 9px 11px;
   outline: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-app-region: no-drag;
 }
 
 .fieldSelect {
@@ -369,14 +395,16 @@
   display: grid;
   grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .skillList {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 430px;
+  max-height: none;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -467,6 +495,18 @@
   gap: 12px;
   padding: 14px;
   min-height: 250px;
+  max-height: 100%;
+  overflow-y: auto;
+  position: relative;
+  z-index: 1;
+  -webkit-app-region: no-drag;
+}
+
+.skillEditorForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
 }
 
 .skillEditorHeader {
@@ -555,10 +595,13 @@
 .profileActions {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .miniBtn,
+.miniPrimaryBtn,
 .secondaryBtn,
 .primaryBtn {
   border-radius: 12px;
@@ -577,6 +620,17 @@
   color: #244173;
   padding: 5px 9px;
   font-size: 11px;
+  white-space: nowrap;
+}
+
+.miniPrimaryBtn {
+  border: 1px solid #3564f3;
+  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  color: #fff;
+  padding: 5px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: 0 10px 20px rgba(53, 100, 243, 0.18);
 }
 
 .dangerBtn {
@@ -629,6 +683,100 @@
   color: #d33a48;
 }
 
+.policyGrid,
+.traceList {
+  display: grid;
+  gap: 10px;
+}
+
+.policyGrid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.policyCard,
+.traceCard {
+  padding: 12px;
+  border: 1px solid rgba(186, 201, 241, 0.76);
+  border-radius: 14px;
+  background: rgba(249, 251, 255, 0.92);
+  box-shadow: 0 10px 24px rgba(53, 81, 154, 0.06);
+}
+
+.policyHeader,
+.traceHeader,
+.traceMeta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.policyName {
+  color: #102052;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.policyDesc {
+  margin-top: 5px;
+  color: #5f6f93;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.policyConfirm,
+.policyRisk,
+.traceHeader span {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.policyConfirmOn {
+  color: #a65300;
+  background: #fff4e6;
+}
+
+.policyConfirmOff {
+  color: #13815f;
+  background: #ddf8eb;
+}
+
+.policyRiskRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.policyRisk {
+  color: #31528d;
+  background: rgba(237, 244, 255, 0.96);
+  border: 1px solid rgba(180, 197, 242, 0.72);
+}
+
+.traceHeader code {
+  min-width: 0;
+  color: #244173;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.traceHeader span {
+  color: #315ff1;
+  background: #edf4ff;
+}
+
+.traceMeta {
+  margin-top: 8px;
+  color: #7282a0;
+  font-size: 11.5px;
+}
+
 .embedNote {
   font-size: 12px;
   color: #6b7b9c;
@@ -658,11 +806,19 @@
 }
 
 .secondaryBtn:hover,
-.miniBtn:hover {
+.miniBtn:hover,
+.miniPrimaryBtn:hover {
   transform: translateY(-1px);
   border-color: rgba(91, 124, 255, 0.52);
-  background: #ffffff;
   box-shadow: 0 10px 22px rgba(70, 99, 180, 0.1);
+}
+
+.miniBtn:hover {
+  background: #ffffff;
+}
+
+.miniPrimaryBtn:hover {
+  box-shadow: 0 12px 24px rgba(53, 100, 243, 0.24);
 }
 
 .primaryBtn {
@@ -684,7 +840,8 @@
 
 @media (max-width: 900px) {
   .modal {
-    max-height: 90vh;
+    height: min(720px, calc(100vh - 28px));
+    max-height: calc(100vh - 28px);
   }
 
   .modalLayout {

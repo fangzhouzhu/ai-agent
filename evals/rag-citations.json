@@ -1,0 +1,20 @@
+[
+  {
+    "id": "rag-citation-001",
+    "question": "文档中的主要结论是什么？",
+    "expectedAnswerFeatures": [
+      "回答正文包含至少一个形如 [1] 的引用编号",
+      "回答末尾包含“依据”小节",
+      "依据中列出来源文档或知识库名称"
+    ]
+  },
+  {
+    "id": "rag-insufficient-001",
+    "question": "文档有没有提到未出现在内容里的事实？",
+    "expectedAnswerFeatures": [
+      "明确说明证据不足",
+      "不编造上下文之外的事实",
+      "指出缺少的依据类型"
+    ]
+  }
+]

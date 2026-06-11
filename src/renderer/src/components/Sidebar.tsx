@@ -9,8 +9,8 @@ interface Props {
   onNew: () => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
-  currentView: 'chat' | 'kb' | 'task'
-  onViewChange: (view: 'chat' | 'kb' | 'task') => void
+  currentView: 'chat' | 'kb' | 'task' | 'skills'
+  onViewChange: (view: 'chat' | 'kb' | 'task' | 'skills') => void
   selectedKbCount: number
   runningTaskCount: number
   onSelectKb: (id: string | null) => void
@@ -74,6 +74,13 @@ const Sidebar: React.FC<Props> = ({
             <span className={styles.navIcon}>◇</span>
             <span>任务</span>
             {runningTaskCount > 0 && <span className={styles.countBadge}>{runningTaskCount}</span>}
+          </button>
+          <button
+            className={`${styles.navItem} ${currentView === 'skills' ? styles.navItemActive : ''}`}
+            onClick={() => onViewChange('skills')}
+          >
+            <span className={styles.navIcon}>✦</span>
+            <span>Skills</span>
           </button>
         </nav>
 

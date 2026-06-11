@@ -94,6 +94,9 @@ export type TaskStatus =
   | "pending"
   | "running"
   | "paused"
+  | "waiting_for_approval"
+  | "waiting_for_input"
+  | "blocked"
   | "completed"
   | "failed"
   | "cancelled";
@@ -114,6 +117,13 @@ export type Task = {
   steps: TaskStep[];
   result: string;
   outputFiles: string[];
+  checkpoint?: {
+    node: string;
+    round: number;
+    toolCallCount: number;
+    updatedAt: number;
+    canResume: boolean;
+  };
   createdAt: number;
   updatedAt: number;
 };
@@ -178,6 +188,23 @@ export type OnlineApiTestResult = {
   latencyMs?: number;
   balanceInfo?: string;
   testedAt?: number;
+};
+
+export type ToolRisk = "read" | "write" | "delete" | "network" | "system";
+
+export type ToolPolicy = {
+  name: string;
+  risk: ToolRisk[];
+  requiresConfirmation: boolean;
+  description: string;
+};
+
+export type TraceSummary = {
+  traceId: string;
+  startedAt: number;
+  updatedAt: number;
+  eventCount: number;
+  lastEventType: string;
 };
 
 const api = {
@@ -281,6 +308,16 @@ const api = {
   listSkills: (): Promise<SkillConfig[]> => ipcRenderer.invoke("skills:list"),
   saveSkills: (skills: SkillConfig[]): Promise<SkillConfig[]> =>
     ipcRenderer.invoke("skills:save", skills),
+
+  // 工具权限与诊断
+  listToolPolicies: (): Promise<ToolPolicy[]> =>
+    ipcRenderer.invoke("tools:list-policies"),
+  diagnostics: {
+    listTraces: (): Promise<TraceSummary[]> =>
+      ipcRenderer.invoke("diagnostics:list-traces"),
+    getTrace: (traceId: string): Promise<unknown[]> =>
+      ipcRenderer.invoke("diagnostics:get-trace", traceId),
+  },
 
   // 知识库 UI 状态持久化
   getKbUiState: (): Promise<{

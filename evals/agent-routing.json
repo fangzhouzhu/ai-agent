@@ -1,0 +1,28 @@
+[
+  {
+    "id": "chat-general-001",
+    "input": "帮我用三句话解释什么是本地 AI Agent",
+    "expectedRoute": "chat",
+    "notes": "普通解释型问题不应进入工具模式。"
+  },
+  {
+    "id": "tool-url-001",
+    "input": "总结这个网页：https://example.com",
+    "expectedRoute": "agent",
+    "expectedTools": ["fetch_url"],
+    "notes": "包含 URL 时必须优先抓取网页内容。"
+  },
+  {
+    "id": "tool-math-001",
+    "input": "1287 * 34 等于多少？",
+    "expectedRoute": "agent",
+    "expectedTools": ["calculator"],
+    "notes": "明确算式应走计算器工具。"
+  },
+  {
+    "id": "rag-kb-001",
+    "input": "根据选中的知识库总结这份文档的结论",
+    "expectedRoute": "rag",
+    "notes": "选中知识库时应走知识库问答链路。"
+  }
+]

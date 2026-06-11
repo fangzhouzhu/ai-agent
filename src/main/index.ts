@@ -36,6 +36,9 @@ import {
 } from "./ragIndexer";
 import { retrieveFromKbs } from "./ragRetriever";
 import { deleteKbVectors } from "./ragStore";
+import { RAG_CITATION_PROMPT } from "./prompts/agentPrompts";
+import { listTraces, getTrace } from "./runtime/trace";
+import { listToolPolicies } from "./tools/policy";
 import { matchSkillForInput } from "./skills";
 import {
   createAndRunTask,
@@ -366,10 +369,20 @@ ipcMain.handle(
             const context = chunks
               .map(
                 (c) =>
-                  `[${c.index}] 来源：${c.source}（知识库：${c.kbName}）\n${c.content}`,
+                  `[${c.index}] 来源：${c.source}（知识库：${c.kbName}，相关度：${c.score.toFixed(3)}）\n${c.content}`,
               )
               .join("\n\n---\n\n");
-            const augmentedUserMessage = `请根据以下知识库内容回答问题。\n\n知识库内容：\n${context}\n\n---\n\n问题：${message}`;
+            const augmentedUserMessage = `请根据以下知识库内容回答问题。
+
+${RAG_CITATION_PROMPT}
+依据小节中还必须列出每条证据所属的知识库名称。
+
+知识库内容：
+${context}
+
+---
+
+问题：${message}`;
             // 上下文已内嵌在用户消息中，直接用 chatStream 配合 RAG 模型，
             // 避免 chatWithRag 内部用空 fileIds 再次检索导致“当前没有激活的文档”
             try {
@@ -515,6 +528,14 @@ ipcMain.handle("skills:save", async (_event, skills: SkillConfig[]) => {
   saveSkills(skills);
   return getSkills();
 });
+
+ipcMain.handle("tools:list-policies", () => listToolPolicies());
+
+ipcMain.handle("diagnostics:list-traces", () => listTraces());
+
+ipcMain.handle("diagnostics:get-trace", (_event, traceId: string) =>
+  getTrace(traceId),
+);
 
 ipcMain.handle("kb:get-ui-state", async () => {
   return getKbUiState();

@@ -6,6 +6,7 @@ import {
 } from "@langchain/core/messages";
 import { listRagFiles, retrieveRelevantChunks } from "./rag";
 import { allTools } from "./tools";
+import { summarizeToolPolicies } from "./tools/policy";
 import {
   OPENAI_COMPATIBLE_TOOLS,
   invokeOpenAICompatibleChat,
@@ -13,6 +14,15 @@ import {
   type CompatibleMessage,
 } from "./openaiCompatible";
 import { buildSkillPrompt } from "./skills";
+import { toAppError } from "./runtime/errors";
+import { executeTool } from "./runtime/ToolExecutor";
+import { createTraceId, recordTrace } from "./runtime/trace";
+import {
+  BASE_CHAT_SYSTEM_PROMPT,
+  RAG_CITATION_PROMPT,
+  TOOL_SYSTEM_PROMPT,
+  buildRuntimeContextPrompt,
+} from "./prompts/agentPrompts";
 import type {
   ModelProvider,
   ModelSettings,
@@ -226,20 +236,47 @@ async function streamFromOllama(
   onToken: (token: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
+  const traceId = createTraceId();
+  const startedAt = Date.now();
+  recordTrace({
+    type: "model_start",
+    traceId,
+    model: modelName,
+    messages: messages.length,
+    at: startedAt,
+  });
   const llm = buildLLM(modelName, true);
   let fullResponse = "";
-  const stream = await llm.stream(messages, { signal });
+  try {
+    const stream = await llm.stream(messages, { signal });
 
-  for await (const chunk of stream) {
-    signal?.throwIfAborted();
-    const token = typeof chunk.content === "string" ? chunk.content : "";
-    if (token) {
-      onToken(token);
-      fullResponse += token;
+    for await (const chunk of stream) {
+      signal?.throwIfAborted();
+      const token = typeof chunk.content === "string" ? chunk.content : "";
+      if (token) {
+        onToken(token);
+        fullResponse += token;
+      }
     }
-  }
 
-  return fullResponse;
+    recordTrace({
+      type: "model_end",
+      traceId,
+      model: modelName,
+      durationMs: Date.now() - startedAt,
+      at: Date.now(),
+    });
+
+    return fullResponse;
+  } catch (error) {
+    recordTrace({
+      type: "error",
+      traceId,
+      error: toAppError(error, "model", "MODEL_STREAM_FAILED"),
+      at: Date.now(),
+    });
+    throw error;
+  }
 }
 
 type PreCalledResult = {
@@ -264,19 +301,16 @@ async function preCallTools(
   const urlMatch = userMessage.match(/https?:\/\/[^\s）\)。，！？]+/);
   if (urlMatch) {
     const url = urlMatch[0];
-    const fetchTool = allTools.find((t) => t.name === "fetch_url");
-    if (fetchTool) {
-      const args = { url };
-      onToolCall("fetch_url", args);
-      try {
-        const result = String(await fetchTool.invoke(args, { signal }));
-        onToolResult("fetch_url", result);
-        results.push({ toolName: "fetch_url", args, result });
-      } catch (e: any) {
-        const result = `fetch_url 失败: ${e?.message || e}`;
-        onToolResult("fetch_url", result);
-        results.push({ toolName: "fetch_url", args, result });
-      }
+    const args = { url };
+    onToolCall("fetch_url", args);
+    try {
+      const { result } = await executeTool("fetch_url", args, { signal });
+      onToolResult("fetch_url", result);
+      results.push({ toolName: "fetch_url", args, result });
+    } catch (e: any) {
+      const result = `fetch_url 失败: ${e?.message || e}`;
+      onToolResult("fetch_url", result);
+      results.push({ toolName: "fetch_url", args, result });
     }
     // URL 命中后直接返回，不再做其他预路由
     return results;
@@ -294,19 +328,18 @@ async function preCallTools(
         /(?:查|看|问|帮我查)?([^\s，,。？?！!、\n]{2,8})(?:今天|明天|现在|当前)?(?:天气|气温|温度)/,
       );
     const location = cityMatch?.[1]?.trim() || "北京";
-    const weatherTool = allTools.find((t) => t.name === "get_weather_current");
-    if (weatherTool) {
-      const args: Record<string, unknown> = { location };
-      onToolCall("get_weather_current", args);
-      try {
-        const result = String(await weatherTool.invoke(args, { signal }));
-        onToolResult("get_weather_current", result);
-        results.push({ toolName: "get_weather_current", args, result });
-      } catch (e: any) {
-        const result = `get_weather_current 失败: ${e?.message || e}`;
-        onToolResult("get_weather_current", result);
-        results.push({ toolName: "get_weather_current", args, result });
-      }
+    const args: Record<string, unknown> = { location };
+    onToolCall("get_weather_current", args);
+    try {
+      const { result } = await executeTool("get_weather_current", args, {
+        signal,
+      });
+      onToolResult("get_weather_current", result);
+      results.push({ toolName: "get_weather_current", args, result });
+    } catch (e: any) {
+      const result = `get_weather_current 失败: ${e?.message || e}`;
+      onToolResult("get_weather_current", result);
+      results.push({ toolName: "get_weather_current", args, result });
     }
   }
 
@@ -357,44 +390,6 @@ function parseToolArguments(raw: string): Record<string, unknown> {
   }
 }
 
-const BASE_CHAT_SYSTEM_PROMPT = `你是一个智能助手，可以帮助用户对话、分析问题，并给出简洁清晰的回答。
-回答尽量简洁清晰，使用 Markdown 格式；输出数学结果时请使用普通文本符号（如 ×、÷、=），不要输出 LaTeX 写法如 \times。`;
-
-const TOOL_SYSTEM_PROMPT = `你还可以调用以下工具：
-- read_file: 读取文件内容
-- write_file: 写入文件
-- list_directory: 列出目录内容
-- delete_file: 删除文件
-- search_files: 按文件名搜索文件
-- get_current_time: 获取当前日期和时间
-- calculator: 计算数学表达式
-- unit_convert: 进行单位换算
-- clipboard_copy: 复制文本到系统剪贴板
-- web_search: 联网搜索公开网页信息
-- fetch_url: 抓取网页标题和正文摘要
-- get_weather_current: 查询当前天气
-- currency_convert: 进行汇率换算
-- generate_pdf: 根据标题和 Markdown 正文生成 PDF 报告文件
-- generate_pptx: 根据标题和多张幻灯片内容生成 PowerPoint 演示文稿
-
-当用户需要操作文件、查询时间、做数学计算、单位换算、复制文本、联网获取信息、抓取网页内容、查询天气、汇率换算时，优先使用对应的工具。
-如果问题涉及今天/最新的股市、新闻、行情、汇率、金价油价等实时公开信息，必须优先调用 web_search 或 fetch_url 工具，不能仅凭训练记忆回答。
-对于明确的算式或数学表达式，请优先调用 calculator 工具，不要凭心算直接猜。
-【强制规则】如果用户消息中包含任何 URL 链接（以 http:// 或 https:// 开头），必须立即调用 fetch_url 工具获取内容，严禁根据训练记忆猜测或编造网页内容，违反此规则视为错误回答。
-【复合任务规则】当用户要求完成一项端到端任务（如"搜索信息→分析→生成报告"），必须按步骤依次调用相关工具：先用 web_search/fetch_url 收集数据，再用 generate_pdf 或 generate_pptx 生成报告，最后告知用户文件保存路径。不得省略任何步骤。`;
-
-function buildRuntimeContextPrompt(enableTools = false): string {
-  const now = new Date();
-  const display = new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "full",
-    timeStyle: "medium",
-    timeZone: "Asia/Shanghai",
-  }).format(now);
-
-  return `当前系统时间参考：${display}（Asia/Shanghai），ISO：${now.toISOString()}。
-如果用户询问“今天是哪天 / 今天几号 / 星期几 / 现在几点 / 当前日期”等实时问题，必须优先依据这个时间参考${enableTools ? "或调用 get_current_time 工具" : ""}回答，不能凭训练记忆猜测。`;
-}
-
 function buildSystemPrompt(
   skill?: SkillConfig | null,
   options?: { enableTools?: boolean },
@@ -405,6 +400,7 @@ function buildSystemPrompt(
   return [
     BASE_CHAT_SYSTEM_PROMPT,
     enableTools ? TOOL_SYSTEM_PROMPT : "",
+    enableTools ? `工具安全策略：\n${summarizeToolPolicies()}` : "",
     buildRuntimeContextPrompt(enableTools),
     skillPrompt,
   ]
@@ -466,7 +462,9 @@ export async function chatWithAgent(
             resultStr = `工具 ${toolCall.function.name} 不存在`;
           } else {
             try {
-              resultStr = String(await tool.invoke(args));
+              resultStr = (
+                await executeTool(toolCall.function.name, args, { signal })
+              ).result;
             } catch (e: any) {
               resultStr = `工具执行失败: ${e?.message || e}`;
             }
@@ -569,8 +567,9 @@ export async function chatWithAgent(
         if (!tool) continue;
 
         onToolCall(toolCall.name, toolCall.args);
-        const result = await tool.invoke(toolCall.args);
-        const resultStr = String(result);
+        const resultStr = (
+          await executeTool(toolCall.name, toolCall.args, { signal })
+        ).result;
         onToolResult(toolCall.name, resultStr);
 
         messages.push({
@@ -606,7 +605,7 @@ export async function chatWithRag(
     ? chunks
         .map(
           (chunk) =>
-            `【片段 ${chunk.index}｜${chunk.source}】\n${chunk.content}`,
+            `[${chunk.index}] Source: ${chunk.source}\n${chunk.content}`,
         )
         .join("\n\n")
     : "未检索到可用文档片段。";
@@ -616,19 +615,19 @@ export async function chatWithRag(
     ? activeFileNames.join("、")
     : "当前没有激活的文档";
 
-const skillPrompt = buildSkillPrompt(skill);
+  const skillPrompt = buildSkillPrompt(skill);
   const ragPrompt = `你是一个文档分析助手。当前有效文档仅限：${fileScopeText}。
 请优先依据“检索上下文”回答问题，并尽量给出简洁结论。
 如果用户之前聊过其他文件、旧版本文件或已移除的文件，你必须忽略那些历史内容，不能沿用旧文件信息。
 如果当前只有一个已上传文件，而用户问“这个文件讲了什么 / 具体内容是什么 / 帮我总结一下”，应将其理解为对该文件整体内容的概括请求。
 只要已经检索到片段，就要先基于片段进行总结、概括或引用；只有在完全没有检索到片段时，才明确说明“在当前已上传文件中未找到明确依据”，不要轻易直接拒答。${skillPrompt ? `\n\n${skillPrompt}` : ""}`;
-
   if (route.provider === "openai-compatible") {
     return streamOpenAICompatibleChat({
       settings: modelConfig.online,
       model: route.model,
       messages: [
         { role: "system", content: ragPrompt },
+        { role: "system", content: RAG_CITATION_PROMPT },
         { role: "system", content: `检索上下文：\n${contextText}` },
         ...scopedHistory.map(toCompatibleMessage),
         { role: "user", content: userMessage },
@@ -640,6 +639,7 @@ const skillPrompt = buildSkillPrompt(skill);
 
   const messages = [
     new SystemMessage(ragPrompt),
+    new SystemMessage(RAG_CITATION_PROMPT),
     new SystemMessage(`检索上下文：\n${contextText}`),
     ...scopedHistory.map(toLC),
     new HumanMessage(userMessage),
