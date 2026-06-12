@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { app, shell, BrowserWindow, ipcMain, dialog } from "electron";
 import { basename, join } from "path";
 import { is } from "@electron-toolkit/utils";
@@ -70,18 +71,466 @@ import {
   saveModelSettings,
   getSkills,
   saveSkills,
+  getWechatBotSettings,
+  saveWechatBotSettings,
   getKbUiState,
   saveKbUiState,
   type ConvMeta,
   type StoredMessage,
   type ModelSettings,
   type OnlineProviderSettings,
+  type WechatBotSettings,
   type SkillConfig,
 } from "./storage";
+import {
+  clearOfficialWeixinState,
+  ensureOpenClawRuntimeInstalled,
+  listLocalBotTokens,
+  loadOfficialWeixinAccounts,
+  restartOpenClawGateway,
+  saveOfficialWeixinLogin,
+  startOpenClawGateway,
+  stopOpenClawGateway,
+  writeOpenClawConfig,
+} from "./openclawRuntime";
 
 // 当前请求的 AbortController 和 WebContents 引用
 let currentAbortController: AbortController | null = null;
 let currentWebContents: Electron.WebContents | null = null;
+
+type WechatBotStatus = {
+  status: "idle" | "waiting_scan" | "bound" | "error" | "unbound";
+  message: string;
+  qrcode?: string;
+  qrContent?: string;
+  qrDataUrl?: string;
+  token?: string;
+  botId?: string;
+  userId?: string;
+  nickname?: string;
+  updatedAt: number;
+};
+
+type WechatBotMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+  status: "received" | "sent" | "error";
+  source?: "wechat" | "panel" | "system";
+  createdAt: number;
+};
+
+type ClawBotQrResponse = {
+  ret?: number;
+  qrcode?: string;
+  qrcode_img_content?: string;
+  msg?: string;
+};
+
+type ClawBotStatusResponse = {
+  ret?: number;
+  status?: string;
+  token?: string;
+  bot_id?: string;
+  botId?: string;
+  user_id?: string;
+  userId?: string;
+  nickname?: string;
+  ilink_bot_id?: string;
+  ilink_user_id?: string;
+  bot_token?: string;
+  baseurl?: string;
+  redirect_host?: string;
+  msg?: string;
+};
+
+type WechatLoginSession = {
+  sessionKey: string;
+  qrcode: string;
+  qrContent: string;
+  qrDataUrl: string;
+  startedAt: number;
+  currentApiBaseUrl: string;
+};
+
+let wechatBotStatus: WechatBotStatus = {
+  status: "idle",
+  message: "尚未绑定微信 ClawBot",
+  updatedAt: Date.now(),
+};
+const wechatBotMessages: WechatBotMessage[] = [];
+let activeWechatLogin: WechatLoginSession | null = null;
+
+const runtimeImport = new Function(
+  "specifier",
+  "return import(specifier)",
+) as (specifier: string) => Promise<any>;
+
+function emitWechatBotUpdate(): void {
+  const payload = {
+    status: wechatBotStatus,
+    messages: wechatBotMessages,
+  };
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) {
+      win.webContents.send("wechat-bot:update", payload);
+    }
+  });
+}
+
+function updateWechatBotStatus(patch: Partial<WechatBotStatus>): WechatBotStatus {
+  wechatBotStatus = {
+    ...wechatBotStatus,
+    ...patch,
+    updatedAt: Date.now(),
+  };
+  emitWechatBotUpdate();
+  return wechatBotStatus;
+}
+
+function appendWechatBotMessage(
+  message: Omit<WechatBotMessage, "id" | "createdAt"> & {
+    id?: string;
+    createdAt?: number;
+  },
+): WechatBotMessage {
+  const next: WechatBotMessage = {
+    id: message.id ?? randomUUID(),
+    createdAt: message.createdAt ?? Date.now(),
+    ...message,
+  };
+  wechatBotMessages.push(next);
+  if (wechatBotMessages.length > 80) {
+    wechatBotMessages.splice(0, wechatBotMessages.length - 80);
+  }
+  emitWechatBotUpdate();
+  return next;
+}
+
+function getClawBotMessage(status: string): string {
+  switch (String(status).toLowerCase()) {
+    case "wait":
+      return "请使用微信中的 ClawBot 扫描二维码完成绑定";
+    case "scan":
+    case "scanned":
+    case "scaned":
+      return "已扫码，请在微信中确认绑定";
+    case "scaned_but_redirect":
+      return "已扫码，正在跳转绑定服务";
+    case "need_verifycode":
+      return "绑定需要验证码，请在微信端继续完成";
+    case "verify_code_blocked":
+      return "验证码次数过多，请稍后重试";
+    case "expired":
+      return "二维码已过期，请刷新二维码";
+    case "binded_redirect":
+    case "confirm":
+    case "confirmed":
+    case "success":
+    case "bind":
+    case "bound":
+      return "微信 ClawBot 已绑定";
+    default:
+      return status ? `ClawBot 状态：${status}` : "等待扫码绑定";
+  }
+}
+
+function isClawBotBoundStatus(status?: string): boolean {
+  return [
+    "binded_redirect",
+    "confirm",
+    "confirmed",
+    "success",
+    "bind",
+    "bound",
+  ].includes(String(status ?? "").toLowerCase());
+}
+
+async function buildQrDataUrl(content: string): Promise<string> {
+  const qrcode = await runtimeImport("qrcode");
+  return qrcode.toDataURL(content, {
+    margin: 1,
+    scale: 8,
+    errorCorrectionLevel: "M",
+  });
+}
+
+function buildBoundWechatBotStatus(params: {
+  token?: string;
+  botId?: string;
+  userId?: string;
+  nickname?: string;
+}): WechatBotStatus {
+  return updateWechatBotStatus({
+    status: "bound",
+    message: params.nickname
+      ? `微信 ClawBot 已绑定：${params.nickname}`
+      : "微信 ClawBot 已绑定",
+    token: params.token,
+    botId: params.botId,
+    userId: params.userId,
+    nickname: params.nickname,
+    qrcode: undefined,
+    qrContent: undefined,
+    qrDataUrl: undefined,
+  });
+}
+
+async function refreshWechatBotQr(): Promise<WechatBotStatus> {
+  try {
+    writeOpenClawConfig();
+    void ensureOpenClawRuntimeInstalled().catch((error) => {
+      const message = error instanceof Error ? error.message : "OpenClaw 运行时安装失败";
+      appendWechatBotMessage({
+        role: "system",
+        text: `OpenClaw 运行时安装失败：${message}`,
+        status: "error",
+        source: "system",
+      });
+    });
+
+    const response = await fetch(
+      "https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          local_token_list: listLocalBotTokens(),
+        }),
+      },
+    );
+    const payload = (await response.json()) as ClawBotQrResponse;
+
+    if (!response.ok || payload.ret !== 0 || !payload.qrcode || !payload.qrcode_img_content) {
+      const message = payload.msg || `ClawBot 二维码获取失败：HTTP ${response.status}`;
+      saveWechatBotSettings({ status: "error", lastError: message });
+      appendWechatBotMessage({ role: "system", text: message, status: "error", source: "system" });
+      return updateWechatBotStatus({ status: "error", message });
+    }
+
+    const qrDataUrl = await buildQrDataUrl(payload.qrcode_img_content);
+    activeWechatLogin = {
+      sessionKey: randomUUID(),
+      qrcode: payload.qrcode,
+      qrContent: payload.qrcode_img_content,
+      qrDataUrl,
+      startedAt: Date.now(),
+      currentApiBaseUrl: "https://ilinkai.weixin.qq.com",
+    };
+
+    saveWechatBotSettings({
+      enabled: false,
+      qrcode: payload.qrcode,
+      qrContent: payload.qrcode_img_content,
+      token: "",
+      botId: "",
+      userId: "",
+      nickname: "",
+      status: "waiting_scan",
+      lastError: "",
+    });
+    appendWechatBotMessage({
+      role: "system",
+      text: "已刷新微信 ClawBot 绑定二维码",
+      status: "received",
+      source: "system",
+    });
+
+    return updateWechatBotStatus({
+      status: "waiting_scan",
+      message: "请使用微信中的 ClawBot 扫描二维码完成绑定",
+      qrcode: payload.qrcode,
+      qrContent: payload.qrcode_img_content,
+      qrDataUrl,
+      token: undefined,
+      botId: undefined,
+      userId: undefined,
+      nickname: undefined,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "ClawBot 二维码获取失败";
+    saveWechatBotSettings({ status: "error", lastError: message });
+    appendWechatBotMessage({ role: "system", text: message, status: "error", source: "system" });
+    return updateWechatBotStatus({ status: "error", message });
+  }
+}
+
+async function checkWechatBotBinding(): Promise<WechatBotStatus> {
+  const officialAccounts = loadOfficialWeixinAccounts();
+  const savedSettings = getWechatBotSettings();
+
+  if (officialAccounts.length > 0) {
+    const current = officialAccounts[officialAccounts.length - 1];
+    saveWechatBotSettings({
+      enabled: true,
+      token: current.token ?? savedSettings.token ?? "",
+      botId: current.accountId,
+      userId: current.userId ?? savedSettings.userId ?? "",
+      nickname: savedSettings.nickname ?? "",
+      status: "bound",
+      lastError: "",
+    });
+    void startOpenClawGateway().catch((error) => {
+      const message = error instanceof Error ? error.message : "OpenClaw Gateway 启动失败";
+      appendWechatBotMessage({ role: "system", text: message, status: "error", source: "system" });
+      updateWechatBotStatus({ status: "error", message });
+    });
+
+    return buildBoundWechatBotStatus({
+      token: current.token ?? savedSettings.token,
+      botId: current.accountId,
+      userId: current.userId ?? savedSettings.userId,
+      nickname: savedSettings.nickname,
+    });
+  }
+
+  const qrcode = activeWechatLogin?.qrcode || wechatBotStatus.qrcode || savedSettings.qrcode;
+  if (!qrcode || !activeWechatLogin) {
+    const status = savedSettings.status ?? wechatBotStatus.status ?? "idle";
+    return updateWechatBotStatus({
+      status,
+      message:
+        status === "unbound"
+          ? "已解除微信 ClawBot 绑定"
+          : "进入页面后会自动刷新二维码，请使用微信中的 ClawBot 扫码绑定",
+      qrcode: undefined,
+      qrContent: undefined,
+      qrDataUrl: undefined,
+      token: undefined,
+      botId: undefined,
+      userId: undefined,
+      nickname: undefined,
+    });
+  }
+
+  try {
+    const response = await fetch(
+      `${activeWechatLogin.currentApiBaseUrl}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}&bot_type=3`,
+    );
+    const payload = (await response.json()) as ClawBotStatusResponse;
+    const remoteStatus = String(payload.status ?? "").toLowerCase();
+
+    if (!response.ok || payload.ret !== 0) {
+      const message = payload.msg || `ClawBot 状态查询失败：HTTP ${response.status}`;
+      saveWechatBotSettings({ status: "error", lastError: message });
+      return updateWechatBotStatus({ status: "error", message });
+    }
+
+    if (remoteStatus === "scaned_but_redirect" && payload.redirect_host) {
+      activeWechatLogin.currentApiBaseUrl = `https://${payload.redirect_host}`;
+    }
+
+    if (remoteStatus === "confirmed" || remoteStatus === "binded_redirect") {
+      const token = payload.bot_token ?? payload.token ?? savedSettings.token;
+      const botId =
+        payload.ilink_bot_id ?? payload.bot_id ?? payload.botId ?? savedSettings.botId;
+      const userId =
+        payload.ilink_user_id ?? payload.user_id ?? payload.userId ?? savedSettings.userId;
+      const nickname = savedSettings.nickname;
+
+      if (!botId) {
+        const message = "ClawBot 绑定成功，但没有拿到 botId";
+        saveWechatBotSettings({ status: "error", lastError: message });
+        return updateWechatBotStatus({ status: "error", message });
+      }
+
+      saveOfficialWeixinLogin({
+        accountId: botId,
+        token,
+        userId,
+        baseUrl: payload.baseurl,
+      });
+      await restartOpenClawGateway();
+
+      saveWechatBotSettings({
+        enabled: true,
+        token: token ?? "",
+        botId,
+        userId: userId ?? "",
+        nickname: nickname ?? "",
+        status: "bound",
+        lastError: "",
+      });
+      activeWechatLogin = null;
+      appendWechatBotMessage({
+        role: "system",
+        text: "微信 ClawBot 已完成绑定，消息将转发到 Centibot",
+        status: "received",
+        source: "system",
+      });
+
+      return buildBoundWechatBotStatus({
+        token,
+        botId,
+        userId,
+        nickname,
+      });
+    }
+
+    if (isClawBotBoundStatus(remoteStatus)) {
+      return buildBoundWechatBotStatus({
+        token: savedSettings.token,
+        botId: savedSettings.botId,
+        userId: savedSettings.userId,
+        nickname: savedSettings.nickname,
+      });
+    }
+
+    return updateWechatBotStatus({
+      status: "waiting_scan",
+      message: getClawBotMessage(remoteStatus),
+      qrcode: activeWechatLogin.qrcode,
+      qrContent: activeWechatLogin.qrContent,
+      qrDataUrl: activeWechatLogin.qrDataUrl,
+      token: undefined,
+      botId: undefined,
+      userId: undefined,
+      nickname: undefined,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "ClawBot 状态查询失败";
+    saveWechatBotSettings({ status: "error", lastError: message });
+    return updateWechatBotStatus({ status: "error", message });
+  }
+}
+
+async function unbindWechatBot(): Promise<WechatBotStatus> {
+  activeWechatLogin = null;
+  clearOfficialWeixinState();
+  stopOpenClawGateway();
+  wechatBotMessages.splice(0, wechatBotMessages.length);
+
+  saveWechatBotSettings({
+    enabled: false,
+    qrcode: "",
+    qrContent: "",
+    token: "",
+    botId: "",
+    userId: "",
+    nickname: "",
+    status: "unbound",
+    lastError: "",
+  });
+  appendWechatBotMessage({
+    role: "system",
+    text: "已在本机解除微信 ClawBot 绑定",
+    status: "received",
+    source: "system",
+  });
+  return updateWechatBotStatus({
+    status: "unbound",
+    message: "已解除微信 ClawBot 绑定",
+    token: undefined,
+    botId: undefined,
+    userId: undefined,
+    nickname: undefined,
+    qrcode: undefined,
+    qrContent: undefined,
+    qrDataUrl: undefined,
+  });
+}
 
 function shouldUseAgentTools(message: string): boolean {
   const text = message.toLowerCase();
@@ -90,7 +539,27 @@ function shouldUseAgentTools(message: string): boolean {
   const toolIntentRegex =
     /(读取文件|读文件|写文件|删除文件|列出目录|搜索文件|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch|股市|a股|港股|美股|股票|大盘|指数|行情|新闻|资讯|上证|深证|沪深|金价|油价|生成pdf|生成ppt|生成报告|写报告|分析报告|投资报告|研究报告|pdf|ppt|pptx|报告|演示文稿|幻灯片)/;
 
-  return toolIntentRegex.test(text);
+  const localSystemHints = [
+    "\u6211\u7684\u7535\u8111",
+    "\u6211\u8fd9\u53f0\u7535\u8111",
+    "\u5f53\u524d\u8fd0\u884c",
+    "\u6b63\u5728\u8fd0\u884c",
+    "\u8fd0\u884c\u54ea\u4e9b\u8f6f\u4ef6",
+    "\u5f00\u7740\u54ea\u4e9b\u8f6f\u4ef6",
+    "\u6253\u5f00\u4e86\u54ea\u4e9b\u8f6f\u4ef6",
+    "\u67e5\u770b\u8fdb\u7a0b",
+    "\u5217\u51fa\u8fdb\u7a0b",
+    "\u67e5\u770b\u8f6f\u4ef6",
+    "\u67e5\u770b\u5e94\u7528",
+    "task manager",
+    "process",
+    "processes",
+    "running apps",
+    "running programs",
+  ];
+  const hasLocalSystemIntent = localSystemHints.some((hint) => message.includes(hint));
+
+  return toolIntentRegex.test(text) || hasLocalSystemIntent;
 }
 
 function shouldUseRealtimeTool(message: string): boolean {
@@ -633,6 +1102,51 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle("settings:get-wechat-bot", async () => {
+  return getWechatBotSettings();
+});
+
+ipcMain.handle(
+  "settings:save-wechat-bot",
+  async (_event, settings: WechatBotSettings) => {
+    const normalized: WechatBotSettings = {
+      enabled: Boolean(settings.enabled),
+      token: settings.token?.trim() ?? "",
+      qrcode: settings.qrcode?.trim() ?? "",
+      qrContent: settings.qrContent?.trim() ?? "",
+      botId: settings.botId?.trim() ?? "",
+      userId: settings.userId?.trim() ?? "",
+      nickname: settings.nickname?.trim() ?? "",
+      status: settings.status ?? "idle",
+    };
+    saveWechatBotSettings(normalized);
+    return getWechatBotSettings();
+  },
+);
+
+ipcMain.handle("settings:refresh-wechat-bot-qr", async () => {
+  return refreshWechatBotQr();
+});
+
+ipcMain.handle("settings:get-wechat-bot-status", async () => {
+  return checkWechatBotBinding();
+});
+
+ipcMain.handle("settings:unbind-wechat-bot", async () => {
+  return unbindWechatBot();
+});
+
+ipcMain.handle(
+  "wechat-bot:send-message",
+  async () => {
+    throw new Error("微信机器人页面为只读同步视图，请在微信 ClawBot 中发消息。");
+  },
+);
+
+ipcMain.handle("wechat-bot:list-messages", async () => {
+  return wechatBotMessages;
+});
+
 // IPC: 本地 Skills 配置
 ipcMain.handle("skills:list", async () => {
   return getSkills();
@@ -999,15 +1513,387 @@ ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
   return error || null;
 });
 
+const CENTIBOT_AGENT_PORT = 18790;
+let centibotAgentServer: ReturnType<typeof createServer> | null = null;
+
+type OpenAICompatibleMessage = {
+  role: "system" | "user" | "assistant";
+  content?: unknown;
+};
+
+type OpenAICompatibleRequest = {
+  model?: string;
+  messages?: OpenAICompatibleMessage[];
+  stream?: boolean;
+};
+
+function normalizeOpenAIContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (!part || typeof part !== "object") return "";
+
+      const record = part as Record<string, unknown>;
+      if (typeof record.text === "string") return record.text;
+      if (typeof record.content === "string") return record.content;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function stripOpenClawConversationMetadata(content: string): string {
+  const text = content.trim();
+  if (!text) return text;
+
+  const metadataPattern =
+    /^\[[^\]]+\]\s+Conversation info \(untrusted metadata\):\s*```json[\s\S]*?```\s*/i;
+  const stripped = text.replace(metadataPattern, "").trim();
+
+  return stripped || text;
+}
+
+function readRequestBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 1024 * 1024) {
+        req.destroy(new Error("Request body too large"));
+      }
+    });
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
+}
+
+function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "content-type, authorization",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  });
+  res.end(JSON.stringify(payload));
+}
+
+function sendSseChunk(res: ServerResponse, payload: unknown): void {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+async function handleCentibotAgentRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.method === "OPTIONS") {
+    sendJson(res, 200, {});
+    return;
+  }
+
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+
+  if (req.method === "GET" && url.pathname === "/health") {
+    sendJson(res, 200, { ok: true, name: "centibot-agent" });
+    return;
+  }
+
+  if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/openclaw/agent.json")) {
+    sendJson(res, 200, {
+      name: "Centibot Agent",
+      id: "centibot-current",
+      type: "openai-compatible",
+      baseUrl: `http://127.0.0.1:${CENTIBOT_AGENT_PORT}/v1`,
+      chatCompletionsUrl: `http://127.0.0.1:${CENTIBOT_AGENT_PORT}/v1/chat/completions`,
+      modelsUrl: `http://127.0.0.1:${CENTIBOT_AGENT_PORT}/v1/models`,
+      model: "centibot-current",
+      apiKeyRequired: false,
+      streaming: true,
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/v1/models") {
+    sendJson(res, 200, {
+      object: "list",
+      data: [
+        {
+          id: "centibot-current",
+          object: "model",
+          created: 0,
+          owned_by: "centibot",
+        },
+      ],
+    });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/v1/models/centibot-current") {
+    sendJson(res, 200, {
+      id: "centibot-current",
+      object: "model",
+      created: 0,
+      owned_by: "centibot",
+    });
+    return;
+  }
+
+  if (req.method !== "POST" || url.pathname !== "/v1/chat/completions") {
+    sendJson(res, 404, { error: { message: "Not found" } });
+    return;
+  }
+
+  try {
+    const body = await readRequestBody(req);
+    const payload = JSON.parse(body || "{}") as OpenAICompatibleRequest;
+    const allMessages = (payload.messages ?? []).map((message) => ({
+      role: message.role,
+      content: normalizeOpenAIContent(message.content),
+    }));
+    const lastUser = [...allMessages].reverse().find((message) => message.role === "user");
+
+    if (!lastUser?.content?.trim()) {
+      sendJson(res, 400, { error: { message: "Missing user message" } });
+      return;
+    }
+
+    const userText = stripOpenClawConversationMetadata(lastUser.content);
+    const useWechatTools =
+      shouldUseRealtimeTool(userText) ||
+      shouldUseWebSearchTool(userText) ||
+      shouldUseCalculatorTool(userText) ||
+      shouldUseAgentTools(userText);
+
+    appendWechatBotMessage({
+      role: "user",
+      text: userText,
+      status: "received",
+      source: "wechat",
+    });
+
+    const history = allMessages
+      .slice(0, allMessages.lastIndexOf(lastUser))
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+      })) as ChatMessage[];
+
+    if (payload.stream) {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "content-type, authorization",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      });
+
+      const id = `chatcmpl-${randomUUID()}`;
+      const created = Math.floor(Date.now() / 1000);
+      const model = payload.model || "centibot-current";
+      let replyText = "";
+      const sendStop = () => {
+        sendSseChunk(res, {
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model,
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason: "stop",
+            },
+          ],
+        });
+      };
+
+      sendSseChunk(res, {
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model,
+        choices: [
+          {
+            index: 0,
+            delta: { role: "assistant" },
+            finish_reason: null,
+          },
+        ],
+      });
+
+      try {
+        if (useWechatTools) {
+          await chatWithAgent(
+            history,
+            userText,
+            (token) => {
+              replyText += token;
+              sendSseChunk(res, {
+                id,
+                object: "chat.completion.chunk",
+                created,
+                model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: { content: token },
+                    finish_reason: null,
+                  },
+                ],
+              });
+            },
+            () => {},
+            () => {},
+          );
+        } else {
+          await chatStream(history, userText, (token) => {
+            replyText += token;
+            sendSseChunk(res, {
+              id,
+              object: "chat.completion.chunk",
+              created,
+              model,
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: token },
+                  finish_reason: null,
+                },
+              ],
+            });
+          });
+        }
+        appendWechatBotMessage({
+          role: "assistant",
+          text: replyText || "(空回复)",
+          status: "sent",
+          source: "wechat",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Centibot Agent failed";
+        appendWechatBotMessage({
+          role: "assistant",
+          text: message,
+          status: "error",
+          source: "wechat",
+        });
+        sendSseChunk(res, {
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model,
+          choices: [
+            {
+              index: 0,
+              delta: { content: `\n\nCentibot Agent error: ${message}` },
+              finish_reason: null,
+            },
+          ],
+        });
+      }
+
+      sendStop();
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
+
+    let content = "";
+    if (useWechatTools) {
+      await chatWithAgent(
+        history,
+        userText,
+        (token) => {
+          content += token;
+        },
+        () => {},
+        () => {},
+      );
+    } else {
+      content = await chatStream(history, userText, () => {});
+    }
+    appendWechatBotMessage({
+      role: "assistant",
+      text: content || "(空回复)",
+      status: "sent",
+      source: "wechat",
+    });
+
+    sendJson(res, 200, {
+      id: `chatcmpl-${randomUUID()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: payload.model || "centibot-current",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content },
+          finish_reason: "stop",
+        },
+      ],
+    });
+  } catch (error) {
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+
+    sendJson(res, 500, {
+      error: {
+        message: error instanceof Error ? error.message : "Centibot Agent failed",
+      },
+    });
+  }
+}
+
+function startCentibotAgentServer(): void {
+  if (centibotAgentServer) return;
+
+  centibotAgentServer = createServer((req, res) => {
+    void handleCentibotAgentRequest(req, res);
+  });
+
+  centibotAgentServer.listen(CENTIBOT_AGENT_PORT, "127.0.0.1", () => {
+    console.log(
+      `Centibot Agent listening at http://127.0.0.1:${CENTIBOT_AGENT_PORT}/v1/chat/completions`,
+    );
+  });
+
+  centibotAgentServer.on("error", (error) => {
+    console.error("Centibot Agent server failed", error);
+  });
+}
+
 app.whenReady().then(async () => {
-  // 启动时先恢复用户配置，再根据本地可用模型自动补齐缺失项
   const savedSettings = getModelSettings();
   applyModelSettings(savedSettings);
+
+  const savedWechatBot = getWechatBotSettings();
+  updateWechatBotStatus({
+    status: savedWechatBot.status ?? (savedWechatBot.token ? "bound" : "idle"),
+    message: savedWechatBot.token
+      ? "微信 ClawBot 已绑定"
+      : "进入页面后会自动刷新二维码，请使用微信中的 ClawBot 扫码绑定",
+    qrcode: undefined,
+    qrContent: undefined,
+    qrDataUrl: undefined,
+    token: savedWechatBot.token,
+    botId: savedWechatBot.botId,
+    userId: savedWechatBot.userId,
+    nickname: savedWechatBot.nickname,
+  });
 
   await fetchOllamaModels();
   saveModelSettings(getModelSettingsSnapshot());
 
   createWindow();
+  startCentibotAgentServer();
+  void checkWechatBotBinding();
 
   app.on("activate", function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1018,4 +1904,10 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  centibotAgentServer?.close();
+  centibotAgentServer = null;
+  stopOpenClawGateway();
 });

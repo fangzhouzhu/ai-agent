@@ -9,8 +9,8 @@ interface Props {
   onNew: () => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
-  currentView: 'chat' | 'kb' | 'task' | 'skills'
-  onViewChange: (view: 'chat' | 'kb' | 'task' | 'skills') => void
+  currentView: 'chat' | 'kb' | 'task' | 'skills' | 'wechat'
+  onViewChange: (view: 'chat' | 'kb' | 'task' | 'skills' | 'wechat') => void
   selectedKbCount: number
   runningTaskCount: number
   onSelectKb: (id: string | null) => void
@@ -50,8 +50,15 @@ const Sidebar: React.FC<Props> = ({
       <div className={styles.scrollArea}>
         <nav className={styles.primaryNav}>
           <button className={`${styles.navItem} ${styles.newChatBtn}`} onClick={handleNewChat}>
-            <span className={styles.navIcon}>＋</span>
+            <span className={styles.navIcon}>+</span>
             <span>新对话</span>
+          </button>
+          <button
+            className={`${styles.navItem} ${currentView === 'wechat' ? styles.navItemActive : ''}`}
+            onClick={() => onViewChange('wechat')}
+          >
+            <span className={styles.navIcon}>微</span>
+            <span>微信ClawBot</span>
           </button>
           <button
             className={`${styles.navItem} ${currentView === 'kb' ? styles.navItemActive : ''}`}
@@ -60,7 +67,7 @@ const Sidebar: React.FC<Props> = ({
               onViewChange('kb')
             }}
           >
-            <span className={styles.navIcon}>▣</span>
+            <span className={styles.navIcon}>□</span>
             <span>知识库</span>
             {selectedKbCount > 0 && <span className={styles.countBadge}>{selectedKbCount}</span>}
           </button>
@@ -93,11 +100,13 @@ const Sidebar: React.FC<Props> = ({
               {sortedConversations.map((conv) => (
                 <button
                   key={conv.id}
-                  className={`${styles.listItem} ${currentView === 'chat' && conv.id === activeId ? styles.active : ''}`}
+                  className={`${styles.listItem} ${
+                    currentView === 'chat' && conv.id === activeId ? styles.active : ''
+                  }`}
                   onClick={() => onSelect(conv.id)}
                   title={conv.title}
                 >
-                  <span className={styles.itemIcon}>☵</span>
+                  <span className={styles.itemIcon}>☰</span>
                   <span className={styles.itemTitle}>{conv.title}</span>
                   <span
                     className={styles.deleteBtn}

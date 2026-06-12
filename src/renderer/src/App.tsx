@@ -5,6 +5,7 @@ import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
 import TaskPanel from './components/TaskPanel'
 import SkillsPanel from './components/SkillsPanel'
+import WechatBotPanel from './components/WechatBotPanel'
 
 const TitleBar: React.FC = () => (
   <div style={{
@@ -74,6 +75,20 @@ type OnlineProviderConfig = {
   apiKey: string
 }
 
+type WechatBotConfig = {
+  enabled: boolean
+  qrcode: string
+  qrContent: string
+  token: string
+  botId?: string
+  userId?: string
+  nickname?: string
+  status?: WechatBotBindStatus
+  lastError?: string
+  boundAt?: number
+  updatedAt?: number
+}
+
 type ModelRouteConfig = {
   chat: RouteModelConfig
   agent: RouteModelConfig
@@ -114,6 +129,21 @@ type ApiTestState = {
   testedAt?: number
 }
 
+type WechatBotBindStatus = 'idle' | 'waiting_scan' | 'bound' | 'error' | 'unbound'
+
+type BotBindState = {
+  status: WechatBotBindStatus
+  message: string
+  qrcode?: string
+  qrContent?: string
+  qrDataUrl?: string
+  token?: string
+  botId?: string
+  userId?: string
+  nickname?: string
+  updatedAt?: number
+}
+
 type ToolPolicy = {
   name: string
   risk: Array<'read' | 'write' | 'delete' | 'network' | 'system'>
@@ -141,6 +171,14 @@ const defaultModelConfig: ModelRouteConfig = {
   },
   onlineProfiles: [],
   activeOnlineProfileId: null,
+}
+
+const defaultWechatBotConfig: WechatBotConfig = {
+  enabled: false,
+  qrcode: '',
+  qrContent: '',
+  token: '',
+  status: 'idle',
 }
 
 function sanitizeAssistantContent(text: string): string {
@@ -185,6 +223,22 @@ function normalizeModelConfig(config?: {
     },
     onlineProfiles: config?.onlineProfiles ?? [],
     activeOnlineProfileId: config?.activeOnlineProfileId ?? null,
+  }
+}
+
+function normalizeWechatBotConfig(config?: Partial<WechatBotConfig> | null): WechatBotConfig {
+  return {
+    enabled: Boolean(config?.enabled),
+    qrcode: config?.qrcode ?? '',
+    qrContent: config?.qrContent ?? '',
+    token: config?.token ?? '',
+    botId: config?.botId,
+    userId: config?.userId,
+    nickname: config?.nickname,
+    status: config?.status ?? 'idle',
+    lastError: config?.lastError,
+    boundAt: config?.boundAt,
+    updatedAt: config?.updatedAt,
   }
 }
 
@@ -290,8 +344,10 @@ const App: React.FC = () => {
   const [models, setModels] = useState<string[]>([])
   const [modelConfig, setModelConfig] = useState<ModelRouteConfig>(defaultModelConfig)
   const [draftModelConfig, setDraftModelConfig] = useState<ModelRouteConfig>(defaultModelConfig)
+  const [wechatBotConfig, setWechatBotConfig] = useState<WechatBotConfig>(defaultWechatBotConfig)
+  const [draftWechatBotConfig, setDraftWechatBotConfig] = useState<WechatBotConfig>(defaultWechatBotConfig)
   const [showModelConfig, setShowModelConfig] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'models' | 'skills' | 'tools' | 'diagnostics'>('models')
+  const [settingsTab, setSettingsTab] = useState<'models' | 'wechat' | 'skills' | 'tools' | 'diagnostics'>('models')
   const [draftSkills, setDraftSkills] = useState<SkillConfig[]>([])
   const [skillEditorDraft, setSkillEditorDraft] = useState<SkillConfig | null>(null)
   const [skillEditorMode, setSkillEditorMode] = useState<'new' | 'edit' | null>(null)
@@ -304,8 +360,12 @@ const App: React.FC = () => {
     message: '',
     models: [],
   })
+  const [botBindState, setBotBindState] = useState<BotBindState>({
+    status: 'idle',
+    message: '',
+  })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
-  const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task' | 'skills'>('chat')
+  const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task' | 'skills' | 'wechat'>('chat')
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([])
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
@@ -321,15 +381,17 @@ const App: React.FC = () => {
   const skillFormRef = useRef<HTMLFormElement | null>(null)
 
   const refreshModelConfig = useCallback(async () => {
-    const [availableModels, savedConfig, savedSkills, policies, traces] = await Promise.all([
+    const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces] = await Promise.all([
       window.electronAPI.listModels(),
       window.electronAPI.getModelConfig(),
       window.electronAPI.listSkills(),
+      window.electronAPI.getWechatBotSettings(),
       window.electronAPI.listToolPolicies(),
       window.electronAPI.diagnostics.listTraces(),
     ])
 
     const nextConfig = normalizeModelConfig(savedConfig)
+    const nextWechatBotConfig = normalizeWechatBotConfig(savedWechatBot)
     const nextSkills = [...savedSkills].sort(
       (a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt
     )
@@ -337,6 +399,8 @@ const App: React.FC = () => {
     setModels(availableModels)
     setModelConfig(nextConfig)
     setDraftModelConfig(nextConfig)
+    setWechatBotConfig(nextWechatBotConfig)
+    setDraftWechatBotConfig(nextWechatBotConfig)
     setDraftSkills(nextSkills)
     setSkillEditorDraft(nextSkills[0] ? { ...nextSkills[0], keywords: [...nextSkills[0].keywords] } : null)
     setSkillEditorMode(nextSkills[0] ? 'edit' : null)
@@ -345,6 +409,19 @@ const App: React.FC = () => {
     setTraceSummaries(traces)
     setActiveSkillId(nextSkills[0]?.id ?? null)
     setApiTestState({ status: 'idle', message: '', models: [] })
+    setBotBindState({
+      status: nextWechatBotConfig.status ?? 'idle',
+      message: nextWechatBotConfig.nickname
+        ? `已绑定微信 ClawBot：${nextWechatBotConfig.nickname}`
+        : '',
+      qrcode: nextWechatBotConfig.qrcode,
+      qrContent: nextWechatBotConfig.qrContent,
+      token: nextWechatBotConfig.token,
+      botId: nextWechatBotConfig.botId,
+      userId: nextWechatBotConfig.userId,
+      nickname: nextWechatBotConfig.nickname,
+      updatedAt: nextWechatBotConfig.updatedAt,
+    })
   }, [])
   // 初始化：从文件加载索引
   useEffect(() => {
@@ -500,6 +577,17 @@ const App: React.FC = () => {
     }))
   }, [])
 
+  const updateWechatBotConfig = useCallback((patch: Partial<WechatBotConfig>) => {
+    setDraftWechatBotConfig((prev) => ({
+      ...prev,
+      ...patch,
+    }))
+    setBotBindState((prev) => ({
+      ...prev,
+      message: '',
+    }))
+  }, [])
+
   const applyOnlineProfile = useCallback((profileId: string) => {
     setDraftModelConfig((prev) => {
       const profile = prev.onlineProfiles.find((item) => item.id === profileId)
@@ -651,9 +739,11 @@ const App: React.FC = () => {
     setSkillEditorSessionId(uuidv4())
   }, [draftSkills, skillEditorDraft, skillEditorMode])
 
-  const handleOpenModelConfig = useCallback(async () => {
+  const handleOpenModelConfig = useCallback(async (
+    initialTab: 'models' | 'wechat' | 'skills' | 'tools' | 'diagnostics' = 'models',
+  ) => {
     await refreshModelConfig()
-    setSettingsTab('models')
+    setSettingsTab(initialTab)
     setShowModelConfig(true)
   }, [refreshModelConfig])
 
@@ -848,14 +938,28 @@ const App: React.FC = () => {
 
     const normalizedSkills = normalizeDraftSkills(skillsToSave)
 
-    const [savedConfig, savedSkills] = await Promise.all([
+    const [savedConfig, savedSkills, savedWechatBot] = await Promise.all([
       window.electronAPI.saveModelConfig(toSettingsPayload(draftModelConfig)),
       window.electronAPI.saveSkills(normalizedSkills),
+      window.electronAPI.saveWechatBotSettings(draftWechatBotConfig),
     ])
 
     const nextConfig = normalizeModelConfig(savedConfig)
+    const nextWechatBotConfig = normalizeWechatBotConfig(savedWechatBot)
     setModelConfig(nextConfig)
     setDraftModelConfig(nextConfig)
+    setWechatBotConfig(nextWechatBotConfig)
+    setDraftWechatBotConfig(nextWechatBotConfig)
+    setBotBindState((prev) => ({
+      ...prev,
+      status: nextWechatBotConfig.status ?? prev.status,
+      qrcode: nextWechatBotConfig.qrcode,
+      qrContent: nextWechatBotConfig.qrContent,
+      token: nextWechatBotConfig.token,
+      botId: nextWechatBotConfig.botId,
+      userId: nextWechatBotConfig.userId,
+      nickname: nextWechatBotConfig.nickname,
+    }))
     setDraftSkills(savedSkills)
     setActiveSkillId((current) =>
       savedSkills.some((skill) => skill.id === current) ? current : (savedSkills[0]?.id ?? null)
@@ -866,7 +970,7 @@ const App: React.FC = () => {
     setSkillEditorMode(savedActive ? 'edit' : null)
     setSkillEditorSessionId(uuidv4())
     setShowModelConfig(false)
-  }, [draftModelConfig, draftSkills, readSkillEditorDraft, skillEditorMode])
+  }, [draftModelConfig, draftSkills, draftWechatBotConfig, readSkillEditorDraft, skillEditorMode])
 
   const handleTestOnlineApi = useCallback(async () => {
     const testModel =
@@ -913,6 +1017,128 @@ const App: React.FC = () => {
       })
     }
   }, [draftModelConfig])
+
+  const handleRefreshWechatBotQr = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.refreshWechatBotQr()
+      setBotBindState({
+        status: result.status,
+        message: result.message,
+        qrcode: result.qrcode,
+        qrContent: result.qrContent,
+        qrDataUrl: result.qrDataUrl,
+        token: result.token,
+        botId: result.botId,
+        userId: result.userId,
+        nickname: result.nickname,
+        updatedAt: result.updatedAt,
+      })
+    } catch (error) {
+      setBotBindState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'ClawBot 二维码刷新失败',
+        updatedAt: Date.now(),
+      })
+    }
+  }, [])
+
+  const handleUnbindWechatBot = useCallback(async () => {
+    const result = await window.electronAPI.unbindWechatBot()
+    setDraftWechatBotConfig((prev) => ({
+      ...prev,
+      enabled: false,
+      token: '',
+      botId: undefined,
+      userId: undefined,
+      nickname: undefined,
+      status: result.status,
+      boundAt: undefined,
+    }))
+    setWechatBotConfig((prev) => ({
+      ...prev,
+      enabled: false,
+      token: '',
+      botId: undefined,
+      userId: undefined,
+      nickname: undefined,
+      status: result.status,
+      boundAt: undefined,
+    }))
+    setBotBindState({
+      status: result.status,
+      message: result.message,
+      updatedAt: result.updatedAt,
+    })
+  }, [])
+
+  const applyWechatBotStatus = useCallback((status: {
+    status: WechatBotBindStatus
+    message: string
+    qrcode?: string
+    qrContent?: string
+    qrDataUrl?: string
+    token?: string
+    botId?: string
+    userId?: string
+    nickname?: string
+    updatedAt: number
+  }) => {
+    setBotBindState({
+      status: status.status,
+      message: status.message,
+      qrcode: status.qrcode,
+      qrContent: status.qrContent,
+      qrDataUrl: status.qrDataUrl,
+      token: status.token,
+      botId: status.botId,
+      userId: status.userId,
+      nickname: status.nickname,
+      updatedAt: status.updatedAt,
+    })
+
+    if (status.status === 'bound') {
+      setDraftWechatBotConfig((prev) => ({
+        ...prev,
+        enabled: true,
+        token: status.token ?? prev.token,
+        botId: status.botId,
+        userId: status.userId,
+        nickname: status.nickname,
+        status: 'bound',
+      }))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!showModelConfig || settingsTab !== 'wechat') return
+
+    let disposed = false
+    const syncStatus = async () => {
+      const status = await window.electronAPI.getWechatBotStatus()
+      if (disposed) return
+      applyWechatBotStatus(status)
+    }
+
+    const enterWechatTab = async () => {
+      const status = await window.electronAPI.getWechatBotStatus()
+      if (disposed) return
+
+      applyWechatBotStatus(status)
+
+      if (status.status !== 'bound') {
+        const refreshed = await window.electronAPI.refreshWechatBotQr()
+        if (disposed) return
+        applyWechatBotStatus(refreshed)
+      }
+    }
+
+    void enterWechatTab()
+    const timer = window.setInterval(() => void syncStatus(), 3000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [applyWechatBotStatus, showModelConfig, settingsTab])
 
   const selectableModels = models.filter((model) => !/embed/i.test(model))
   const hasEmbeddingModel = models.some((model) => /nomic-embed-text/i.test(model))
@@ -1512,6 +1738,8 @@ const App: React.FC = () => {
           />
         ) : currentView === 'skills' ? (
           <SkillsPanel />
+        ) : currentView === 'wechat' ? (
+          <WechatBotPanel onOpenSettings={() => void handleOpenModelConfig('wechat')} />
         ) : (
           <>
             <div className={styles.topbar}>
@@ -1585,6 +1813,17 @@ const App: React.FC = () => {
                   <span className={styles.settingsNavText}>
                     <span>在线预设</span>
                     <small>模型、API 与 RAG</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.settingsNavItem} ${settingsTab === 'wechat' ? styles.settingsNavItemActive : ''}`}
+                  onClick={() => setSettingsTab('wechat')}
+                >
+                  <span className={styles.settingsNavIcon}>微</span>
+                  <span className={styles.settingsNavText}>
+                    <span>微信 Bot</span>
+                    <small>群机器人绑定</small>
                   </span>
                 </button>
                 <button
@@ -2029,6 +2268,83 @@ const App: React.FC = () => {
               </div>
             )}
 
+            {settingsTab === 'wechat' && (
+              <>
+                <div className={styles.modalSection}>
+                  <div className={styles.modalLabel}>微信 ClawBot 绑定</div>
+                  <div className={styles.hintCard}>
+                    使用微信「设置 - 插件 - ClawBot」扫描下方二维码完成绑定。这里不是个人微信登录页，二维码来自微信 ClawBot 绑定服务。
+                    绑定后请从左侧“微信ClawBot”入口调试对话和复制 OpenClaw Gateway 配置。
+                  </div>
+                </div>
+
+                <div className={styles.modalSection}>
+                  <div className={styles.modalLabel}>绑定二维码</div>
+                  <div className={styles.profileToolbar}>
+                    <button
+                      className={styles.secondaryBtn}
+                      onClick={() => void handleRefreshWechatBotQr()}
+                    >
+                      刷新二维码
+                    </button>
+                    <button
+                      className={`${styles.secondaryBtn} ${styles.dangerBtn}`}
+                      onClick={() => void handleUnbindWechatBot()}
+                    >
+                      解绑
+                    </button>
+                    {botBindState.message && (
+                      <span
+                        className={`${styles.statusNote} ${
+                          botBindState.status === 'bound'
+                            ? styles.statusSuccess
+                            : botBindState.status === 'error'
+                              ? styles.statusError
+                              : ''
+                        }`}
+                      >
+                        {botBindState.message}
+                      </span>
+                    )}
+                  </div>
+
+                  {botBindState.qrDataUrl ? (
+                    <div className={styles.qrWrap}>
+                      <img className={styles.qrImage} src={botBindState.qrDataUrl} alt="微信 ClawBot 绑定二维码" />
+                      <div className={styles.qrMeta}>
+                        <div>请使用微信 ClawBot 扫码完成绑定。</div>
+                        <div>绑定状态：{botBindState.status === 'bound' ? '已绑定' : '等待扫码'}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={styles.emptyHint}>点击“刷新二维码”获取微信 ClawBot 绑定二维码。</div>
+                  )}
+
+                  {(botBindState.updatedAt || draftWechatBotConfig.updatedAt) && (
+                    <div className={styles.metricsGrid}>
+                      <div className={styles.metricCard}>
+                        <div className={styles.metricLabel}>更新时间</div>
+                        <div className={styles.metricValue}>
+                          {new Date(botBindState.updatedAt ?? draftWechatBotConfig.updatedAt ?? Date.now()).toLocaleString('zh-CN')}
+                        </div>
+                      </div>
+                      <div className={styles.metricCard}>
+                        <div className={styles.metricLabel}>当前状态</div>
+                        <div className={styles.metricValue}>
+                          {botBindState.status === 'bound'
+                            ? '已绑定'
+                            : botBindState.status === 'error'
+                              ? '绑定异常'
+                              : botBindState.status === 'unbound'
+                                ? '已解绑'
+                                : '等待扫码'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
             {settingsTab === 'tools' && (
               <div className={styles.modalSection}>
                 <div className={styles.modalLabel}>工具权限</div>

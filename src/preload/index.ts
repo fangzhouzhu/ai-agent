@@ -178,6 +178,20 @@ export type OnlineProviderProfile = {
   updatedAt: number;
 };
 
+export type WechatBotSettings = {
+  enabled?: boolean;
+  qrcode?: string;
+  qrContent?: string;
+  token?: string;
+  botId?: string;
+  userId?: string;
+  nickname?: string;
+  status?: "idle" | "waiting_scan" | "bound" | "error" | "unbound";
+  lastError?: string;
+  boundAt?: number;
+  updatedAt?: number;
+};
+
 export type FullModelConfig = {
   chatModel?: string;
   agentModel?: string;
@@ -197,6 +211,28 @@ export type OnlineApiTestResult = {
   latencyMs?: number;
   balanceInfo?: string;
   testedAt?: number;
+};
+
+export type WechatBotStatus = {
+  status: "idle" | "waiting_scan" | "bound" | "error" | "unbound";
+  message: string;
+  qrcode?: string;
+  qrContent?: string;
+  qrDataUrl?: string;
+  token?: string;
+  botId?: string;
+  userId?: string;
+  nickname?: string;
+  updatedAt: number;
+};
+
+export type WechatBotMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+  status: "received" | "sent" | "error";
+  source?: "wechat" | "panel" | "system";
+  createdAt: number;
 };
 
 export type ToolRisk = "read" | "write" | "delete" | "network" | "system";
@@ -314,6 +350,39 @@ const api = {
     ipcRenderer.invoke("settings:test-online", { online, model }),
 
   // 本地 Skills
+  getWechatBotSettings: (): Promise<WechatBotSettings> =>
+    ipcRenderer.invoke("settings:get-wechat-bot"),
+  saveWechatBotSettings: (
+    settings: WechatBotSettings,
+  ): Promise<WechatBotSettings> =>
+    ipcRenderer.invoke("settings:save-wechat-bot", settings),
+  refreshWechatBotQr: (): Promise<WechatBotStatus> =>
+    ipcRenderer.invoke("settings:refresh-wechat-bot-qr"),
+  getWechatBotStatus: (): Promise<WechatBotStatus> =>
+    ipcRenderer.invoke("settings:get-wechat-bot-status"),
+  unbindWechatBot: (): Promise<WechatBotStatus> =>
+    ipcRenderer.invoke("settings:unbind-wechat-bot"),
+  sendWechatBotMessage: (
+    history: ChatMessage[],
+    message: string,
+  ): Promise<string> =>
+    ipcRenderer.invoke("wechat-bot:send-message", { history, message }),
+  listWechatBotMessages: (): Promise<WechatBotMessage[]> =>
+    ipcRenderer.invoke("wechat-bot:list-messages"),
+  onWechatBotUpdate: (
+    callback: (data: {
+      status: WechatBotStatus;
+      messages: WechatBotMessage[];
+    }) => void,
+  ) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      data: { status: WechatBotStatus; messages: WechatBotMessage[] },
+    ) => callback(data);
+    ipcRenderer.on("wechat-bot:update", handler);
+    return () => ipcRenderer.removeListener("wechat-bot:update", handler);
+  },
+
   listSkills: (): Promise<SkillConfig[]> => ipcRenderer.invoke("skills:list"),
   saveSkills: (skills: SkillConfig[]): Promise<SkillConfig[]> =>
     ipcRenderer.invoke("skills:save", skills),

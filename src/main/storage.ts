@@ -79,6 +79,20 @@ export interface OnlineProviderProfile extends Required<OnlineProviderSettings> 
   updatedAt: number;
 }
 
+export interface WechatBotSettings {
+  enabled?: boolean;
+  qrcode?: string;
+  qrContent?: string;
+  token?: string;
+  botId?: string;
+  userId?: string;
+  nickname?: string;
+  status?: "idle" | "waiting_scan" | "bound" | "error" | "unbound";
+  lastError?: string;
+  boundAt?: number;
+  updatedAt?: number;
+}
+
 export interface ModelSettings {
   chatModel?: string;
   agentModel?: string;
@@ -90,6 +104,7 @@ export interface ModelSettings {
   onlineProfiles?: OnlineProviderProfile[];
   activeOnlineProfileId?: string | null;
   skills?: SkillConfig[];
+  wechatBot?: WechatBotSettings;
   kbSelectedIds?: string[];
   kbRagOnly?: boolean;
   kbMinScore?: number;
@@ -193,6 +208,26 @@ export function getSkills(): SkillConfig[] {
 
 export function saveSkills(skills: SkillConfig[]): void {
   saveModelSettings({ skills });
+}
+
+export function getWechatBotSettings(): WechatBotSettings {
+  const settings = getModelSettings();
+  return settings.wechatBot ?? {};
+}
+
+export function saveWechatBotSettings(wechatBot: WechatBotSettings): void {
+  const now = Date.now();
+  const prev = getWechatBotSettings();
+  const token = wechatBot.token?.trim() ?? prev.token;
+  saveModelSettings({
+    wechatBot: {
+      ...prev,
+      ...wechatBot,
+      token,
+      boundAt: token ? (prev.boundAt ?? now) : undefined,
+      updatedAt: now,
+    },
+  });
 }
 
 // ---- 知识库 UI 状态 ----

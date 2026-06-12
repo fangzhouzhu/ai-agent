@@ -324,6 +324,24 @@
   -webkit-app-region: no-drag;
 }
 
+.fieldCheckbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #273b6b;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.fieldCheckbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: #4d6bff;
+  cursor: pointer;
+}
+
 .fieldSelect,
 .fieldInput,
 .fieldTextarea {
@@ -651,6 +669,31 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
+}
+
+.qrWrap {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.qrImage {
+  width: 208px;
+  height: 208px;
+  border-radius: 8px;
+  border: 1px solid rgba(186, 201, 241, 0.76);
+  background: #ffffff;
+  padding: 10px;
+  box-shadow: 0 12px 28px rgba(53, 81, 154, 0.1);
+}
+
+.qrMeta {
+  max-width: 360px;
+  color: #5f6f93;
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .metricCard {
