@@ -91,6 +91,13 @@ type SkillConfig = {
   description: string
   keywords: string[]
   systemPrompt: string
+  attachments?: {
+    id: string
+    name: string
+    path: string
+    size: number
+    uploadedAt: number
+  }[]
   enabled: boolean
   preferredScene: SkillPreferredScene
   priority: number
@@ -1534,6 +1541,7 @@ const App: React.FC = () => {
               modelConfig={modelConfig}
               localModels={selectableModels}
               onlineModelCandidates={onlineModelCandidates}
+              skills={draftSkills}
               onUpdateRoute={handleInlineRouteUpdate}
               onApplyOnlineProfile={handleInlineApplyOnlineProfile}
             />

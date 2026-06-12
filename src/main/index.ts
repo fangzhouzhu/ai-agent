@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { app, shell, BrowserWindow, ipcMain, dialog } from "electron";
 import { basename, join } from "path";
 import { is } from "@electron-toolkit/utils";
@@ -21,7 +23,12 @@ import {
   type ChatMessage,
 } from "./agent";
 import { testOpenAICompatibleApi } from "./openaiCompatible";
-import { ingestFile, listRagFiles, removeRagFile } from "./rag";
+import {
+  ingestFile,
+  listRagFiles,
+  removeRagFile,
+  retrieveRelevantChunksByPaths,
+} from "./rag";
 import {
   listKnowledgeBases,
   createKnowledgeBase,
@@ -227,6 +234,11 @@ ipcMain.handle(
       const useKbRag = hasSelectedKbs && shouldUseKnowledgeBase(message);
       const useRag = useFileRag || useKbRag;
       const matchedSkill = matchSkillForInput(message, getSkills());
+      const skillAttachmentPaths =
+        matchedSkill?.skill.attachments
+          ?.map((item) => item.path?.trim())
+          .filter(Boolean) ?? [];
+      const useSkillAttachments = !useRag && skillAttachmentPaths.length > 0;
       const preferredScene = matchedSkill?.skill.preferredScene ?? "auto";
       const useRealtimeTool = !useRag && shouldUseRealtimeTool(message);
       const useWebSearchTool = !useRag && shouldUseWebSearchTool(message);
@@ -324,6 +336,12 @@ ipcMain.handle(
             scene: useKbRag ? "知识库增强" : "RAG",
             skill: matchedSkill?.skill.name,
           }
+        : useSkillAttachments
+          ? {
+              model: describeRouteModel("rag"),
+              scene: "Skill 资料增强",
+              skill: matchedSkill?.skill.name,
+            }
         : useTools
           ? {
               model: describeRouteModel("agent"),
@@ -427,6 +445,102 @@ ${context}
             matchedSkill?.skill,
           );
         }
+      } else if (useSkillAttachments) {
+        try {
+          const chunks = await retrieveRelevantChunksByPaths(
+            skillAttachmentPaths,
+            message,
+          );
+
+          if (chunks.length > 0) {
+            const context = chunks
+              .map(
+                (chunk) =>
+                  `[${chunk.index}] 来源：${chunk.source}\n${chunk.content}`,
+              )
+              .join("\n\n---\n\n");
+            const augmentedUserMessage = `请优先依据以下 Skill 附带资料回答问题。
+
+${RAG_CITATION_PROMPT}
+
+Skill 资料内容：
+${context}
+
+---
+
+问题：${message}`;
+
+            await chatStream(
+              effectiveHistory,
+              augmentedUserMessage,
+              (token) => {
+                webContents.send("chat:token", token);
+              },
+              signal,
+              getRagModel(),
+              getRagProvider(),
+              matchedSkill?.skill,
+            );
+          } else if (useTools) {
+            await chatWithAgent(
+              effectiveHistory,
+              message,
+              (token) => {
+                webContents.send("chat:token", token);
+              },
+              (toolName, input) => {
+                webContents.send("chat:tool-call", { toolName, input });
+              },
+              (toolName, result) => {
+                webContents.send("chat:tool-result", { toolName, result });
+              },
+              signal,
+              matchedSkill?.skill,
+            );
+          } else {
+            await chatStream(
+              effectiveHistory,
+              message,
+              (token) => {
+                webContents.send("chat:token", token);
+              },
+              signal,
+              useAdvancedModel ? getAgentModel() : getChatModel(),
+              useAdvancedModel ? getAgentProvider() : getChatProvider(),
+              matchedSkill?.skill,
+            );
+          }
+        } catch {
+          if (useTools) {
+            await chatWithAgent(
+              effectiveHistory,
+              message,
+              (token) => {
+                webContents.send("chat:token", token);
+              },
+              (toolName, input) => {
+                webContents.send("chat:tool-call", { toolName, input });
+              },
+              (toolName, result) => {
+                webContents.send("chat:tool-result", { toolName, result });
+              },
+              signal,
+              matchedSkill?.skill,
+            );
+          } else {
+            await chatStream(
+              effectiveHistory,
+              message,
+              (token) => {
+                webContents.send("chat:token", token);
+              },
+              signal,
+              useAdvancedModel ? getAgentModel() : getChatModel(),
+              useAdvancedModel ? getAgentProvider() : getChatProvider(),
+              matchedSkill?.skill,
+            );
+          }
+        }
       } else if (useTools) {
         await chatWithAgent(
           effectiveHistory,
@@ -527,6 +641,38 @@ ipcMain.handle("skills:list", async () => {
 ipcMain.handle("skills:save", async (_event, skills: SkillConfig[]) => {
   saveSkills(skills);
   return getSkills();
+});
+
+ipcMain.handle("skills:pick-files", async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      {
+        name: "Documents",
+        extensions: ["txt", "md", "pdf", "docx", "csv", "json", "ts", "js"],
+      },
+      { name: "All Files", extensions: ["*"] },
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) return [];
+
+  return result.filePaths.map((filePath, index) => {
+    let size = 0;
+    try {
+      size = statSync(filePath).size;
+    } catch {
+      size = 0;
+    }
+
+    return {
+      id: randomUUID(),
+      name: basename(filePath),
+      path: filePath,
+      size,
+      uploadedAt: Date.now() + index,
+    };
+  });
 });
 
 ipcMain.handle("tools:list-policies", () => listToolPolicies());

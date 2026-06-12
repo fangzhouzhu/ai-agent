@@ -41,12 +41,21 @@ export interface StoredMessage {
 export type ModelProvider = "ollama" | "openai-compatible";
 export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
 
+export interface SkillAttachment {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  uploadedAt: number;
+}
+
 export interface SkillConfig {
   id: string;
   name: string;
   description: string;
   keywords: string[];
   systemPrompt: string;
+  attachments?: SkillAttachment[];
   enabled: boolean;
   preferredScene: SkillPreferredScene;
   priority: number;

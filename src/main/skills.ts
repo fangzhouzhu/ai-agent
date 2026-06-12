@@ -40,6 +40,12 @@ export function buildSkillPrompt(skill?: SkillConfig | null): string {
     lines.push(`请额外遵循以下技能要求：\n${skill.systemPrompt.trim()}`);
   }
 
+  if (Array.isArray(skill.attachments) && skill.attachments.length > 0) {
+    lines.push(
+      `该技能附带 ${skill.attachments.length} 份本地资料，回答时如果资料中存在明确依据，应优先结合资料内容作答。`,
+    );
+  }
+
   lines.push(
     "如果当前问题与该技能直接相关，请优先采用该技能的表达方式、结构和约束；如果不相关，则保持自然、准确、简洁地回答。",
   );

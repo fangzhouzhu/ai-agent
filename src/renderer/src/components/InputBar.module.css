@@ -174,19 +174,69 @@
   padding: 20px 22px 18px;
 }
 
+.inputStage {
+  position: relative;
+  min-height: 64px;
+}
+
+.inputShell {
+  min-height: 64px;
+  border-radius: 16px;
+  cursor: text;
+}
+
+.selectedSkillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.selectedSkillChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(180, 197, 242, 0.72);
+  border-radius: 999px;
+  background: rgba(237, 244, 255, 0.96);
+  color: #315ff1;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 10px 6px 12px;
+}
+
+.selectedSkillClose {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #7d90c0;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.selectedSkillClose:hover {
+  background: rgba(255, 255, 255, 0.88);
+  color: #d33a48;
+}
+
 .textarea {
   width: 100%;
   box-sizing: border-box;
+  padding: 0;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.7;
+  min-height: 54px;
+  max-height: 210px;
   background: transparent;
   border: none;
   outline: none;
   color: #162652;
-  font-size: 15px;
-  font-family: inherit;
-  line-height: 1.7;
   resize: none;
-  min-height: 54px;
-  max-height: 210px;
   overflow-y: auto;
 }
 
@@ -196,6 +246,67 @@
 
 .textarea:disabled {
   opacity: 0.6;
+}
+
+.suggestionDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(360px, calc(100% - 24px));
+  z-index: 4;
+  border: 1px solid rgba(188, 204, 244, 0.72);
+  border-radius: 14px;
+  background: rgba(250, 252, 255, 0.98);
+  box-shadow: 0 18px 42px rgba(43, 70, 142, 0.14);
+  overflow: hidden;
+}
+
+.suggestionList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px;
+}
+
+.suggestionItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #244173;
+  cursor: pointer;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.suggestionItem strong {
+  flex-shrink: 0;
+  color: #315ff1;
+  font-size: 12px;
+}
+
+.suggestionItem span {
+  min-width: 0;
+  overflow: hidden;
+  color: #617195;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestionItem:hover,
+.suggestionItemActive {
+  background: rgba(235, 241, 255, 0.92);
+}
+
+.suggestionMeta {
+  color: #7b8aa8;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 10px 2px;
 }
 
 .composerFooter {
@@ -304,6 +415,10 @@
 
   .composer {
     padding: 16px;
+  }
+
+  .selectedSkillRow {
+    margin-bottom: 10px;
   }
 
   .composerFooter {

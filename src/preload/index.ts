@@ -131,12 +131,21 @@ export type Task = {
 export type ModelProvider = "ollama" | "openai-compatible";
 export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
 
+export type SkillAttachment = {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  uploadedAt: number;
+};
+
 export type SkillConfig = {
   id: string;
   name: string;
   description: string;
   keywords: string[];
   systemPrompt: string;
+  attachments?: SkillAttachment[];
   enabled: boolean;
   preferredScene: SkillPreferredScene;
   priority: number;
@@ -308,6 +317,8 @@ const api = {
   listSkills: (): Promise<SkillConfig[]> => ipcRenderer.invoke("skills:list"),
   saveSkills: (skills: SkillConfig[]): Promise<SkillConfig[]> =>
     ipcRenderer.invoke("skills:save", skills),
+  pickSkillFiles: (): Promise<SkillAttachment[]> =>
+    ipcRenderer.invoke("skills:pick-files"),
 
   // 工具权限与诊断
   listToolPolicies: (): Promise<ToolPolicy[]> =>

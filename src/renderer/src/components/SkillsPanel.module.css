@@ -78,6 +78,13 @@
   line-height: 1.6;
 }
 
+.assetMeta {
+  margin-top: 10px;
+  color: #58709f;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -561,6 +568,105 @@
   font-size: 12px;
   font-weight: 700;
   padding: 5px 2px;
+}
+
+.assetSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.assetHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assetHeader span {
+  color: #273b6b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.assetHeader p {
+  margin: 5px 0 0;
+  color: #7a89a8;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.assetUploadBtn {
+  flex-shrink: 0;
+  border: 1px solid rgba(91, 124, 255, 0.46);
+  border-radius: 10px;
+  background: rgba(237, 244, 255, 0.96);
+  color: #315ff1;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  padding: 8px 12px;
+}
+
+.assetList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assetItem,
+.assetEmpty {
+  border: 1px solid rgba(183, 199, 241, 0.78);
+  border-radius: 12px;
+  background: #f7faff;
+}
+
+.assetItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.assetInfo {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.assetInfo strong {
+  color: #102052;
+  font-size: 12px;
+}
+
+.assetInfo span {
+  overflow: hidden;
+  color: #7082a6;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assetEmpty {
+  color: #8a99b8;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 12px;
+}
+
+.assetRemoveBtn {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 240, 241, 0.92);
+  color: #d33a48;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
 }
 
 .field input:focus,

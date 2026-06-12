@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import styles from './InputBar.module.css'
 
 interface RagFileMeta {
@@ -48,6 +48,13 @@ type ModelOption = {
   profileId?: string
 }
 
+type SkillConfig = {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+}
+
 interface Props {
   onSend: (message: string) => void
   onAbort: () => void
@@ -60,6 +67,7 @@ interface Props {
   modelConfig: ModelRouteConfig
   localModels: string[]
   onlineModelCandidates: string[]
+  skills: SkillConfig[]
   onUpdateRoute: (routeKey: RouteKey, patch: Partial<RouteModelConfig>) => void | Promise<void>
   onApplyOnlineProfile: (profileId: string) => void | Promise<void>
 }
@@ -69,13 +77,95 @@ function encodeOption(option: Omit<ModelOption, 'value' | 'label'>): string {
 }
 
 function uniqueModels(models: Array<string | undefined>): string[] {
-  return Array.from(
-    new Set(
-      models
-        .map((model) => model?.trim())
-        .filter((model): model is string => Boolean(model))
-    )
+  return Array.from(new Set(models.map((model) => model?.trim()).filter((model): model is string => Boolean(model))))
+}
+
+function normalizeSkillToken(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function getSkillByExactName(token: string, skills: SkillConfig[], selectedIds: Set<string>) {
+  const normalized = normalizeSkillToken(token)
+  return (
+    skills.find((skill) => skill.enabled && !selectedIds.has(skill.id) && normalizeSkillToken(skill.name) === normalized) ??
+    null
   )
+}
+
+function getSkillQueryContext(input: string, caret: number) {
+  const safeCaret = Math.max(0, Math.min(caret, input.length))
+  const beforeCaret = input.slice(0, safeCaret)
+  const hashIndex = beforeCaret.lastIndexOf('#')
+  if (hashIndex < 0) return null
+
+  const token = beforeCaret.slice(hashIndex + 1)
+  if (/[\s，。,！!？?；;：:()[\]（）]/.test(token)) return null
+
+  return {
+    start: hashIndex,
+    end: safeCaret,
+    query: token.trim(),
+  }
+}
+
+function filterSuggestedSkills(skills: SkillConfig[], query: string, selectedIds: Set<string>): SkillConfig[] {
+  const normalizedQuery = normalizeSkillToken(query)
+  return skills
+    .filter((skill) => skill.enabled && !selectedIds.has(skill.id))
+    .filter((skill) => {
+      if (!normalizedQuery) return true
+      return (
+        normalizeSkillToken(skill.name).includes(normalizedQuery) ||
+        normalizeSkillToken(skill.description).includes(normalizedQuery)
+      )
+    })
+    .slice(0, 5)
+}
+
+function resizeTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return
+  textarea.style.height = 'auto'
+  textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px'
+}
+
+function getCaret(textarea: HTMLTextAreaElement | null, fallback: number) {
+  return textarea?.selectionStart ?? fallback
+}
+
+function insertSkillTag(input: string, start: number, end: number, skillName: string) {
+  const prefix = input.slice(0, start)
+  const suffix = input.slice(end)
+  const compactPrefix = prefix.replace(/\s+$/, '')
+  const nextPrefix = compactPrefix ? `${compactPrefix} ` : ''
+  const nextSuffix = suffix.replace(/^\s+/, '')
+  return `${nextPrefix}${nextSuffix}`
+}
+
+function extractSkillsFromInput(input: string, skills: SkillConfig[], selectedIds: Set<string>) {
+  const regex = /#([^\s#，。,！!？?；;：:()[\]（）]+)/g
+  const added: SkillConfig[] = []
+  const parts: string[] = []
+  let lastIndex = 0
+
+  for (const match of input.matchAll(regex)) {
+    const token = match[1] ?? ''
+    const raw = match[0] ?? ''
+    const index = match.index ?? 0
+    const skill = getSkillByExactName(token, skills, new Set([...selectedIds, ...added.map((item) => item.id)]))
+
+    parts.push(input.slice(lastIndex, index))
+    if (skill) {
+      added.push(skill)
+    } else {
+      parts.push(raw)
+    }
+    lastIndex = index + raw.length
+  }
+
+  parts.push(input.slice(lastIndex))
+  const nextInput = parts.join('').replace(/\s{2,}/g, ' ').trimStart()
+
+  return { nextInput, added }
 }
 
 const InputBar: React.FC<Props> = ({
@@ -90,10 +180,13 @@ const InputBar: React.FC<Props> = ({
   modelConfig,
   localModels,
   onlineModelCandidates,
+  skills,
   onUpdateRoute,
   onApplyOnlineProfile,
 }) => {
   const [input, setInput] = useState('')
+  const [selectedSkills, setSelectedSkills] = useState<SkillConfig[]>([])
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isBusy = isLoading || isRagProcessing
   const unifiedRoute = modelConfig.chat
@@ -101,6 +194,13 @@ const InputBar: React.FC<Props> = ({
     modelConfig.onlineProfiles.find((item) => item.id === modelConfig.activeOnlineProfileId) ?? null
   const fallbackLocalModel =
     localModels.includes(unifiedRoute.model) ? unifiedRoute.model : (localModels[0] ?? unifiedRoute.model)
+
+  const selectedSkillIds = useMemo(() => new Set(selectedSkills.map((skill) => skill.id)), [selectedSkills])
+  const skillQueryContext = getSkillQueryContext(input, getCaret(textareaRef.current, input.length))
+  const suggestedSkills = useMemo(
+    () => filterSuggestedSkills(skills, skillQueryContext?.query ?? '', selectedSkillIds),
+    [skills, skillQueryContext?.query, selectedSkillIds]
+  )
 
   const modelOptions: ModelOption[] = [
     ...(localModels.length > 0 || unifiedRoute.provider === 'ollama'
@@ -218,17 +318,71 @@ const InputBar: React.FC<Props> = ({
     })
   }
 
-  const handleSend = useCallback(() => {
-    const msg = input.trim()
-    if (!msg || isBusy) return
+  const applySuggestion = (skill: SkillConfig) => {
+    if (!skillQueryContext) return
+
+    const nextInput = insertSkillTag(input, skillQueryContext.start, skillQueryContext.end, skill.name)
+    setSelectedSkills((prev) => (prev.some((item) => item.id === skill.id) ? prev : [...prev, skill]))
+    setInput(nextInput)
+    setActiveSuggestionIndex(0)
+
+    requestAnimationFrame(() => {
+      resizeTextarea(textareaRef.current)
+      textareaRef.current?.focus()
+    })
+  }
+
+  const removeSelectedSkill = (skillId: string) => {
+    setSelectedSkills((prev) => prev.filter((skill) => skill.id !== skillId))
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const handleSend = () => {
+    const skillPrefix = selectedSkills.map((skill) => `#${skill.name}`).join(' ')
+    const message = [skillPrefix, input.trim()].filter(Boolean).join(' ').trim()
+    if (!message || isBusy) return
+
     setInput('')
+    setSelectedSkills([])
+    setActiveSuggestionIndex(0)
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-    onSend(msg)
-  }, [input, isBusy, onSend])
+    onSend(message)
+  }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (skillQueryContext && suggestedSkills.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActiveSuggestionIndex((current) => (current >= suggestedSkills.length - 1 ? 0 : current + 1))
+        return
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActiveSuggestionIndex((current) => (current <= 0 ? suggestedSkills.length - 1 : current - 1))
+        return
+      }
+
+      if ((e.key === 'Enter' || e.key === 'Tab') && activeSuggestionIndex >= 0) {
+        e.preventDefault()
+        applySuggestion(suggestedSkills[activeSuggestionIndex])
+        return
+      }
+    }
+
+    if (e.key === 'Backspace' && !input && selectedSkills.length > 0) {
+      e.preventDefault()
+      setSelectedSkills((prev) => prev.slice(0, -1))
+      return
+    }
+
+    if (e.key === 'Escape') {
+      setActiveSuggestionIndex(0)
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -236,12 +390,14 @@ const InputBar: React.FC<Props> = ({
   }
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-    const el = textareaRef.current
-    if (el) {
-      el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+    const rawValue = e.target.value
+    const extracted = extractSkillsFromInput(rawValue, skills, selectedSkillIds)
+    if (extracted.added.length > 0) {
+      setSelectedSkills((prev) => [...prev, ...extracted.added])
     }
+    setInput(extracted.nextInput)
+    setActiveSuggestionIndex(0)
+    requestAnimationFrame(() => resizeTextarea(textareaRef.current))
   }
 
   const placeholder =
@@ -280,16 +436,67 @@ const InputBar: React.FC<Props> = ({
         )}
 
         <div className={styles.composer}>
-          <textarea
-            ref={textareaRef}
-            className={styles.textarea}
-            value={input}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            spellCheck={false}
-            rows={1}
-          />
+          <div className={styles.inputStage}>
+            <div className={styles.inputShell} onClick={() => textareaRef.current?.focus()}>
+              {selectedSkills.length > 0 && (
+                <div className={styles.selectedSkillRow}>
+                  {selectedSkills.map((skill) => (
+                    <div
+                      key={skill.id}
+                      className={styles.selectedSkillChip}
+                      title={skill.description?.trim() || skill.name}
+                    >
+                      <span>#{skill.name}</span>
+                      <button
+                        type="button"
+                        className={styles.selectedSkillClose}
+                        onClick={() => removeSelectedSkill(skill.id)}
+                        aria-label={`移除技能 ${skill.name}`}
+                        title="移除技能"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <textarea
+                ref={textareaRef}
+                className={styles.textarea}
+                value={input}
+                onChange={handleInput}
+                onKeyDown={handleKeyDown}
+                onClick={() => setActiveSuggestionIndex(0)}
+                placeholder={placeholder}
+                spellCheck={false}
+                rows={1}
+              />
+            </div>
+
+            {skillQueryContext && suggestedSkills.length > 0 && (
+              <div className={styles.suggestionDropdown}>
+                <div className={styles.suggestionList}>
+                  {suggestedSkills.map((skill, index) => (
+                    <button
+                      key={`${skill.id}-${skill.name}`}
+                      type="button"
+                      className={`${styles.suggestionItem} ${index === activeSuggestionIndex ? styles.suggestionItemActive : ''}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        applySuggestion(skill)
+                      }}
+                      aria-label={`插入技能 ${skill.name}`}
+                      title={skill.description?.trim() || skill.name}
+                    >
+                      <strong>#{skill.name}</strong>
+                      <span>{skill.description?.trim() || '显式命中该技能'}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className={styles.composerFooter}>
             <div className={styles.footerControls}>
@@ -333,7 +540,7 @@ const InputBar: React.FC<Props> = ({
                 <button
                   className={styles.sendBtn}
                   onClick={handleSend}
-                  disabled={!input.trim() || isBusy}
+                  disabled={(!input.trim() && selectedSkills.length === 0) || isBusy}
                   title="发送消息"
                 >
                   <svg viewBox="0 0 24 24" fill="currentColor">

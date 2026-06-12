@@ -111,6 +111,17 @@ export async function ingestFile(filePath: string): Promise<RagFileMeta> {
   return toMeta(entry);
 }
 
+async function resolveFileIds(filePaths: string[]): Promise<string[]> {
+  const ids: string[] = [];
+
+  for (const filePath of filePaths) {
+    const meta = await ingestFile(filePath);
+    ids.push(meta.id);
+  }
+
+  return ids;
+}
+
 export async function ingestFiles(filePaths: string[]): Promise<RagFileMeta[]> {
   const results: RagFileMeta[] = [];
 
@@ -188,4 +199,17 @@ export async function retrieveRelevantChunks(fileIds: string[], query: string) {
     ),
     content: doc.pageContent,
   }));
+}
+
+export async function retrieveRelevantChunksByPaths(
+  filePaths: string[],
+  query: string,
+) {
+  const uniquePaths = Array.from(
+    new Set(filePaths.map((item) => item.trim()).filter(Boolean)),
+  );
+  if (uniquePaths.length === 0) return [];
+
+  const fileIds = await resolveFileIds(uniquePaths);
+  return retrieveRelevantChunks(fileIds, query);
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import styles from './SkillsPanel.module.css'
-import type { SkillConfig } from '../../../preload/index'
+import type { SkillAttachment, SkillConfig } from '../../../preload/index'
 
 type SkillDraft = {
   id?: string
@@ -8,6 +8,7 @@ type SkillDraft = {
   description: string
   keywords: string[]
   systemPrompt: string
+  attachments: SkillAttachment[]
   enabled: boolean
   priority: number
   createdAt?: number
@@ -20,6 +21,7 @@ function createDraft(skill?: SkillConfig): SkillDraft {
     description: skill?.description ?? '',
     keywords: skill?.keywords ?? [],
     systemPrompt: skill?.systemPrompt ?? '',
+    attachments: skill?.attachments ?? [],
     enabled: skill?.enabled ?? true,
     priority: skill?.priority ?? 50,
     createdAt: skill?.createdAt,
@@ -34,6 +36,13 @@ function normalizeSkill(draft: SkillDraft): SkillConfig {
     description: draft.description.trim(),
     keywords: Array.from(new Set(draft.keywords.map((item) => item.trim()).filter(Boolean))),
     systemPrompt: draft.systemPrompt.trim(),
+    attachments: Array.from(
+      new Map(
+        draft.attachments
+          .filter((item) => item.path?.trim())
+          .map((item) => [item.path, { ...item, name: item.name.trim() || item.path }]),
+      ).values(),
+    ),
     enabled: draft.enabled,
     preferredScene: 'auto',
     priority: Math.max(0, Math.min(100, Number(draft.priority) || 0)),
@@ -134,6 +143,31 @@ const SkillsPanel: React.FC = () => {
     },
     [persist, skills],
   )
+
+  const handlePickAttachments = useCallback(async () => {
+    const picked = await window.electronAPI.pickSkillFiles()
+    if (picked.length === 0) return
+
+    setDraft((prev) => {
+      if (!prev) return prev
+      const merged = new Map(prev.attachments.map((item) => [item.path, item]))
+      picked.forEach((item) => merged.set(item.path, item))
+      return { ...prev, attachments: [...merged.values()] }
+    })
+  }, [])
+
+  const handleRemoveAttachment = useCallback((attachmentId: string) => {
+    setDraft((prev) =>
+      prev ? { ...prev, attachments: prev.attachments.filter((item) => item.id !== attachmentId) } : prev,
+    )
+  }, [])
+
+  const formatFileSize = useCallback((size: number) => {
+    if (!size || size <= 0) return '未知大小'
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  }, [])
 
   const addKeyword = useCallback(() => {
     const value = keywordInput.trim()
@@ -247,6 +281,9 @@ const SkillsPanel: React.FC = () => {
               </div>
 
               <p className={styles.description}>{skill.description || '未填写技能说明'}</p>
+              {skill.attachments && skill.attachments.length > 0 && (
+                <div className={styles.assetMeta}>资料 {skill.attachments.length} 份</div>
+              )}
               {skill.keywords.length > 0 && (
                 <div className={styles.tags}>
                   {skill.keywords.slice(0, 6).map((keyword) => (
@@ -390,6 +427,41 @@ const SkillsPanel: React.FC = () => {
                     <span className={styles.keywordEmpty}>还没有关键词，点击右上角 + 添加</span>
                   )}
                 </div>
+              </div>
+            </div>
+
+            <div className={styles.assetSection}>
+              <div className={styles.assetHeader}>
+                <div>
+                  <span>上传资料</span>
+                  <p>常见做法是给 Skill 绑定专属文档、模板或参考材料，命中后自动参与回答。</p>
+                </div>
+                <button type="button" className={styles.assetUploadBtn} onClick={() => void handlePickAttachments()}>
+                  上传文件
+                </button>
+              </div>
+
+              <div className={styles.assetList}>
+                {draft.attachments.length === 0 ? (
+                  <div className={styles.assetEmpty}>还没有绑定资料，支持 txt、md、pdf、docx、csv、json、ts、js</div>
+                ) : (
+                  draft.attachments.map((attachment) => (
+                    <div key={attachment.id} className={styles.assetItem}>
+                      <div className={styles.assetInfo}>
+                        <strong>{attachment.name}</strong>
+                        <span>{formatFileSize(attachment.size)}</span>
+                        <span title={attachment.path}>{attachment.path}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.assetRemoveBtn}
+                        onClick={() => handleRemoveAttachment(attachment.id)}
+                      >
+                        移除
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
