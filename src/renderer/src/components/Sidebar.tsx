@@ -2,17 +2,25 @@ import React, { useCallback } from 'react'
 import type { Conversation } from '../types/conversation'
 import styles from './Sidebar.module.css'
 
+type AgentSummary = {
+  id: string
+  name: string
+}
+
 interface Props {
   conversations: Conversation[]
+  agents: AgentSummary[]
   activeId: string | null
   onSelect: (id: string) => void
   onNew: () => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
-  currentView: 'chat' | 'kb' | 'task' | 'skills' | 'wechat'
-  onViewChange: (view: 'chat' | 'kb' | 'task' | 'skills' | 'wechat') => void
+  currentView: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat'
+  onViewChange: (view: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat') => void
   selectedKbCount: number
   runningTaskCount: number
+  activeKbId?: string | null
+  activeTaskId?: string | null
   onSelectKb: (id: string | null) => void
   onSelectTask: (id: string | null) => void
 }
@@ -54,11 +62,18 @@ const Sidebar: React.FC<Props> = ({
             <span>新对话</span>
           </button>
           <button
+            className={`${styles.navItem} ${currentView === 'agents' ? styles.navItemActive : ''}`}
+            onClick={() => onViewChange('agents')}
+          >
+            <span className={styles.navIcon}>◉</span>
+            <span>智能体</span>
+          </button>
+          <button
             className={`${styles.navItem} ${currentView === 'wechat' ? styles.navItemActive : ''}`}
             onClick={() => onViewChange('wechat')}
           >
             <span className={styles.navIcon}>微</span>
-            <span>微信ClawBot</span>
+            <span>微信 ClawBot</span>
           </button>
           <button
             className={`${styles.navItem} ${currentView === 'kb' ? styles.navItemActive : ''}`}
@@ -67,7 +82,7 @@ const Sidebar: React.FC<Props> = ({
               onViewChange('kb')
             }}
           >
-            <span className={styles.navIcon}>□</span>
+            <span className={styles.navIcon}>▣</span>
             <span>知识库</span>
             {selectedKbCount > 0 && <span className={styles.countBadge}>{selectedKbCount}</span>}
           </button>
@@ -78,7 +93,7 @@ const Sidebar: React.FC<Props> = ({
               onViewChange('task')
             }}
           >
-            <span className={styles.navIcon}>◇</span>
+            <span className={styles.navIcon}>■</span>
             <span>任务</span>
             {runningTaskCount > 0 && <span className={styles.countBadge}>{runningTaskCount}</span>}
           </button>
@@ -106,7 +121,7 @@ const Sidebar: React.FC<Props> = ({
                   onClick={() => onSelect(conv.id)}
                   title={conv.title}
                 >
-                  <span className={styles.itemIcon}>☰</span>
+                  <span className={styles.itemIcon}>◉</span>
                   <span className={styles.itemTitle}>{conv.title}</span>
                   <span
                     className={styles.deleteBtn}
@@ -128,11 +143,12 @@ const Sidebar: React.FC<Props> = ({
 
       <div className={styles.footer}>
         <div className={styles.userAvatar}>C</div>
-        <div className={styles.footerText}>
-          <span>Centibot</span>
-          <small>专业 · 智能 · 高效</small>
-        </div>
-        <button className={styles.settingsBtn} onClick={onOpenSettings} title="打开设置" aria-label="打开设置">
+        <button
+          className={styles.settingsBtn}
+          onClick={onOpenSettings}
+          title="设置"
+          aria-label="设置"
+        >
           ⚙
         </button>
       </div>

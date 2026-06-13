@@ -34,6 +34,530 @@
   opacity: 0.8;
 }
 
+.agentPage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.agentPageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  border-bottom: 1px solid rgba(217, 226, 250, 0.78);
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(16px);
+}
+
+.agentPageHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.agentPageTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #102052;
+}
+
+.agentPageHint {
+  margin: 7px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #617195;
+}
+
+.agentPageHeaderBtn {
+  border-radius: 12px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  border: 1px solid rgba(178, 196, 242, 0.82);
+  background: rgba(245, 248, 255, 0.94);
+  color: #244173;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.agentPageHeaderBtn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(91, 124, 255, 0.52);
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(70, 99, 180, 0.1);
+}
+
+.agentWorkspace {
+  flex: 1;
+  min-height: 0;
+  display: block;
+  padding: 22px 24px 24px;
+  overflow: hidden;
+}
+
+.agentCardGrid {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 260px));
+  gap: 16px;
+  align-content: start;
+  padding-right: 4px;
+}
+
+.agentOverviewCard {
+  border: 1px solid rgba(183, 200, 243, 0.78);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(247, 250, 255, 0.95)),
+    radial-gradient(circle at 100% 0%, rgba(77, 107, 255, 0.08), transparent 44%);
+  padding: 13px 13px 12px;
+  box-shadow:
+    0 10px 24px rgba(53, 81, 154, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.97);
+  transition:
+    box-shadow 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.agentOverviewCard:hover {
+  border-color: rgba(112, 141, 233, 0.82);
+  box-shadow:
+    0 14px 28px rgba(53, 81, 154, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.985);
+}
+
+.agentOverviewTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agentOverviewTopActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agentOverviewAvatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 8px 16px rgba(54, 103, 226, 0.18);
+}
+
+.agentOverviewMode {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(241, 246, 255, 0.98);
+  border: 1px solid rgba(192, 206, 241, 0.78);
+  color: #62739a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.agentOverviewName {
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #102052;
+  line-height: 1.3;
+}
+
+.agentOverviewDesc {
+  margin-top: 6px;
+  color: #6a7d9f;
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 30px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.agentOverviewMeta {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #56688f;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agentOverviewActions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.agentCardMenuWrap {
+  position: relative;
+}
+
+.agentCardMenuBtn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(198, 210, 242, 0.76);
+  border-radius: 14px;
+  background: rgba(248, 250, 255, 0.98);
+  color: #61739a;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow:
+    0 4px 12px rgba(67, 95, 163, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    color 0.16s ease;
+}
+
+.agentCardMenuBtn:hover {
+  background: #ffffff;
+  border-color: rgba(91, 124, 255, 0.44);
+  color: #3d578d;
+}
+
+.agentCardMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: -2px;
+  min-width: 118px;
+  padding: 10px 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(197, 210, 244, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 20px 40px rgba(52, 78, 146, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  z-index: 12;
+  transform-origin: top right;
+  animation: agentMenuIn 0.14s ease-out;
+}
+
+.agentCardMenuItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #173068;
+  border-radius: 14px;
+  padding: 11px 12px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agentCardMenuItem:hover {
+  background: rgba(240, 245, 255, 0.95);
+}
+
+.agentCardMenuItemDanger {
+  color: #d64545;
+}
+
+@keyframes agentMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.agentToggleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.agentKbSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.agentKbSectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agentKbSectionHint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #6f7f9f;
+}
+
+.agentKbCount {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(237, 244, 255, 0.92);
+  border: 1px solid rgba(182, 198, 241, 0.74);
+  color: #355599;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agentKbEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(183, 199, 241, 0.78);
+  background: linear-gradient(135deg, rgba(245, 249, 255, 0.96), rgba(238, 251, 247, 0.92));
+}
+
+.agentKbPicker {
+  position: relative;
+}
+
+.agentKbTrigger {
+  width: 100%;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid rgba(183, 199, 241, 0.78);
+  border-radius: 14px;
+  background: rgba(247, 250, 255, 0.96);
+  color: #102052;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.agentKbTrigger:hover,
+.agentKbTriggerOpen {
+  border-color: #5b7cff;
+  box-shadow:
+    0 0 0 3px rgba(86, 122, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  background: #ffffff;
+}
+
+.agentKbTriggerText {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  color: #244173;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agentKbTriggerArrow {
+  flex-shrink: 0;
+  color: #5d7098;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.agentKbDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  padding: 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(197, 210, 244, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 20px 40px rgba(52, 78, 146, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  z-index: 20;
+  animation: agentMenuIn 0.14s ease-out;
+}
+
+.agentKbSearchWrap {
+  padding: 2px 2px 8px;
+}
+
+.agentKbSearchInput {
+  width: 100%;
+  background: rgba(247, 250, 255, 0.96);
+  border: 1px solid rgba(183, 199, 241, 0.78);
+  border-radius: 12px;
+  color: #102052;
+  padding: 9px 11px;
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.agentKbSearchInput:focus {
+  border-color: #5b7cff;
+  box-shadow:
+    0 0 0 3px rgba(86, 122, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.agentKbSearchInput::placeholder {
+  color: #96a6c3;
+}
+
+.agentKbDropdownList {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.agentKbNoResult {
+  padding: 18px 12px;
+  text-align: center;
+  color: #7b8ba8;
+  font-size: 12px;
+}
+
+.agentKbOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(232, 238, 252, 0.9);
+  background: rgba(248, 250, 255, 0.7);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.agentKbOption:hover {
+  border-color: rgba(91, 124, 255, 0.34);
+  background: rgba(243, 247, 255, 0.94);
+}
+
+.agentKbOption input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: #4d6bff;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.agentKbOptionBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.agentKbOptionTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agentKbOptionName {
+  color: #102052;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.agentKbOptionMeta {
+  flex-shrink: 0;
+  color: #6a7d9f;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agentKbOptionDesc {
+  margin-top: 4px;
+  color: #6a7d9f;
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.agentModal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 44px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.96)) padding-box,
+    linear-gradient(135deg, rgba(96, 123, 246, 0.34), rgba(79, 211, 198, 0.22)) border-box;
+  border: 1px solid transparent;
+  border-radius: 24px;
+  box-shadow:
+    0 30px 90px rgba(46, 76, 154, 0.22),
+    0 8px 26px rgba(35, 51, 94, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.agentModalBody {
+  padding: 18px 22px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.agentModalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 22px 20px;
+  border-top: 1px solid rgba(217, 226, 250, 0.8);
+}
+
 .topbar {
   position: relative;
   z-index: 1;
@@ -58,6 +582,65 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   -webkit-app-region: no-drag;
+}
+
+.agentPillRow {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chatModePill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(221, 245, 232, 0.92);
+  border: 1px solid rgba(129, 208, 167, 0.7);
+  color: #1f7a55;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agentPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(237, 244, 255, 0.92);
+  border: 1px solid rgba(182, 198, 241, 0.74);
+  color: #355599;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agentToolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.agentSelect {
+  min-width: 220px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(180, 197, 242, 0.78);
+  background: rgba(255, 255, 255, 0.9);
+  color: #1f3568;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.toggleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #28406f;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .modalOverlay {
@@ -643,12 +1226,13 @@
 
 .miniPrimaryBtn {
   border: 1px solid #3564f3;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  background: linear-gradient(135deg, #4d6bff, #1da8df);
   color: #fff;
-  padding: 5px 10px;
+  padding: 6px 11px;
   font-size: 11px;
   white-space: nowrap;
-  box-shadow: 0 10px 20px rgba(53, 100, 243, 0.18);
+  border-radius: 14px;
+  box-shadow: 0 10px 18px rgba(53, 100, 243, 0.16);
 }
 
 .dangerBtn {

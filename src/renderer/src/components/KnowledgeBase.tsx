@@ -44,6 +44,7 @@ interface Props {
   onRagOnlyChange: (v: boolean) => void
   minScore: number
   onMinScoreChange: (v: number) => void
+  agentName: string
   activeKbId?: string | null
   onActiveKbIdChange?: (id: string | null) => void
 }
@@ -88,6 +89,7 @@ const KnowledgeBasePanel: React.FC<Props> = ({
   onRagOnlyChange,
   minScore,
   onMinScoreChange,
+  agentName,
   activeKbId: controlledActiveKbId,
   onActiveKbIdChange,
 }) => {

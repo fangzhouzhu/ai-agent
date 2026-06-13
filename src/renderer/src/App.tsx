@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from './components/Sidebar'
+import { useMemo } from 'react'
 import ChatArea from './components/ChatArea'
 import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
@@ -45,6 +46,19 @@ type RagFileMeta = {
   path: string
   chunks: number
   uploadedAt: number
+}
+
+type KnowledgeBase = {
+  id: string
+  name: string
+  description: string
+  embeddingModel: string
+  chunkSize: number
+  chunkOverlap: number
+  docCount: number
+  chunkCount: number
+  createdAt: number
+  updatedAt: number
 }
 
 type ModelProvider = 'ollama' | 'openai-compatible'
@@ -116,6 +130,49 @@ type SkillConfig = {
   enabled: boolean
   preferredScene: SkillPreferredScene
   priority: number
+  createdAt: number
+  updatedAt: number
+}
+
+type AgentMode = 'general' | 'domain' | 'workflow'
+
+function getAgentModeLabel(mode: AgentMode): string {
+  if (mode === 'general') return '通用'
+  if (mode === 'workflow') return '流程'
+  return '领域'
+}
+
+type AgentProfile = {
+  id: string
+  name: string
+  description: string
+  systemPrompt: string
+  avatar?: string
+  mode: AgentMode
+  knowledge: {
+    defaultKbIds: string[]
+    ragOnly: boolean
+    minScore: number
+    topK: number
+    fallbackToChat: boolean
+    citationRequired: boolean
+  }
+  tools: {
+    enabledToolNames: string[]
+    allowNetwork: boolean
+    allowWrite: boolean
+    allowDelete: boolean
+    requireConfirmationForRisky: boolean
+  }
+  models: {
+    forceAgent: boolean
+  }
+  memory: {
+    enableConversationSummary: boolean
+    enableUserPreferenceMemory: boolean
+  }
+  skills: string[]
+  isDefault?: boolean
   createdAt: number
   updatedAt: number
 }
@@ -319,6 +376,42 @@ function formatSkillKeywords(keywords: string[]): string {
   return keywords.join(', ')
 }
 
+function createEmptyAgent(): AgentProfile {
+  const now = Date.now()
+  return {
+    id: uuidv4(),
+    name: '',
+    description: '',
+    systemPrompt: '',
+    mode: 'domain',
+    knowledge: {
+      defaultKbIds: [],
+      ragOnly: false,
+      minScore: 0.6,
+      topK: 6,
+      fallbackToChat: true,
+      citationRequired: false,
+    },
+    tools: {
+      enabledToolNames: [],
+      allowNetwork: false,
+      allowWrite: false,
+      allowDelete: false,
+      requireConfirmationForRisky: true,
+    },
+    models: {
+      forceAgent: true,
+    },
+    memory: {
+      enableConversationSummary: false,
+      enableUserPreferenceMemory: false,
+    },
+    skills: [],
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
 function normalizeDraftSkills(skills: SkillConfig[]): SkillConfig[] {
   return skills
     .map((skill) => ({
@@ -339,11 +432,20 @@ const App: React.FC = () => {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [ragFiles, setRagFiles] = useState<RagFileMeta[]>([])
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [isRagProcessing, setIsRagProcessing] = useState(false)
   const [ragStatusText, setRagStatusText] = useState('')
   const [models, setModels] = useState<string[]>([])
   const [modelConfig, setModelConfig] = useState<ModelRouteConfig>(defaultModelConfig)
   const [draftModelConfig, setDraftModelConfig] = useState<ModelRouteConfig>(defaultModelConfig)
+  const [agents, setAgents] = useState<AgentProfile[]>([])
+  const [agentEditorDraft, setAgentEditorDraft] = useState<AgentProfile | null>(null)
+  const [showAgentModal, setShowAgentModal] = useState(false)
+  const [agentModalMode, setAgentModalMode] = useState<'new' | 'edit'>('new')
+  const [activeAgentMenuId, setActiveAgentMenuId] = useState<string | null>(null)
+  const [agentKbPickerOpen, setAgentKbPickerOpen] = useState(false)
+  const [agentKbSearch, setAgentKbSearch] = useState('')
+  const [pendingAgentId, setPendingAgentId] = useState<string | null>(null)
   const [wechatBotConfig, setWechatBotConfig] = useState<WechatBotConfig>(defaultWechatBotConfig)
   const [draftWechatBotConfig, setDraftWechatBotConfig] = useState<WechatBotConfig>(defaultWechatBotConfig)
   const [showModelConfig, setShowModelConfig] = useState(false)
@@ -365,12 +467,9 @@ const App: React.FC = () => {
     message: '',
   })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
-  const [currentView, setCurrentView] = useState<'chat' | 'kb' | 'task' | 'skills' | 'wechat'>('chat')
-  const [selectedKbIds, setSelectedKbIds] = useState<string[]>([])
+  const [currentView, setCurrentView] = useState<'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat'>('chat')
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
-  const [ragOnly, setRagOnly] = useState(true)
-  const [minScore, setMinScore] = useState(0.6)
   const [runningTaskCount, setRunningTaskCount] = useState(0)
 
   const ragFilesRef = useRef<RagFileMeta[]>([])
@@ -379,15 +478,18 @@ const App: React.FC = () => {
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const typingTargetRef = useRef<{ convId: string; msgId: string } | null>(null)
   const skillFormRef = useRef<HTMLFormElement | null>(null)
+  const agentKbPickerRef = useRef<HTMLDivElement | null>(null)
 
   const refreshModelConfig = useCallback(async () => {
-    const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces] = await Promise.all([
+    const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces, savedAgents, savedKnowledgeBases] = await Promise.all([
       window.electronAPI.listModels(),
       window.electronAPI.getModelConfig(),
       window.electronAPI.listSkills(),
       window.electronAPI.getWechatBotSettings(),
       window.electronAPI.listToolPolicies(),
       window.electronAPI.diagnostics.listTraces(),
+      window.electronAPI.agents.list(),
+      window.electronAPI.kb.list(),
     ])
 
     const nextConfig = normalizeModelConfig(savedConfig)
@@ -399,6 +501,10 @@ const App: React.FC = () => {
     setModels(availableModels)
     setModelConfig(nextConfig)
     setDraftModelConfig(nextConfig)
+    setAgents(savedAgents)
+    setKnowledgeBases(savedKnowledgeBases)
+    setAgentEditorDraft(null)
+    setPendingAgentId((current) => savedAgents.some((agent) => agent.id === current) ? current : null)
     setWechatBotConfig(nextWechatBotConfig)
     setDraftWechatBotConfig(nextWechatBotConfig)
     setDraftSkills(nextSkills)
@@ -430,11 +536,10 @@ const App: React.FC = () => {
         console.error('electronAPI.storage 未就绪，请重启应用')
         return
       }
-      const [metas, activeIdStored, uploaded, kbUiState] = await Promise.all([
+      const [metas, activeIdStored, uploaded] = await Promise.all([
         window.electronAPI.storage.list(),
         window.electronAPI.storage.getActive(),
         window.electronAPI.rag.list(),
-        window.electronAPI.getKbUiState(),
       ])
 
       const convs: Conversation[] = metas.map((m) => ({
@@ -452,24 +557,10 @@ const App: React.FC = () => {
 
       setRagFiles(uploaded)
       ragFilesRef.current = uploaded
-      setSelectedKbIds(kbUiState.selectedIds)
-      setRagOnly(kbUiState.ragOnly)
-      setMinScore(kbUiState.minScore)
       await refreshModelConfig()
     }
     init()
   }, [refreshModelConfig])
-
-  // 持久化知识库 UI 状态
-  const kbUiStateInitializedRef = useRef(false)
-  useEffect(() => {
-    // 跳过初始化时的首次触发（避免用默认值覆盖已保存的状态）
-    if (!kbUiStateInitializedRef.current) {
-      kbUiStateInitializedRef.current = true
-      return
-    }
-    window.electronAPI.saveKbUiState(selectedKbIds, ragOnly, minScore)
-  }, [selectedKbIds, ragOnly, minScore])
 
   useEffect(() => {
     const remove = window.electronAPI.task.onUpdate((task) => {
@@ -523,12 +614,122 @@ const App: React.FC = () => {
   }, [activeId])
 
   const activeConversation = conversations.find((c) => c.id === activeId) ?? null
+  const activeConversationAgent = agents.find((agent) => agent.id === activeConversation?.agentProfileId) ?? null
+  const pendingAgent = agents.find((agent) => agent.id === pendingAgentId) ?? null
+  const kbEditingAgent = activeConversationAgent ?? pendingAgent
+
+  const cloneAgent = useCallback((agent: AgentProfile): AgentProfile => ({
+    ...agent,
+    knowledge: { ...agent.knowledge, defaultKbIds: [...agent.knowledge.defaultKbIds] },
+    tools: { ...agent.tools, enabledToolNames: [...agent.tools.enabledToolNames] },
+    models: { ...agent.models },
+    memory: { ...agent.memory },
+    skills: [...agent.skills],
+  }), [])
+
+  const toggleDraftKnowledgeBase = useCallback((kbId: string) => {
+    setAgentEditorDraft((prev) => {
+      if (!prev) return prev
+
+      const exists = prev.knowledge.defaultKbIds.includes(kbId)
+      return {
+        ...prev,
+        knowledge: {
+          ...prev.knowledge,
+          defaultKbIds: exists
+            ? prev.knowledge.defaultKbIds.filter((id) => id !== kbId)
+            : [...prev.knowledge.defaultKbIds, kbId],
+        },
+      }
+    })
+  }, [])
+
+  const selectedKnowledgeBases = knowledgeBases.filter((kb) =>
+    agentEditorDraft?.knowledge.defaultKbIds.includes(kb.id)
+  )
+
+  const filteredKnowledgeBases = useMemo(() => {
+    const keyword = agentKbSearch.trim().toLowerCase()
+    if (!keyword) return knowledgeBases
+
+    return knowledgeBases.filter((kb) =>
+      [kb.name, kb.description]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(keyword))
+    )
+  }, [agentKbSearch, knowledgeBases])
+
+  useEffect(() => {
+    if (!agentKbPickerOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!agentKbPickerRef.current?.contains(event.target as Node)) {
+        setAgentKbPickerOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [agentKbPickerOpen])
+
+  useEffect(() => {
+    if (!showAgentModal) {
+      setAgentKbPickerOpen(false)
+      setAgentKbSearch('')
+    }
+  }, [showAgentModal])
+
+  const persistAgent = useCallback(async (agent: AgentProfile) => {
+    const saved = await window.electronAPI.agents.save(agent)
+    setAgents((prev) => {
+      const exists = prev.some((item) => item.id === saved.id)
+      const next = exists ? prev.map((item) => item.id === saved.id ? saved : item) : [saved, ...prev]
+      return next.sort((a, b) => b.updatedAt - a.updatedAt)
+    })
+    if (agentEditorDraft?.id === saved.id) {
+      setAgentEditorDraft(cloneAgent(saved))
+    }
+    return saved
+  }, [agentEditorDraft?.id, cloneAgent])
+
+  const handleAgentKnowledgeChange = useCallback(async (patch: Partial<AgentProfile['knowledge']>) => {
+    if (!kbEditingAgent) return
+    await persistAgent({
+      ...kbEditingAgent,
+      knowledge: {
+        ...kbEditingAgent.knowledge,
+        ...patch,
+      },
+    })
+  }, [kbEditingAgent, persistAgent])
+
+  const handleSelectConversationAgent = useCallback(async (agentId: string) => {
+    if (!activeConversation) {
+      setPendingAgentId(agentId || null)
+      return
+    }
+
+    const updatedConversation: Conversation = {
+      ...activeConversation,
+      agentProfileId: agentId || null,
+      updatedAt: Date.now(),
+    }
+    setConversations((prev) => prev.map((item) => item.id === updatedConversation.id ? updatedConversation : item))
+    await window.electronAPI.storage.updateMeta({
+      id: updatedConversation.id,
+      title: updatedConversation.title,
+      agentProfileId: updatedConversation.agentProfileId,
+      createdAt: updatedConversation.createdAt,
+      updatedAt: updatedConversation.updatedAt,
+    })
+  }, [activeConversation])
 
   // 保存单条对话到磁盘
   const persistConversation = useCallback((conv: Conversation) => {
     const meta: ConvMeta = {
       id: conv.id,
       title: conv.title,
+      agentProfileId: conv.agentProfileId,
       createdAt: conv.createdAt,
       updatedAt: conv.updatedAt,
     }
@@ -540,6 +741,7 @@ const App: React.FC = () => {
 
   // 新建对话
   const handleNew = useCallback(() => {
+    setPendingAgentId(null)
     setActiveId(null)
     setCurrentView('chat')
     setRagContextId(uuidv4())
@@ -738,6 +940,66 @@ const App: React.FC = () => {
     setSkillEditorMode(nextActive ? 'edit' : null)
     setSkillEditorSessionId(uuidv4())
   }, [draftSkills, skillEditorDraft, skillEditorMode])
+
+  const handleAddAgent = useCallback(() => {
+    const nextAgent = createEmptyAgent()
+    setAgentEditorDraft(nextAgent)
+    setAgentModalMode('new')
+    setShowAgentModal(true)
+  }, [])
+
+  const handleSelectAgentDraft = useCallback((agent: AgentProfile) => {
+    setAgentEditorDraft(cloneAgent(agent))
+    setAgentModalMode('edit')
+    setShowAgentModal(true)
+  }, [cloneAgent])
+
+  const handleSaveAgent = useCallback(async () => {
+    if (!agentEditorDraft) return
+    if (!agentEditorDraft.name.trim()) {
+      window.alert('请先填写智能体名称')
+      return
+    }
+    const saved = await persistAgent({
+      ...agentEditorDraft,
+      name: agentEditorDraft.name.trim(),
+      description: agentEditorDraft.description.trim(),
+      systemPrompt: agentEditorDraft.systemPrompt.trim(),
+    })
+    setAgentEditorDraft(cloneAgent(saved))
+    setShowAgentModal(false)
+  }, [agentEditorDraft, cloneAgent, persistAgent])
+
+  const handleDeleteAgent = useCallback(async (agentId: string) => {
+    const ok = await window.electronAPI.agents.delete(agentId)
+    if (!ok) return
+    setAgents((prev) => prev.filter((agent) => agent.id !== agentId))
+    setConversations((prev) => prev.map((conv) => conv.agentProfileId === agentId ? { ...conv, agentProfileId: null } : conv))
+    if (pendingAgentId === agentId) {
+      setPendingAgentId(null)
+    }
+    setAgentEditorDraft(null)
+    setShowAgentModal(false)
+  }, [pendingAgentId])
+
+  useEffect(() => {
+    if (!activeAgentMenuId) return
+
+    const handlePointerDown = () => {
+      setActiveAgentMenuId(null)
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    return () => window.removeEventListener('pointerdown', handlePointerDown)
+  }, [activeAgentMenuId])
+
+  const handleStartAgentChat = useCallback((agentId: string) => {
+    setPendingAgentId(agentId)
+    setActiveId(null)
+    setCurrentView('chat')
+    setRagContextId(uuidv4())
+    window.electronAPI.storage.setActive(null)
+  }, [])
 
   const handleOpenModelConfig = useCallback(async (
     initialTab: 'models' | 'wechat' | 'skills' | 'tools' | 'diagnostics' = 'models',
@@ -1515,13 +1777,12 @@ const App: React.FC = () => {
       await window.electronAPI.sendMessage(
         history,
         userMsg.content,
-        true,
+        convId,
+        Boolean(activeConversationAgent?.models.forceAgent || activeConversationAgent?.mode !== 'general'),
         ragFilesRef.current.map((file) => file.id),
-        selectedKbIds,
-        ragOnly
       )
     },
-    [isLoading, isRagProcessing, activeId, conversations, persistConversation, ragFiles, selectedKbIds, ragOnly, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [activeConversationAgent, isLoading, isRagProcessing, activeId, conversations, persistConversation, ragFiles, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   // 发送消息
@@ -1532,7 +1793,7 @@ const App: React.FC = () => {
       let convId = activeId
       let targetConv = conversations.find((c) => c.id === convId)
       if (!convId) {
-        const conv = createConversation()
+        const conv = createConversation(pendingAgent?.id ?? null)
         targetConv = conv
         setConversations((prev) => [conv, ...prev])
         setActiveId(conv.id)
@@ -1685,13 +1946,19 @@ const App: React.FC = () => {
       await window.electronAPI.sendMessage(
         history,
         text,
-        true,
+        convId,
+        Boolean(
+          (targetConv?.agentProfileId
+            ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
+            : pendingAgent)?.models.forceAgent ||
+          (targetConv?.agentProfileId
+            ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
+            : pendingAgent)?.mode !== 'general'
+        ),
         currentRagFiles.map((file) => file.id),
-        selectedKbIds,
-        ragOnly
       )
     },
-    [isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, selectedKbIds, ragOnly, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [agents, isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, pendingAgent, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   return (
@@ -1699,6 +1966,7 @@ const App: React.FC = () => {
       <TitleBar />
       <Sidebar
         conversations={conversations}
+        agents={agents.map((agent) => ({ id: agent.id, name: agent.name }))}
         activeId={activeId}
         onSelect={handleSelect}
         onNew={handleNew}
@@ -1706,7 +1974,7 @@ const App: React.FC = () => {
         onOpenSettings={() => void handleOpenModelConfig()}
         currentView={currentView}
         onViewChange={setCurrentView}
-        selectedKbCount={selectedKbIds.length}
+        selectedKbCount={kbEditingAgent?.knowledge.defaultKbIds.length ?? 0}
         runningTaskCount={runningTaskCount}
         activeKbId={activeKbId}
         activeTaskId={activeTaskId}
@@ -1720,16 +1988,107 @@ const App: React.FC = () => {
         }}
       />
       <div className={styles.main}>
-        {currentView === 'kb' ? (
+        {currentView === 'agents' ? (
+          <div className={styles.agentPage}>
+            <div className={styles.agentPageHeader}>
+              <div>
+                <h2 className={styles.agentPageTitle}>智能体中心</h2>
+                <p className={styles.agentPageHint}>
+                  在这里创建、配置并管理智能体。卡片上的“进入聊天”会以该智能体开始新的对话。
+                </p>
+              </div>
+              <div className={styles.agentPageHeaderActions}>
+                <button className={styles.agentPageHeaderBtn} onClick={() => handleAddAgent()}>
+                  新建智能体
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.agentWorkspace}>
+              <div className={styles.agentCardGrid}>
+                {agents.map((agent) => (
+                  <div
+                    key={agent.id}
+                    className={styles.agentOverviewCard}
+                  >
+                    <div className={styles.agentOverviewTop}>
+                      <span className={styles.agentOverviewAvatar}>{agent.avatar || agent.name.slice(0, 1)}</span>
+                      <div className={styles.agentOverviewTopActions}>
+                        <span className={styles.agentOverviewMode}>{getAgentModeLabel(agent.mode)}</span>
+                        <div className={styles.agentCardMenuWrap}>
+                          <button
+                            type="button"
+                            className={styles.agentCardMenuBtn}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setActiveAgentMenuId((prev) => prev === agent.id ? null : agent.id)
+                            }}
+                            title="更多操作"
+                            aria-label="更多操作"
+                          >
+                            ⋯
+                          </button>
+                          {activeAgentMenuId === agent.id && (
+                            <div
+                              className={styles.agentCardMenu}
+                              onPointerDown={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className={styles.agentCardMenuItem}
+                                onClick={() => {
+                                  setActiveAgentMenuId(null)
+                                  handleSelectAgentDraft(agent)
+                                }}
+                              >
+                                编辑
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.agentCardMenuItem} ${styles.agentCardMenuItemDanger}`}
+                                onClick={() => {
+                                  setActiveAgentMenuId(null)
+                                  if (window.confirm(`确定删除智能体“${agent.name || '未命名智能体'}”吗？`)) {
+                                    void handleDeleteAgent(agent.id)
+                                  }
+                                }}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.agentOverviewName}>{agent.name}</div>
+                    <div className={styles.agentOverviewDesc}>
+                      {agent.description || '未填写智能体说明'}
+                    </div>
+                    <div className={styles.agentOverviewMeta}>
+                      <span>{agent.knowledge.defaultKbIds.length} 个知识库</span>
+                      <span>{agent.models.forceAgent ? '强 Agent' : '轻聊天'}</span>
+                    </div>
+                    <div className={styles.agentOverviewActions}>
+                      <button className={styles.miniPrimaryBtn} onClick={() => handleStartAgentChat(agent.id)}>
+                        进入聊天
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : currentView === 'kb' ? (
           <KnowledgeBasePanel
-            selectedKbIds={selectedKbIds}
-            onSelectionChange={setSelectedKbIds}
-            ragOnly={ragOnly}
-            onRagOnlyChange={setRagOnly}
-            minScore={minScore}
-            onMinScoreChange={setMinScore}
+            selectedKbIds={kbEditingAgent?.knowledge.defaultKbIds ?? []}
+            onSelectionChange={(ids) => void handleAgentKnowledgeChange({ defaultKbIds: ids })}
+            ragOnly={kbEditingAgent?.knowledge.ragOnly ?? false}
+            onRagOnlyChange={(value) => void handleAgentKnowledgeChange({ ragOnly: value })}
+            minScore={kbEditingAgent?.knowledge.minScore ?? 0.6}
+            onMinScoreChange={(value) => void handleAgentKnowledgeChange({ minScore: value })}
             activeKbId={activeKbId}
             onActiveKbIdChange={setActiveKbId}
+            agentName={kbEditingAgent?.name ?? '通用助手'}
           />
         ) : currentView === 'task' ? (
           <TaskPanel
@@ -1743,9 +2102,35 @@ const App: React.FC = () => {
         ) : (
           <>
             <div className={styles.topbar}>
-              <span className={styles.convTitle}>
-                {activeConversation?.title ?? '新对话'}
-              </span>
+              <div>
+                <span className={styles.convTitle}>
+                  {activeConversation?.title ?? '新对话'}
+                </span>
+                <div className={styles.agentPillRow}>
+                  <span className={styles.chatModePill}>
+                    {activeConversationAgent ? '智能体对话' : '普通对话'}
+                  </span>
+                  {activeConversationAgent && (
+                    <span className={styles.agentPill}>
+                      {activeConversationAgent.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className={styles.agentToolbar}>
+                <select
+                  className={styles.agentSelect}
+                  value={activeConversation?.agentProfileId ?? pendingAgent?.id ?? ''}
+                  onChange={(e) => void handleSelectConversationAgent(e.target.value)}
+                >
+                  <option value="">普通对话</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <ChatArea
@@ -1776,6 +2161,249 @@ const App: React.FC = () => {
           </>
         )}
       </div>
+
+      {showAgentModal && agentEditorDraft && (
+        <div
+          className={styles.modalOverlay}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowAgentModal(false)
+          }}
+        >
+          <div className={styles.agentModal} onMouseDown={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <h3 className={styles.modalTitle}>{agentModalMode === 'new' ? '新建智能体' : '编辑智能体'}</h3>
+              </div>
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={() => setShowAgentModal(false)}
+                aria-label="关闭"
+                title="关闭"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={styles.agentModalBody}>
+              <div className={styles.fieldGrid}>
+                <label className={styles.fieldItem}>
+                  <span>名称</span>
+                  <input
+                    className={styles.fieldInput}
+                    value={agentEditorDraft.name}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, name: e.target.value } : prev)}
+                    placeholder="例如：产品助手 / 法务助手"
+                  />
+                </label>
+                <label className={styles.fieldItem}>
+                  <span>模式</span>
+                  <select
+                    className={styles.fieldSelect}
+                    value={agentEditorDraft.mode}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, mode: e.target.value as AgentMode } : prev)}
+                  >
+                    <option value="domain">领域</option>
+                    <option value="workflow">流程</option>
+                    <option value="general">通用</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className={styles.fieldItem}>
+                <span>描述</span>
+                <input
+                  className={styles.fieldInput}
+                  value={agentEditorDraft.description}
+                  onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, description: e.target.value } : prev)}
+                  placeholder="一句话说明这个智能体擅长什么"
+                />
+              </label>
+
+              <label className={styles.fieldItem}>
+                <span>系统提示词</span>
+                <textarea
+                  className={styles.fieldTextarea}
+                  rows={8}
+                  value={agentEditorDraft.systemPrompt}
+                  onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, systemPrompt: e.target.value } : prev)}
+                  placeholder="定义该智能体的角色、边界和回答风格"
+                />
+              </label>
+
+              <div className={styles.fieldGrid}>
+                <label className={styles.fieldItem}>
+                  <span>最小相关度</span>
+                  <input
+                    className={styles.fieldInput}
+                    type="number"
+                    min={0.1}
+                    max={0.9}
+                    step={0.05}
+                    value={agentEditorDraft.knowledge.minScore}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, knowledge: { ...prev.knowledge, minScore: Number(e.target.value) || 0.6 } } : prev)}
+                  />
+                </label>
+                <label className={styles.fieldItem}>
+                  <span>Top K</span>
+                  <input
+                    className={styles.fieldInput}
+                    type="number"
+                    min={1}
+                    max={20}
+                    step={1}
+                    value={agentEditorDraft.knowledge.topK}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, knowledge: { ...prev.knowledge, topK: Number(e.target.value) || 6 } } : prev)}
+                  />
+                </label>
+              </div>
+
+              <div className={styles.agentToggleGrid}>
+                <label className={styles.toggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={agentEditorDraft.knowledge.ragOnly}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, knowledge: { ...prev.knowledge, ragOnly: e.target.checked } } : prev)}
+                  />
+                  <span>仅基于知识库回答</span>
+                </label>
+                <label className={styles.toggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={agentEditorDraft.knowledge.fallbackToChat}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, knowledge: { ...prev.knowledge, fallbackToChat: e.target.checked } } : prev)}
+                  />
+                  <span>无命中时回退普通回答</span>
+                </label>
+                <label className={styles.toggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={agentEditorDraft.knowledge.citationRequired}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, knowledge: { ...prev.knowledge, citationRequired: e.target.checked } } : prev)}
+                  />
+                  <span>要求引用证据</span>
+                </label>
+                <label className={styles.toggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={agentEditorDraft.models.forceAgent}
+                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, models: { ...prev.models, forceAgent: e.target.checked } } : prev)}
+                  />
+                  <span>默认走 Agent 路由</span>
+                </label>
+              </div>
+
+              <div className={styles.agentKbSection}>
+                <div className={styles.agentKbSectionHeader}>
+                  <div>
+                    <div className={styles.modalLabel}>关联知识库</div>
+                    <div className={styles.agentKbSectionHint}>
+                      可为当前智能体选择一个或多个知识库，聊天时会优先使用这里的绑定配置。
+                    </div>
+                  </div>
+                  <span className={styles.agentKbCount}>
+                    已选 {agentEditorDraft.knowledge.defaultKbIds.length} 个
+                  </span>
+                </div>
+
+                {knowledgeBases.length === 0 ? (
+                  <div className={styles.agentKbEmpty}>
+                    <div className={styles.emptyHint}>当前还没有知识库，先创建知识库后再绑定到智能体。</div>
+                    <button
+                      className={styles.miniBtn}
+                      onClick={() => {
+                        setShowAgentModal(false)
+                        setCurrentView('kb')
+                      }}
+                    >
+                      前往知识库
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.agentKbPicker} ref={agentKbPickerRef}>
+                    <button
+                      type="button"
+                      className={`${styles.agentKbTrigger} ${agentKbPickerOpen ? styles.agentKbTriggerOpen : ''}`}
+                      onClick={() => setAgentKbPickerOpen((prev) => !prev)}
+                    >
+                      <span className={styles.agentKbTriggerText}>
+                        {selectedKnowledgeBases.length > 0
+                          ? selectedKnowledgeBases.map((kb) => kb.name).join('、')
+                          : '请选择知识库'}
+                      </span>
+                      <span className={styles.agentKbTriggerArrow}>{agentKbPickerOpen ? '▴' : '▾'}</span>
+                    </button>
+
+                    {agentKbPickerOpen && (
+                      <div className={styles.agentKbDropdown}>
+                        <div className={styles.agentKbSearchWrap}>
+                          <input
+                            className={styles.agentKbSearchInput}
+                            value={agentKbSearch}
+                            onChange={(e) => setAgentKbSearch(e.target.value)}
+                            placeholder="搜索知识库名称或描述"
+                          />
+                        </div>
+                        <div className={styles.agentKbDropdownList}>
+                          {filteredKnowledgeBases.length === 0 && (
+                            <div className={styles.agentKbNoResult}>没有匹配的知识库</div>
+                          )}
+                          {filteredKnowledgeBases.map((kb) => {
+                            const selected = agentEditorDraft.knowledge.defaultKbIds.includes(kb.id)
+                            return (
+                              <label key={kb.id} className={styles.agentKbOption}>
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => toggleDraftKnowledgeBase(kb.id)}
+                                />
+                                <div className={styles.agentKbOptionBody}>
+                                  <div className={styles.agentKbOptionTop}>
+                                    <span className={styles.agentKbOptionName}>{kb.name}</span>
+                                    <span className={styles.agentKbOptionMeta}>
+                                      {kb.docCount} 文档 / {kb.chunkCount} 片段
+                                    </span>
+                                  </div>
+                                  <div className={styles.agentKbOptionDesc}>
+                                    {kb.description || '未填写知识库说明'}
+                                  </div>
+                                </div>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className={styles.agentModalFooter}>
+              {agentModalMode === 'edit' && (
+                <button
+                  className={`${styles.miniBtn} ${styles.dangerBtn}`}
+                  onClick={() => {
+                    if (window.confirm(`确定删除智能体“${agentEditorDraft.name || '未命名智能体'}”吗？`)) {
+                      void handleDeleteAgent(agentEditorDraft.id)
+                    }
+                  }}
+                >
+                  删除智能体
+                </button>
+              )}
+              <div className={styles.profileActions}>
+                <button className={styles.miniBtn} onClick={() => setShowAgentModal(false)}>
+                  取消
+                </button>
+                <button className={styles.miniPrimaryBtn} onClick={() => void handleSaveAgent()}>
+                  保存智能体
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModelConfig && (
         <div

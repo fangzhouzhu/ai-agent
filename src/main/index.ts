@@ -71,6 +71,11 @@ import {
   saveModelSettings,
   getSkills,
   saveSkills,
+  listAgentProfiles,
+  getAgentProfile,
+  saveAgentProfile,
+  deleteAgentProfile,
+  getConversationMeta,
   getWechatBotSettings,
   saveWechatBotSettings,
   getKbUiState,
@@ -81,6 +86,7 @@ import {
   type OnlineProviderSettings,
   type WechatBotSettings,
   type SkillConfig,
+  type AgentProfile,
 } from "./storage";
 import {
   clearOfficialWeixinState,
@@ -766,6 +772,17 @@ function buildKnowledgeBaseFailureMessage(err: unknown): string {
   ].join("\n");
 }
 
+function getEffectiveAgentProfile(
+  conversationId?: string | null,
+): AgentProfile | null {
+  const conversationMeta = conversationId
+    ? getConversationMeta(conversationId)
+    : null;
+  const candidateId = conversationMeta?.agentProfileId;
+  if (!candidateId) return null;
+  return getAgentProfile(candidateId);
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -811,6 +828,7 @@ ipcMain.handle(
     {
       history,
       message,
+      conversationId,
       useAgent,
       fileIds,
       kbIds,
@@ -818,6 +836,7 @@ ipcMain.handle(
     }: {
       history: ChatMessage[];
       message: string;
+      conversationId?: string | null;
       useAgent: boolean;
       fileIds?: string[];
       kbIds?: string[];
@@ -834,14 +853,23 @@ ipcMain.handle(
     const { signal } = controller;
 
     try {
+      const activeAgent = getEffectiveAgentProfile(conversationId);
+      const effectiveKbIds = activeAgent?.knowledge.defaultKbIds ?? kbIds ?? [];
+      const effectiveRagOnly = activeAgent?.knowledge.ragOnly ?? ragOnly ?? false;
+      const effectiveMinScore = activeAgent?.knowledge.minScore ?? 0.6;
+      const effectiveTopK = activeAgent?.knowledge.topK ?? 6;
+      const effectiveFallbackToChat =
+        activeAgent?.knowledge.fallbackToChat ?? !effectiveRagOnly;
+      const forceAgent = useAgent || Boolean(activeAgent?.models.forceAgent);
       const useFileRag = Array.isArray(fileIds) && fileIds.length > 0;
-      const hasSelectedKbs = Array.isArray(kbIds) && kbIds.length > 0;
+      const hasSelectedKbs =
+        Array.isArray(effectiveKbIds) && effectiveKbIds.length > 0;
       const useKbRag = hasSelectedKbs && shouldUseKnowledgeBase(message);
       const useRag = useFileRag || useKbRag;
       const route = resolveRouteDecision(message, {
         suppressToolsForRag: useRag,
         useRag,
-        forceAgent: useAgent,
+        forceAgent,
       });
       const {
         matchedSkill,
@@ -855,7 +883,7 @@ ipcMain.handle(
       const fallbackRoute = resolveRouteDecision(message, {
         suppressToolsForRag: false,
         useRag: false,
-        forceAgent: useAgent,
+        forceAgent,
       });
       const fallbackRealtimeTool = fallbackRoute.useRealtimeTool;
       const fallbackUseTools = fallbackRoute.useTools;
@@ -945,15 +973,15 @@ ipcMain.handle(
         if (useKbRag) {
           // KB-based RAG: retrieve from persistent knowledge bases
           const chunks = await retrieveFromKbs(
-            kbIds!,
+            effectiveKbIds,
             message,
-            6,
-            getModelSettings().kbMinScore ?? 0.6,
+            effectiveTopK,
+            effectiveMinScore,
           );
 
           // 没有命中时不要再把空上下文交给模型，避免看起来“命中了 RAG 但没有回答”。
           if (chunks.length === 0) {
-            if (ragOnly === false) {
+            if (!effectiveRagOnly || effectiveFallbackToChat) {
               await runFallbackChat("知识库无结果");
             } else {
               webContents.send(
@@ -994,7 +1022,7 @@ ${context}
                 matchedSkill?.skill,
               );
             } catch (ragErr) {
-              if (ragOnly === false) {
+              if (!effectiveRagOnly || effectiveFallbackToChat) {
                 try {
                   await runFallbackChat("知识库回答失败，已回退");
                 } catch {
@@ -1490,6 +1518,18 @@ ipcMain.handle("kb:rebuild-doc", async (_event, docId: string) => {
 });
 
 // IPC: 切换聊天模型
+ipcMain.handle("agents:list", () => {
+  return listAgentProfiles();
+});
+
+ipcMain.handle("agents:save", (_event, agent: AgentProfile) => {
+  return saveAgentProfile(agent);
+});
+
+ipcMain.handle("agents:delete", (_event, id: string) => {
+  return deleteAgentProfile(id);
+});
+
 ipcMain.handle("models:set", async (_event, modelName: string) => {
   setChatModel(modelName);
   saveModelSettings({ chatModel: getChatModel() });

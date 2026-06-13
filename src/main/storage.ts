@@ -2,8 +2,6 @@ import { app } from "electron";
 import { join } from "path";
 import * as fs from "fs";
 
-// 存储根目录：%APPDATA%\ai-agent\  (Windows)
-// ~/Library/Application Support/ai-agent/  (macOS)
 function getDataDir(): string {
   const dir = join(app.getPath("userData"), "ai-agent");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -19,9 +17,12 @@ function getConvDir(): string {
 const INDEX_FILE = () => join(getDataDir(), "index.json");
 const ACTIVE_FILE = () => join(getDataDir(), "active.json");
 const SETTINGS_FILE = () => join(getDataDir(), "settings.json");
+const AGENTS_FILE = () => join(getDataDir(), "agents.json");
+
 export interface ConvMeta {
   id: string;
   title: string;
+  agentProfileId: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -40,6 +41,7 @@ export interface StoredMessage {
 
 export type ModelProvider = "ollama" | "openai-compatible";
 export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
+export type AgentMode = "general" | "domain" | "workflow";
 
 export interface SkillAttachment {
   id: string;
@@ -79,6 +81,41 @@ export interface OnlineProviderProfile extends Required<OnlineProviderSettings> 
   updatedAt: number;
 }
 
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  avatar?: string;
+  mode: AgentMode;
+  knowledge: {
+    defaultKbIds: string[];
+    ragOnly: boolean;
+    minScore: number;
+    topK: number;
+    fallbackToChat: boolean;
+    citationRequired: boolean;
+  };
+  tools: {
+    enabledToolNames: string[];
+    allowNetwork: boolean;
+    allowWrite: boolean;
+    allowDelete: boolean;
+    requireConfirmationForRisky: boolean;
+  };
+  models: {
+    forceAgent: boolean;
+  };
+  memory: {
+    enableConversationSummary: boolean;
+    enableUserPreferenceMemory: boolean;
+  };
+  skills: string[];
+  isDefault?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface WechatBotSettings {
   enabled?: boolean;
   qrcode?: string;
@@ -110,6 +147,37 @@ export interface ModelSettings {
   kbMinScore?: number;
 }
 
+function createAgentDefaults() {
+  return {
+    avatar: undefined as string | undefined,
+    mode: "domain" as AgentMode,
+    knowledge: {
+      defaultKbIds: [] as string[],
+      ragOnly: false,
+      minScore: 0.6,
+      topK: 6,
+      fallbackToChat: true,
+      citationRequired: false,
+    },
+    tools: {
+      enabledToolNames: [] as string[],
+      allowNetwork: false,
+      allowWrite: false,
+      allowDelete: false,
+      requireConfirmationForRisky: true,
+    },
+    models: {
+      forceAgent: true,
+    },
+    memory: {
+      enableConversationSummary: false,
+      enableUserPreferenceMemory: false,
+    },
+    skills: [] as string[],
+    isDefault: false,
+  };
+}
+
 function readJSON<T>(filePath: string, fallback: T): T {
   try {
     if (!fs.existsSync(filePath)) return fallback;
@@ -123,30 +191,35 @@ function writeJSON(filePath: string, data: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 }
 
-// ---- 索引操作 ----
-
 export function listConversations(): ConvMeta[] {
-  return readJSON<ConvMeta[]>(INDEX_FILE(), []).sort(
-    (a, b) => b.updatedAt - a.updatedAt,
-  );
+  return readJSON<Array<Partial<ConvMeta> & Pick<ConvMeta, "id" | "title" | "createdAt" | "updatedAt">>>(INDEX_FILE(), [])
+    .map((meta) => ({
+      id: meta.id,
+      title: meta.title,
+      agentProfileId:
+        meta.agentProfileId && meta.agentProfileId !== "general-assistant"
+          ? meta.agentProfileId
+          : null,
+      createdAt: meta.createdAt,
+      updatedAt: meta.updatedAt,
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export function getConversationMeta(id: string): ConvMeta | null {
+  return listConversations().find((meta) => meta.id === id) ?? null;
 }
 
 function saveIndex(metas: ConvMeta[]): void {
   writeJSON(INDEX_FILE(), metas);
 }
 
-// ---- 单条对话操作 ----
-
 export function loadConversation(id: string): StoredMessage[] {
   const file = join(getConvDir(), `${id}.json`);
   return readJSON<StoredMessage[]>(file, []);
 }
 
-export function saveConversation(
-  meta: ConvMeta,
-  messages: StoredMessage[],
-): void {
-  // 更新索引
+export function saveConversation(meta: ConvMeta, messages: StoredMessage[]): void {
   const metas = readJSON<ConvMeta[]>(INDEX_FILE(), []);
   const idx = metas.findIndex((m) => m.id === meta.id);
   if (idx >= 0) {
@@ -156,17 +229,13 @@ export function saveConversation(
   }
   saveIndex(metas);
 
-  // 写消息文件
   const file = join(getConvDir(), `${meta.id}.json`);
   writeJSON(file, messages);
 }
 
 export function deleteConversation(id: string): void {
-  // 从索引删除
   const metas = readJSON<ConvMeta[]>(INDEX_FILE(), []);
   saveIndex(metas.filter((m) => m.id !== id));
-
-  // 删除消息文件
   const file = join(getConvDir(), `${id}.json`);
   if (fs.existsSync(file)) fs.unlinkSync(file);
 }
@@ -180,8 +249,6 @@ export function updateConversationMeta(meta: ConvMeta): void {
   }
 }
 
-// ---- 活跃 ID ----
-
 export function getActiveId(): string | null {
   return readJSON<{ id: string | null }>(ACTIVE_FILE(), { id: null }).id;
 }
@@ -189,8 +256,6 @@ export function getActiveId(): string | null {
 export function setActiveId(id: string | null): void {
   writeJSON(ACTIVE_FILE(), { id });
 }
-
-// ---- 模型配置 ----
 
 export function getModelSettings(): ModelSettings {
   return readJSON<ModelSettings>(SETTINGS_FILE(), {});
@@ -230,8 +295,6 @@ export function saveWechatBotSettings(wechatBot: WechatBotSettings): void {
   });
 }
 
-// ---- 知识库 UI 状态 ----
-
 export function getKbUiState(): {
   selectedIds: string[];
   ragOnly: boolean;
@@ -257,7 +320,108 @@ export function saveKbUiState(
   });
 }
 
-// ---- RAG 目录 ----
+export function listAgentProfiles(): AgentProfile[] {
+  const defaults = createAgentDefaults();
+  const agents = readJSON<AgentProfile[]>(AGENTS_FILE(), []).filter(
+    (agent) =>
+      agent.id !== "general-assistant" &&
+      agent.name?.trim() !== "通用助手",
+  );
+  const normalized = agents.map((agent) => ({
+    ...defaults,
+    ...agent,
+    description: agent.description ?? "",
+    systemPrompt: agent.systemPrompt ?? "",
+    mode: agent.mode ?? defaults.mode,
+    knowledge: {
+      ...defaults.knowledge,
+      ...agent.knowledge,
+      defaultKbIds: Array.isArray(agent.knowledge?.defaultKbIds)
+        ? Array.from(new Set(agent.knowledge.defaultKbIds.filter(Boolean)))
+        : [],
+    },
+    tools: {
+      ...defaults.tools,
+      ...agent.tools,
+      enabledToolNames: Array.isArray(agent.tools?.enabledToolNames)
+        ? Array.from(new Set(agent.tools.enabledToolNames.filter(Boolean)))
+        : [],
+    },
+    models: {
+      ...defaults.models,
+      ...agent.models,
+    },
+    memory: {
+      ...defaults.memory,
+      ...agent.memory,
+    },
+    skills: Array.isArray(agent.skills)
+      ? Array.from(new Set(agent.skills.filter(Boolean)))
+      : [],
+    isDefault: false,
+  }));
+  normalized.sort((a, b) => b.updatedAt - a.updatedAt);
+  writeJSON(AGENTS_FILE(), normalized);
+  return normalized;
+}
+
+export function getAgentProfile(id: string): AgentProfile | null {
+  return listAgentProfiles().find((agent) => agent.id === id) ?? null;
+}
+
+export function saveAgentProfile(agent: AgentProfile): AgentProfile {
+  const defaults = createAgentDefaults();
+  const agents = listAgentProfiles();
+  const now = Date.now();
+  const existing = agents.find((item) => item.id === agent.id);
+  const next: AgentProfile = {
+    ...defaults,
+    ...agent,
+    createdAt: existing?.createdAt ?? agent.createdAt ?? now,
+    updatedAt: now,
+    isDefault: false,
+    knowledge: {
+      ...defaults.knowledge,
+      ...agent.knowledge,
+      defaultKbIds: Array.from(new Set((agent.knowledge.defaultKbIds ?? []).filter(Boolean))),
+    },
+    tools: {
+      ...defaults.tools,
+      ...agent.tools,
+      enabledToolNames: Array.from(new Set((agent.tools.enabledToolNames ?? []).filter(Boolean))),
+    },
+    models: {
+      ...defaults.models,
+      ...agent.models,
+    },
+    memory: {
+      ...defaults.memory,
+      ...agent.memory,
+    },
+    skills: Array.from(new Set((agent.skills ?? []).filter(Boolean))),
+  };
+
+  const nextAgents = existing
+    ? agents.map((item) => (item.id === next.id ? next : item))
+    : [next, ...agents];
+  writeJSON(AGENTS_FILE(), nextAgents);
+  return next;
+}
+
+export function deleteAgentProfile(id: string): boolean {
+  const agents = listAgentProfiles();
+  const filtered = agents.filter((agent) => agent.id !== id);
+  if (filtered.length === agents.length) return false;
+  writeJSON(AGENTS_FILE(), filtered);
+
+  const metas = listConversations().map((meta) =>
+    meta.agentProfileId === id
+      ? { ...meta, agentProfileId: null, updatedAt: Date.now() }
+      : meta,
+  );
+  saveIndex(metas);
+  return true;
+}
 
 export function getRagDir(): string {
   const dir = join(getDataDir(), "rag");

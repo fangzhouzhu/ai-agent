@@ -8,6 +8,7 @@ export type ChatMessage = {
 export type ConvMeta = {
   id: string;
   title: string;
+  agentProfileId: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -130,6 +131,7 @@ export type Task = {
 
 export type ModelProvider = "ollama" | "openai-compatible";
 export type SkillPreferredScene = "auto" | "chat" | "agent" | "rag";
+export type AgentMode = "general" | "domain" | "workflow";
 
 export type SkillAttachment = {
   id: string;
@@ -149,6 +151,41 @@ export type SkillConfig = {
   enabled: boolean;
   preferredScene: SkillPreferredScene;
   priority: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type AgentProfile = {
+  id: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  avatar?: string;
+  mode: AgentMode;
+  knowledge: {
+    defaultKbIds: string[];
+    ragOnly: boolean;
+    minScore: number;
+    topK: number;
+    fallbackToChat: boolean;
+    citationRequired: boolean;
+  };
+  tools: {
+    enabledToolNames: string[];
+    allowNetwork: boolean;
+    allowWrite: boolean;
+    allowDelete: boolean;
+    requireConfirmationForRisky: boolean;
+  };
+  models: {
+    forceAgent: boolean;
+  };
+  memory: {
+    enableConversationSummary: boolean;
+    enableUserPreferenceMemory: boolean;
+  };
+  skills: string[];
+  isDefault?: boolean;
   createdAt: number;
   updatedAt: number;
 };
@@ -258,25 +295,21 @@ export type TraceSummary = {
 };
 
 const api = {
-  // 发送聊天消息
   sendMessage: (
     history: ChatMessage[],
     message: string,
+    conversationId: string | null,
     useAgent: boolean,
     fileIds: string[] = [],
-    kbIds: string[] = [],
-    ragOnly: boolean = true,
   ) =>
     ipcRenderer.invoke("chat:send", {
       history,
       message,
+      conversationId,
       useAgent,
       fileIds,
-      kbIds,
-      ragOnly,
     }),
 
-  // 流式 token
   onToken: (callback: (token: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, token: string) =>
       callback(token);
@@ -284,7 +317,6 @@ const api = {
     return () => ipcRenderer.removeListener("chat:token", handler);
   },
 
-  // 工具调用通知
   onToolCall: (
     callback: (data: { toolName: string; input: unknown }) => void,
   ) => {
@@ -296,7 +328,6 @@ const api = {
     return () => ipcRenderer.removeListener("chat:tool-call", handler);
   },
 
-  // 工具结果通知
   onToolResult: (
     callback: (data: { toolName: string; result: string }) => void,
   ) => {
@@ -308,7 +339,6 @@ const api = {
     return () => ipcRenderer.removeListener("chat:tool-result", handler);
   },
 
-  // 当前回复所用模型与路由场景
   onModelInfo: (callback: (data: ModelRouteInfo) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: ModelRouteInfo) =>
       callback(data);
@@ -316,14 +346,12 @@ const api = {
     return () => ipcRenderer.removeListener("chat:model-info", handler);
   },
 
-  // 完成通知
   onDone: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on("chat:done", handler);
     return () => ipcRenderer.removeListener("chat:done", handler);
   },
 
-  // 错误通知
   onError: (callback: (err: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, err: string) =>
       callback(err);
@@ -331,7 +359,6 @@ const api = {
     return () => ipcRenderer.removeListener("chat:error", handler);
   },
 
-  // 模型相关
   listModels: () => ipcRenderer.invoke("models:list"),
   setModel: (modelName: string) => ipcRenderer.invoke("models:set", modelName),
   getModel: () => ipcRenderer.invoke("models:get"),
@@ -354,7 +381,6 @@ const api = {
   ): Promise<OnlineApiTestResult> =>
     ipcRenderer.invoke("settings:test-online", { online, model }),
 
-  // 本地 Skills
   getWechatBotSettings: (): Promise<WechatBotSettings> =>
     ipcRenderer.invoke("settings:get-wechat-bot"),
   saveWechatBotSettings: (
@@ -394,7 +420,6 @@ const api = {
   pickSkillFiles: (): Promise<SkillAttachment[]> =>
     ipcRenderer.invoke("skills:pick-files"),
 
-  // 工具权限与诊断
   listToolPolicies: (): Promise<ToolPolicy[]> =>
     ipcRenderer.invoke("tools:list-policies"),
   diagnostics: {
@@ -404,7 +429,6 @@ const api = {
       ipcRenderer.invoke("diagnostics:get-trace", traceId),
   },
 
-  // 知识库 UI 状态持久化
   getKbUiState: (): Promise<{
     selectedIds: string[];
     ragOnly: boolean;
@@ -417,10 +441,8 @@ const api = {
   ): Promise<void> =>
     ipcRenderer.invoke("kb:save-ui-state", selectedIds, ragOnly, minScore),
 
-  // 中断当前请求
   abortChat: () => ipcRenderer.send("chat:abort"),
 
-  // ---- RAG API ----
   rag: {
     pickFiles: (): Promise<RagFileMeta[]> =>
       ipcRenderer.invoke("rag:pick-files"),
@@ -435,7 +457,6 @@ const api = {
     },
   },
 
-  // ---- 知识库 API ----
   kb: {
     list: (): Promise<KnowledgeBase[]> => ipcRenderer.invoke("kb:list"),
     create: (data: {
@@ -469,35 +490,30 @@ const api = {
     },
   },
 
-  // ---- 存储 API ----
-  storage: {
-    // 获取所有对话元数据列表（轻量，用于侧边栏）
-    list: (): Promise<ConvMeta[]> => ipcRenderer.invoke("storage:list"),
+  agents: {
+    list: (): Promise<AgentProfile[]> => ipcRenderer.invoke("agents:list"),
+    save: (agent: AgentProfile): Promise<AgentProfile> =>
+      ipcRenderer.invoke("agents:save", agent),
+    delete: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke("agents:delete", id),
+  },
 
-    // 加载某条对话的消息（按需）
+  storage: {
+    list: (): Promise<ConvMeta[]> => ipcRenderer.invoke("storage:list"),
     load: (id: string): Promise<StoredMessage[]> =>
       ipcRenderer.invoke("storage:load", id),
-
-    // 保存整条对话（元数据 + 消息）
     save: (meta: ConvMeta, messages: StoredMessage[]): Promise<void> =>
       ipcRenderer.invoke("storage:save", meta, messages),
-
-    // 只更新元数据（标题、时间戳）
     updateMeta: (meta: ConvMeta): Promise<void> =>
       ipcRenderer.invoke("storage:update-meta", meta),
-
-    // 删除对话
     delete: (id: string): Promise<void> =>
       ipcRenderer.invoke("storage:delete", id),
-
-    // 活跃 ID
     getActive: (): Promise<string | null> =>
       ipcRenderer.invoke("storage:get-active"),
     setActive: (id: string | null): Promise<void> =>
       ipcRenderer.invoke("storage:set-active", id),
   },
 
-  // ---- 任务 API ----
   task: {
     create: (prompt: string): Promise<string> =>
       ipcRenderer.invoke("task:create", prompt),
@@ -522,7 +538,6 @@ const api = {
     },
   },
 
-  // ---- Shell ----
   openPath: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke("shell:openPath", filePath),
 };
