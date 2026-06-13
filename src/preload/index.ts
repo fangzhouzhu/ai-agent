@@ -232,6 +232,11 @@ export type WechatBotMessage = {
   text: string;
   status: "received" | "sent" | "error";
   source?: "wechat" | "panel" | "system";
+  toolCalls?: { toolName: string; input: unknown }[];
+  toolResults?: { toolName: string; result: string }[];
+  modelInfo?: { model: string; scene: string; skill?: string };
+  durationMs?: number;
+  isStreaming?: boolean;
   createdAt: number;
 };
 

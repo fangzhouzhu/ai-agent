@@ -36,6 +36,12 @@ export const toolPolicies: Record<string, ToolPolicy> = {
     requiresConfirmation: false,
     description: "Copy text to the local clipboard.",
   },
+  get_os_info: {
+    name: "get_os_info",
+    risk: ["system"],
+    requiresConfirmation: false,
+    description: "Read the local operating system name, version, build, and architecture.",
+  },
   web_search: {
     name: "web_search",
     risk: ["network"],

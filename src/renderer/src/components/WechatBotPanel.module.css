@@ -79,6 +79,12 @@
   padding: 24px;
 }
 
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .emptyState {
   max-width: 460px;
   margin: 90px auto 0;
@@ -102,67 +108,27 @@
   line-height: 1.7;
 }
 
-.messageRow {
+.systemRow {
   display: flex;
-  margin-bottom: 14px;
+  justify-content: center;
 }
 
-.messageRowUser {
-  justify-content: flex-end;
-}
-
-.messageBubble {
-  width: min(660px, 82%);
-  padding: 12px 14px;
+.systemBubble {
+  max-width: min(680px, 100%);
+  padding: 10px 14px;
   border: 1px solid rgba(186, 201, 241, 0.76);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 10px 24px rgba(53, 81, 154, 0.06);
-}
-
-.messageBubbleUser {
-  color: #fff;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
-  border-color: transparent;
-}
-
-.messageBubbleError {
-  border-color: rgba(245, 169, 178, 0.74);
-  background: rgba(255, 246, 248, 0.94);
-}
-
-.messageBubbleSystem {
   background: rgba(244, 248, 255, 0.96);
-}
-
-.messageMeta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 7px;
-  color: #7282a0;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.messageBubbleUser .messageMeta {
-  color: rgba(255, 255, 255, 0.82);
-}
-
-.messageText {
-  color: #102052;
+  color: #617195;
   font-size: 13px;
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.messageBubbleUser .messageText {
-  color: #fff;
-}
-
-.messageBubbleError .messageText {
+.systemBubbleError {
+  border-color: rgba(245, 169, 178, 0.74);
+  background: rgba(255, 246, 248, 0.94);
   color: #d33a48;
 }
 
@@ -184,9 +150,5 @@
 
   .chatArea {
     padding: 18px 14px;
-  }
-
-  .messageBubble {
-    width: min(100%, 620px);
   }
 }

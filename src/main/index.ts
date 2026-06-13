@@ -47,7 +47,7 @@ import { deleteKbVectors } from "./ragStore";
 import { RAG_CITATION_PROMPT } from "./prompts/agentPrompts";
 import { listTraces, getTrace } from "./runtime/trace";
 import { listToolPolicies } from "./tools/policy";
-import { matchSkillForInput } from "./skills";
+import { matchSkillForInput, type ResolvedSkillMatch } from "./skills";
 import {
   createAndRunTask,
   listTasks,
@@ -117,6 +117,11 @@ type WechatBotMessage = {
   text: string;
   status: "received" | "sent" | "error";
   source?: "wechat" | "panel" | "system";
+  toolCalls?: { toolName: string; input: unknown }[];
+  toolResults?: { toolName: string; result: string }[];
+  modelInfo?: { model: string; scene: string; skill?: string };
+  durationMs?: number;
+  isStreaming?: boolean;
   createdAt: number;
 };
 
@@ -203,6 +208,28 @@ function appendWechatBotMessage(
   if (wechatBotMessages.length > 80) {
     wechatBotMessages.splice(0, wechatBotMessages.length - 80);
   }
+  emitWechatBotUpdate();
+  return next;
+}
+
+function updateWechatBotMessage(
+  id: string,
+  patch:
+    | Partial<WechatBotMessage>
+    | ((message: WechatBotMessage) => WechatBotMessage),
+): WechatBotMessage | null {
+  const index = wechatBotMessages.findIndex((message) => message.id === id);
+  if (index < 0) return null;
+
+  const current = wechatBotMessages[index];
+  const next =
+    typeof patch === "function"
+      ? patch(current)
+      : {
+          ...current,
+          ...patch,
+        };
+  wechatBotMessages[index] = next;
   emitWechatBotUpdate();
   return next;
 }
@@ -614,6 +641,115 @@ function shouldUseKnowledgeBase(message: string): boolean {
   return kbIntentRegex.test(text);
 }
 
+type RouteDecision = {
+  matchedSkill: ResolvedSkillMatch | null;
+  skillAttachmentPaths: string[];
+  useSkillAttachments: boolean;
+  preferredScene: SkillConfig["preferredScene"] | "auto";
+  useRealtimeTool: boolean;
+  useWebSearchTool: boolean;
+  useCalculatorTool: boolean;
+  useTools: boolean;
+  useAdvancedModel: boolean;
+};
+
+function resolveRouteDecision(
+  message: string,
+  options?: {
+    suppressToolsForRag?: boolean;
+    useRag?: boolean;
+    forceAgent?: boolean;
+  },
+): RouteDecision {
+  const useRag = options?.useRag ?? false;
+  const suppressToolsForRag = options?.suppressToolsForRag ?? useRag;
+  const matchedSkill = matchSkillForInput(message, getSkills());
+  const skillAttachmentPaths =
+    matchedSkill?.skill.attachments
+      ?.map((item) => item.path?.trim())
+      .filter(Boolean) ?? [];
+  const useSkillAttachments = !useRag && skillAttachmentPaths.length > 0;
+  const preferredScene = matchedSkill?.skill.preferredScene ?? "auto";
+  const toolChecksEnabled = !suppressToolsForRag;
+  const useRealtimeTool = toolChecksEnabled && shouldUseRealtimeTool(message);
+  const useWebSearchTool = toolChecksEnabled && shouldUseWebSearchTool(message);
+  const useCalculatorTool = toolChecksEnabled && shouldUseCalculatorTool(message);
+
+  let useTools =
+    toolChecksEnabled &&
+    (Boolean(options?.forceAgent) ||
+      useRealtimeTool ||
+      useWebSearchTool ||
+      useCalculatorTool ||
+      shouldUseAgentTools(message));
+  let useAdvancedModel =
+    !useRag &&
+    (useTools || Boolean(options?.forceAgent) || shouldUseAdvancedModel(message));
+
+  if (
+    !useRag &&
+    preferredScene === "chat" &&
+    !useRealtimeTool &&
+    !useWebSearchTool &&
+    !useCalculatorTool &&
+    !options?.forceAgent
+  ) {
+    useTools = false;
+    useAdvancedModel = false;
+  } else if (!useRag && (preferredScene === "agent" || options?.forceAgent)) {
+    useTools = true;
+    useAdvancedModel = true;
+  }
+
+  return {
+    matchedSkill,
+    skillAttachmentPaths,
+    useSkillAttachments,
+    preferredScene,
+    useRealtimeTool,
+    useWebSearchTool,
+    useCalculatorTool,
+    useTools,
+    useAdvancedModel,
+  };
+}
+
+function buildRouteModelInfo(route: RouteDecision): {
+  model: string;
+  scene: string;
+  skill?: string;
+} {
+  if (route.useSkillAttachments) {
+    return {
+      model: describeRouteModel("rag"),
+      scene: "Skill \u8d44\u6599\u589e\u5f3a",
+      skill: route.matchedSkill?.skill.name,
+    };
+  }
+
+  if (route.useTools) {
+    return {
+      model: describeRouteModel("agent"),
+      scene: "Agent/\u5de5\u5177",
+      skill: route.matchedSkill?.skill.name,
+    };
+  }
+
+  if (route.useAdvancedModel) {
+    return {
+      model: describeRouteModel("agent"),
+      scene: "\u590d\u6742\u4efb\u52a1",
+      skill: route.matchedSkill?.skill.name,
+    };
+  }
+
+  return {
+    model: describeRouteModel("chat"),
+    scene: "\u666e\u901a\u5bf9\u8bdd",
+    skill: route.matchedSkill?.skill.name,
+  };
+}
+
 function getReadableError(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err || "未知错误");
@@ -702,55 +838,28 @@ ipcMain.handle(
       const hasSelectedKbs = Array.isArray(kbIds) && kbIds.length > 0;
       const useKbRag = hasSelectedKbs && shouldUseKnowledgeBase(message);
       const useRag = useFileRag || useKbRag;
-      const matchedSkill = matchSkillForInput(message, getSkills());
-      const skillAttachmentPaths =
-        matchedSkill?.skill.attachments
-          ?.map((item) => item.path?.trim())
-          .filter(Boolean) ?? [];
-      const useSkillAttachments = !useRag && skillAttachmentPaths.length > 0;
-      const preferredScene = matchedSkill?.skill.preferredScene ?? "auto";
-      const useRealtimeTool = !useRag && shouldUseRealtimeTool(message);
-      const useWebSearchTool = !useRag && shouldUseWebSearchTool(message);
+      const route = resolveRouteDecision(message, {
+        suppressToolsForRag: useRag,
+        useRag,
+        forceAgent: useAgent,
+      });
+      const {
+        matchedSkill,
+        skillAttachmentPaths,
+        useSkillAttachments,
+        useRealtimeTool,
+        useTools,
+        useAdvancedModel,
+      } = route;
 
-      let useTools =
-        !useRag &&
-        (useRealtimeTool || useWebSearchTool || shouldUseAgentTools(message));
-      let useAdvancedModel =
-        !useRag && (useTools || shouldUseAdvancedModel(message));
-
-      if (
-        !useRag &&
-        preferredScene === "chat" &&
-        !useRealtimeTool &&
-        !useWebSearchTool
-      ) {
-        useTools = false;
-        useAdvancedModel = false;
-      } else if (!useRag && preferredScene === "agent") {
-        useTools = true;
-        useAdvancedModel = true;
-      }
-
-      // 用于 RAG 无命中回退时的路由判断（重新评估，不受 useRag 抑制）
-      const fallbackRealtimeTool = shouldUseRealtimeTool(message);
-      const fallbackWebSearchTool = shouldUseWebSearchTool(message);
-      let fallbackUseTools =
-        fallbackRealtimeTool ||
-        fallbackWebSearchTool ||
-        shouldUseAgentTools(message);
-      let fallbackUseAdvanced =
-        fallbackUseTools || shouldUseAdvancedModel(message);
-      if (
-        preferredScene === "chat" &&
-        !fallbackRealtimeTool &&
-        !fallbackWebSearchTool
-      ) {
-        fallbackUseTools = false;
-        fallbackUseAdvanced = false;
-      } else if (preferredScene === "agent") {
-        fallbackUseTools = true;
-        fallbackUseAdvanced = true;
-      }
+      const fallbackRoute = resolveRouteDecision(message, {
+        suppressToolsForRag: false,
+        useRag: false,
+        forceAgent: useAgent,
+      });
+      const fallbackRealtimeTool = fallbackRoute.useRealtimeTool;
+      const fallbackUseTools = fallbackRoute.useTools;
+      const fallbackUseAdvanced = fallbackRoute.useAdvancedModel;
 
       const effectiveHistory = useRealtimeTool ? [] : history;
       const runFallbackChat = async (reason: string) => {
@@ -1660,20 +1769,6 @@ async function handleCentibotAgentRequest(
       return;
     }
 
-    const userText = stripOpenClawConversationMetadata(lastUser.content);
-    const useWechatTools =
-      shouldUseRealtimeTool(userText) ||
-      shouldUseWebSearchTool(userText) ||
-      shouldUseCalculatorTool(userText) ||
-      shouldUseAgentTools(userText);
-
-    appendWechatBotMessage({
-      role: "user",
-      text: userText,
-      status: "received",
-      source: "wechat",
-    });
-
     const history = allMessages
       .slice(0, allMessages.lastIndexOf(lastUser))
       .filter((message) => message.role === "user" || message.role === "assistant")
@@ -1681,12 +1776,62 @@ async function handleCentibotAgentRequest(
         role: message.role,
         content: message.content,
       })) as ChatMessage[];
+    const userText = stripOpenClawConversationMetadata(lastUser.content);
+    const route = resolveRouteDecision(userText);
+    const effectiveHistory = route.useRealtimeTool ? [] : history;
+    const assistantMessageId = randomUUID();
+    const responseStartedAt = Date.now();
+    const modelInfo = buildRouteModelInfo(route);
+
+    appendWechatBotMessage({
+      role: "user",
+      text: userText,
+      status: "received",
+      source: "wechat",
+    });
+    appendWechatBotMessage({
+      id: assistantMessageId,
+      role: "assistant",
+      text: "",
+      status: "sent",
+      source: "wechat",
+      isStreaming: true,
+      toolCalls: [],
+      toolResults: [],
+      modelInfo,
+    });
+
+    const finalizeWechatAssistant = (
+      text: string,
+      status: WechatBotMessage["status"] = "sent",
+    ) => {
+      updateWechatBotMessage(assistantMessageId, {
+        text: text || "(空回复)",
+        status,
+        isStreaming: false,
+        durationMs: Math.max(0, Date.now() - responseStartedAt),
+      });
+    };
+
+    const appendWechatToolCall = (toolName: string, input: unknown) => {
+      updateWechatBotMessage(assistantMessageId, (message) => ({
+        ...message,
+        toolCalls: [...(message.toolCalls ?? []), { toolName, input }],
+      }));
+    };
+
+    const appendWechatToolResult = (toolName: string, result: string) => {
+      updateWechatBotMessage(assistantMessageId, (message) => ({
+        ...message,
+        toolResults: [...(message.toolResults ?? []), { toolName, result }],
+      }));
+    };
 
     if (payload.stream) {
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "content-type, authorization",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -1727,12 +1872,13 @@ async function handleCentibotAgentRequest(
       });
 
       try {
-        if (useWechatTools) {
+        if (route.useTools) {
           await chatWithAgent(
-            history,
+            effectiveHistory,
             userText,
             (token) => {
               replyText += token;
+              updateWechatBotMessage(assistantMessageId, { text: replyText });
               sendSseChunk(res, {
                 id,
                 object: "chat.completion.chunk",
@@ -1747,41 +1893,43 @@ async function handleCentibotAgentRequest(
                 ],
               });
             },
-            () => {},
-            () => {},
+            appendWechatToolCall,
+            appendWechatToolResult,
+            undefined,
+            route.matchedSkill?.skill,
           );
         } else {
-          await chatStream(history, userText, (token) => {
-            replyText += token;
-            sendSseChunk(res, {
-              id,
-              object: "chat.completion.chunk",
-              created,
-              model,
-              choices: [
-                {
-                  index: 0,
-                  delta: { content: token },
-                  finish_reason: null,
-                },
-              ],
-            });
-          });
+          await chatStream(
+            effectiveHistory,
+            userText,
+            (token) => {
+              replyText += token;
+              updateWechatBotMessage(assistantMessageId, { text: replyText });
+              sendSseChunk(res, {
+                id,
+                object: "chat.completion.chunk",
+                created,
+                model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: { content: token },
+                    finish_reason: null,
+                  },
+                ],
+              });
+            },
+            undefined,
+            route.useAdvancedModel ? getAgentModel() : getChatModel(),
+            route.useAdvancedModel ? getAgentProvider() : getChatProvider(),
+            route.matchedSkill?.skill,
+          );
         }
-        appendWechatBotMessage({
-          role: "assistant",
-          text: replyText || "(空回复)",
-          status: "sent",
-          source: "wechat",
-        });
+
+        finalizeWechatAssistant(replyText);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Centibot Agent failed";
-        appendWechatBotMessage({
-          role: "assistant",
-          text: message,
-          status: "error",
-          source: "wechat",
-        });
+        finalizeWechatAssistant(message, "error");
         sendSseChunk(res, {
           id,
           object: "chat.completion.chunk",
@@ -1804,25 +1952,39 @@ async function handleCentibotAgentRequest(
     }
 
     let content = "";
-    if (useWechatTools) {
-      await chatWithAgent(
-        history,
-        userText,
-        (token) => {
-          content += token;
-        },
-        () => {},
-        () => {},
-      );
-    } else {
-      content = await chatStream(history, userText, () => {});
+    try {
+      if (route.useTools) {
+        await chatWithAgent(
+          effectiveHistory,
+          userText,
+          (token) => {
+            content += token;
+            updateWechatBotMessage(assistantMessageId, { text: content });
+          },
+          appendWechatToolCall,
+          appendWechatToolResult,
+          undefined,
+          route.matchedSkill?.skill,
+        );
+      } else {
+        content = await chatStream(
+          effectiveHistory,
+          userText,
+          () => {},
+          undefined,
+          route.useAdvancedModel ? getAgentModel() : getChatModel(),
+          route.useAdvancedModel ? getAgentProvider() : getChatProvider(),
+          route.matchedSkill?.skill,
+        );
+        updateWechatBotMessage(assistantMessageId, { text: content });
+      }
+
+      finalizeWechatAssistant(content);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Centibot Agent failed";
+      finalizeWechatAssistant(message, "error");
+      throw error;
     }
-    appendWechatBotMessage({
-      role: "assistant",
-      text: content || "(空回复)",
-      status: "sent",
-      source: "wechat",
-    });
 
     sendJson(res, 200, {
       id: `chatcmpl-${randomUUID()}`,

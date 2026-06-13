@@ -11,6 +11,7 @@ interface Props {
   message: Message
   isLoading: boolean
   isLast: boolean
+  readOnly?: boolean
   onCopy: (message: Message) => void
   onEdit: (messageId: string, content: string) => void
   onDelete: (messageId: string) => void
@@ -742,6 +743,7 @@ const MessageBubble: React.FC<Props> = ({
   message,
   isLoading,
   isLast,
+  readOnly = false,
   onCopy,
   onEdit,
   onDelete,
@@ -776,7 +778,7 @@ const MessageBubble: React.FC<Props> = ({
   }
 
   // 编辑模式：全宽 InputBar 风格
-  if (isUser && isEditing) {
+  if (!readOnly && isUser && isEditing) {
     return (
       <div className={styles.editBarWrapper}>
         <button
@@ -939,7 +941,7 @@ const MessageBubble: React.FC<Props> = ({
           </div>
         )}
 
-        {!isEditing && (
+        {!isEditing && !readOnly && (
           <div className={styles.actions}>
             <button className={styles.actionBtn} onClick={() => onCopy(message)} title="复制消息" aria-label="复制消息">
               <CopyIcon />

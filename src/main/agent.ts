@@ -4,6 +4,8 @@ import {
   AIMessage,
   SystemMessage,
 } from "@langchain/core/messages";
+import * as os from "node:os";
+import * as path from "node:path";
 import { listRagFiles, retrieveRelevantChunks } from "./rag";
 import { allTools } from "./tools";
 import { summarizeToolPolicies } from "./tools/policy";
@@ -285,17 +287,235 @@ type PreCalledResult = {
   result: string;
 };
 
+function extractRecentFileReference(
+  history: ChatMessage[],
+  userMessage: string,
+): string | null {
+  const explicitPathMatch =
+    userMessage.match(/[a-zA-Z]:\\[^\r\n"<>|?*]+/g)?.at(-1) ?? null;
+  if (explicitPathMatch) {
+    return explicitPathMatch.trim();
+  }
+
+  const fileNameMatch =
+    userMessage.match(/([^\s"“”',，。；;:]+?\.[a-zA-Z0-9_-]+)/)?.[1] ?? null;
+
+  const reversed = [...history].reverse();
+  for (const item of reversed) {
+    const content = item.content || "";
+
+    const pathMatches = content.match(/[a-zA-Z]:\\[^\r\n"<>|?*]+/g) ?? [];
+    if (fileNameMatch) {
+      const namedPath = [...pathMatches]
+        .reverse()
+        .find((candidate) =>
+          candidate.toLowerCase().endsWith(`\\${fileNameMatch.toLowerCase()}`),
+        );
+      if (namedPath) return namedPath.trim();
+    }
+
+    if (
+      /这个文件|该文件|刚才那个文件|刚刚那个文件|上一个文件/.test(userMessage) &&
+      pathMatches.length > 0
+    ) {
+      return pathMatches[pathMatches.length - 1].trim();
+    }
+  }
+
+  return null;
+}
+
+function detectLocalSystemToolCall(
+  userMessage: string,
+  history: ChatMessage[] = [],
+): { toolName: string; args: Record<string, unknown> } | null {
+  const text = userMessage.toLowerCase();
+
+  const asksOsInfo =
+    /(操作系统|系统版本|电脑系统|windows|win10|win11|macos|linux)/i.test(
+      userMessage,
+    ) &&
+    /(是什么|哪个|哪种|版本|系统|what|which|version|os)/i.test(userMessage);
+
+  if (asksOsInfo || /(operating system|os version)/i.test(userMessage)) {
+    return {
+      toolName: "get_os_info",
+      args: {},
+    };
+  }
+
+  const asksRunningApps =
+    /(运行|开着|打开了|正在运行|进程|程序|软件|应用)/.test(userMessage) &&
+    /(哪些|什么|查看|列出|帮我查|帮我看|当前|现在|电脑)/.test(userMessage);
+
+  if (
+    asksRunningApps ||
+    text.includes("running apps") ||
+    text.includes("running programs") ||
+    text.includes("process list")
+  ) {
+    return {
+      toolName: "list_running_apps",
+      args: { limit: 20 },
+    };
+  }
+
+  const folderMap: Array<{
+    match: RegExp;
+    folder: "desktop" | "documents" | "downloads" | "pictures" | "music" | "videos";
+  }> = [
+    { match: /(桌面|desktop)/i, folder: "desktop" },
+    { match: /(文档|我的文档|documents?)/i, folder: "documents" },
+    { match: /(下载|downloads?)/i, folder: "downloads" },
+    { match: /(图片|照片|pictures?|photos?)/i, folder: "pictures" },
+    { match: /(音乐|music)/i, folder: "music" },
+    { match: /(视频|movies?|videos?)/i, folder: "videos" },
+  ];
+
+  const resolveSpecialFolderPath = (
+    folder: "desktop" | "documents" | "downloads" | "pictures" | "music" | "videos",
+  ): string => {
+    const home = os.homedir();
+    switch (folder) {
+      case "desktop":
+        return path.join(home, "Desktop");
+      case "documents":
+        return path.join(home, "Documents");
+      case "downloads":
+        return path.join(home, "Downloads");
+      case "pictures":
+        return path.join(home, "Pictures");
+      case "music":
+        return path.join(home, "Music");
+      case "videos":
+        return path.join(home, "Videos");
+    }
+  };
+
+  const createIntent =
+    /(创建|新建|生成|写入|保存)/.test(userMessage) &&
+    /(文件|文档|txt|md|json|csv|js|ts|html|css)/i.test(userMessage);
+
+  if (createIntent) {
+    for (const item of folderMap) {
+      if (!item.match.test(userMessage)) continue;
+
+      const fileNameMatch =
+        userMessage.match(
+          /(?:创建|新建|生成|写入|保存)(?:一个|一份|个)?\s*["“]?([^"”',，。；;:\s]+\.[a-zA-Z0-9_-]+)["”]?/i,
+        ) ||
+        userMessage.match(
+          /["“]([^"”]+?\.[a-zA-Z0-9_-]+)["”]/i,
+        );
+
+      if (!fileNameMatch?.[1]) continue;
+
+      const fileName = fileNameMatch[1].trim();
+      const contentMatch =
+        userMessage.match(
+          /(?:内容(?:是|为)?|写入|里面写|内容写成|内容[:：]|content\s*(?:is|=|:))\s*([\s\S]+)/i,
+        ) || userMessage.match(/[,，]\s*([\s\S]+)$/);
+      const rawContent = contentMatch?.[1]?.trim() ?? "";
+      const content = rawContent.replace(/^["“]|["”]$/g, "");
+
+      return {
+        toolName: "write_file",
+        args: {
+          filePath: path.join(resolveSpecialFolderPath(item.folder), fileName),
+          content,
+        },
+      };
+    }
+  }
+
+  const deleteIntent =
+    /(删除|删掉|移除|去掉|清理|扔掉)/.test(userMessage) &&
+    /(文件|文档|txt|md|json|csv|js|ts|html|css|这个|那个)/i.test(userMessage);
+
+  if (deleteIntent) {
+    const filePath = extractRecentFileReference(history, userMessage);
+    if (filePath) {
+      return {
+        toolName: "delete_file",
+        args: { filePath },
+      };
+    }
+  }
+
+  const readIntent =
+    /(读取|打开|查看|看看|显示|告诉我|读一下)/.test(userMessage) &&
+    /(文件|文档|txt|md|json|csv|js|ts|html|css|这个|那个)/i.test(userMessage);
+
+  if (readIntent) {
+    const filePath = extractRecentFileReference(history, userMessage);
+    if (filePath) {
+      return {
+        toolName: "read_file",
+        args: { filePath },
+      };
+    }
+  }
+
+  const asksFolderContents =
+    /(文件|文件夹|内容|东西|有哪些|有什么|列出|看看|查看|帮我查|帮我看)/.test(
+      userMessage,
+    ) || text.includes("list");
+
+  for (const item of folderMap) {
+    if (item.match.test(userMessage) && asksFolderContents) {
+      return {
+        toolName: "list_special_folder",
+        args: {
+          folder: item.folder,
+          limit: 50,
+          includeHidden: false,
+        },
+      };
+    }
+  }
+
+  return null;
+}
+
 /**
  * 关键词预路由：在发给模型之前，根据消息内容强制调用高置信度工具。
  * 用于解决小模型（3b 级别）不可靠的 tool calling 问题。
  */
 async function preCallTools(
+  history: ChatMessage[],
   userMessage: string,
   onToolCall: (toolName: string, input: unknown) => void,
   onToolResult: (toolName: string, result: string) => void,
   signal?: AbortSignal,
 ): Promise<PreCalledResult[]> {
   const results: PreCalledResult[] = [];
+
+  const localSystemTool = detectLocalSystemToolCall(userMessage, history);
+  if (localSystemTool) {
+    onToolCall(localSystemTool.toolName, localSystemTool.args);
+    try {
+      const { result } = await executeTool(
+        localSystemTool.toolName,
+        localSystemTool.args,
+        { signal },
+      );
+      onToolResult(localSystemTool.toolName, result);
+      results.push({
+        toolName: localSystemTool.toolName,
+        args: localSystemTool.args,
+        result,
+      });
+    } catch (e: any) {
+      const result = `${localSystemTool.toolName} failed: ${e?.message || e}`;
+      onToolResult(localSystemTool.toolName, result);
+      results.push({
+        toolName: localSystemTool.toolName,
+        args: localSystemTool.args,
+        result,
+      });
+    }
+    return results;
+  }
 
   // URL 检测 → fetch_url
   const urlMatch = userMessage.match(/https?:\/\/[^\s）\)。，！？]+/);
@@ -419,6 +639,32 @@ export async function chatWithAgent(
   skill?: SkillConfig | null,
 ): Promise<string> {
   const route = modelConfig.agent;
+  const preResults = await preCallTools(
+    history,
+    userMessage,
+    onToolCall,
+    onToolResult,
+    signal,
+  );
+
+  if (preResults.length > 0) {
+    const shouldReturnDirectly = preResults.every((result) =>
+      [
+        "get_os_info",
+        "list_running_apps",
+        "list_special_folder",
+        "write_file",
+        "delete_file",
+        "read_file",
+      ].includes(result.toolName),
+    );
+
+    if (shouldReturnDirectly) {
+      const directText = preResults.map((result) => result.result).join("\n\n");
+      onToken(directText);
+      return directText;
+    }
+  }
 
   if (route.provider === "openai-compatible") {
     const messages: CompatibleMessage[] = [
@@ -524,12 +770,6 @@ export async function chatWithAgent(
   }
 
   // 关键词预路由：强制调用高置信度工具，不依赖小模型自己决定是否调用
-  const preResults = await preCallTools(
-    userMessage,
-    onToolCall,
-    onToolResult,
-    signal,
-  );
   if (preResults.length > 0) {
     const toolContext = preResults
       .map((r) => `[工具: ${r.toolName}]\n${r.result}`)

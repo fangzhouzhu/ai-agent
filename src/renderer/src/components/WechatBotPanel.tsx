@@ -1,14 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { WechatBotMessage, WechatBotStatus } from '../../../preload/index'
+import type { Message } from '../types/conversation'
+import MessageBubble from './MessageBubble'
 import styles from './WechatBotPanel.module.css'
-
-type BotChatMessage = {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  createdAt: number
-  isError?: boolean
-}
 
 const statusLabel: Record<WechatBotStatus['status'], string> = {
   idle: '未绑定',
@@ -22,19 +16,25 @@ interface Props {
   onOpenSettings: () => void
 }
 
-function mapWechatMessage(message: WechatBotMessage): BotChatMessage {
+function toChatMessage(message: WechatBotMessage): Message | null {
+  if (message.role === 'system') return null
+
   return {
     id: message.id,
     role: message.role,
     content: message.text,
-    createdAt: message.createdAt,
+    toolCalls: message.toolCalls,
+    toolResults: message.toolResults,
+    modelInfo: message.modelInfo,
+    durationMs: message.durationMs,
+    isStreaming: message.isStreaming,
     isError: message.status === 'error',
   }
 }
 
 const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
   const [status, setStatus] = useState<WechatBotStatus | null>(null)
-  const [messages, setMessages] = useState<BotChatMessage[]>([])
+  const [messages, setMessages] = useState<WechatBotMessage[]>([])
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -48,13 +48,13 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
 
       if (disposed) return
       setStatus(nextStatus)
-      setMessages(nextMessages.map(mapWechatMessage))
+      setMessages(nextMessages)
     }
 
     void load()
     const remove = window.electronAPI.onWechatBotUpdate((data) => {
       setStatus(data.status)
-      setMessages(data.messages.map(mapWechatMessage))
+      setMessages(data.messages)
     })
 
     return () => {
@@ -68,13 +68,33 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
   }, [messages])
 
   const isBound = status?.status === 'bound'
+  const renderedMessages = useMemo(
+    () =>
+      messages.map((message) => ({
+        raw: message,
+        chat: toChatMessage(message),
+      })),
+    [messages]
+  )
+  const lastUserIdx = useMemo(
+    () => renderedMessages.reduce((acc, item, itemIndex) => (item.chat?.role === 'user' ? itemIndex : acc), -1),
+    [renderedMessages]
+  )
+  const lastAiIdx = useMemo(
+    () =>
+      renderedMessages.reduce(
+        (acc, item, itemIndex) => (item.chat?.role === 'assistant' ? itemIndex : acc),
+        -1
+      ),
+    [renderedMessages]
+  )
 
   return (
     <div className={styles.container}>
       <header className={styles.topbar}>
         <div>
-          <h2>微信ClawBot</h2>
-          <p>这里只显示微信 ClawBot 发来的消息和 Centibot 返回给微信的内容。</p>
+          <h2>微信 ClawBot</h2>
+          <p>这里会同步展示微信 ClawBot 的消息，以及 Centibot 按同一套聊天界面呈现的处理结果。</p>
         </div>
         <div className={styles.headerActions}>
           <span className={`${styles.badge} ${isBound ? styles.badgeOn : ''}`}>
@@ -87,7 +107,7 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
       </header>
 
       <main className={styles.chatArea}>
-        {messages.length === 0 ? (
+        {renderedMessages.length === 0 ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyTitle}>等待微信消息</div>
             <div className={styles.emptyText}>
@@ -95,38 +115,49 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
             </div>
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`${styles.messageRow} ${message.role === 'user' ? styles.messageRowUser : ''}`}
-            >
-              <div
-                className={`${styles.messageBubble} ${
-                  message.role === 'user' ? styles.messageBubbleUser : ''
-                } ${message.isError ? styles.messageBubbleError : ''} ${
-                  message.role === 'system' ? styles.messageBubbleSystem : ''
-                }`}
-              >
-                <div className={styles.messageMeta}>
-                  <span>
-                    {message.role === 'user'
-                      ? '微信用户'
-                      : message.role === 'assistant'
-                        ? '大模型回复'
-                        : '系统'}
-                  </span>
-                  <span>{new Date(message.createdAt).toLocaleTimeString('zh-CN')}</span>
-                </div>
-                <div className={styles.messageText}>{message.content}</div>
-              </div>
-            </div>
-          ))
+          <div className={styles.messages}>
+            {renderedMessages.map(({ raw, chat }, index) => {
+              if (!chat) {
+                return (
+                  <div key={raw.id} className={styles.systemRow}>
+                    <div
+                      className={`${styles.systemBubble} ${
+                        raw.status === 'error' ? styles.systemBubbleError : ''
+                      }`}
+                    >
+                      {raw.text}
+                    </div>
+                  </div>
+                )
+              }
+
+              return (
+                <MessageBubble
+                  key={chat.id}
+                  message={chat}
+                  isLoading={Boolean(chat.isStreaming)}
+                  isLast={chat.role === 'user' ? index === lastUserIdx : index === lastAiIdx}
+                  readOnly
+                  onCopy={async (message) => {
+                    try {
+                      await navigator.clipboard.writeText(message.content)
+                    } catch (error) {
+                      console.error('复制微信消息失败', error)
+                    }
+                  }}
+                  onEdit={() => {}}
+                  onDelete={() => {}}
+                  onRegenerate={() => {}}
+                />
+              )
+            })}
+          </div>
         )}
         <div ref={bottomRef} />
       </main>
 
       <footer className={styles.readonlyFooter}>
-        微信消息到达后会自动显示在这里，并由 Centibot 处理后回发给微信 ClawBot。
+        微信消息到达后会自动显示在这里，并且复用和普通对话一致的模型、工具与展示逻辑。
       </footer>
     </div>
   )

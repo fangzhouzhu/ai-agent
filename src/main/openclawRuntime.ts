@@ -349,6 +349,36 @@ export function writeOpenClawConfig(): void {
   writeJsonFile(openClawConfigPath(), buildOpenClawConfig());
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isOpenClawGatewayHealthy(): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${OPENCLAW_GATEWAY_PORT}/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!response.ok) return false;
+
+    const payload = (await response.json().catch(() => null)) as
+      | { ok?: unknown; status?: unknown }
+      | null;
+    return payload?.ok === true || payload?.status === "live";
+  } catch {
+    return false;
+  }
+}
+
+async function waitForOpenClawGatewayHealthy(timeoutMs = 25_000): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await isOpenClawGatewayHealthy()) return;
+    await delay(500);
+  }
+
+  throw new Error("OpenClaw gateway did not become healthy in time");
+}
+
 function buildGatewayEnv(): NodeJS.ProcessEnv {
   const runtimeDir = getOpenClawRuntimeDir();
   const pathParts = [
@@ -372,6 +402,13 @@ export async function startOpenClawGateway(): Promise<void> {
   gatewayStartPromise = (async () => {
     await ensureOpenClawRuntimeInstalled();
     writeOpenClawConfig();
+
+    if (await isOpenClawGatewayHealthy()) {
+      gatewayState.running = true;
+      gatewayState.lastError = undefined;
+      appendGatewayLog("OpenClaw gateway already healthy; reusing existing process.");
+      return;
+    }
 
     gatewayProcess = spawn(
       windowsCommandShell(),
@@ -416,6 +453,7 @@ export async function startOpenClawGateway(): Promise<void> {
       }
     });
 
+    await waitForOpenClawGatewayHealthy();
     gatewayState.running = true;
     gatewayState.lastError = undefined;
   })().finally(() => {
