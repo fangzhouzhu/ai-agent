@@ -66,6 +66,71 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "append_file",
+      description: "向本地文件追加内容。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "要追加写入的文件路径" },
+          content: { type: "string", description: "要追加的内容" },
+        },
+        required: ["filePath", "content"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_directory",
+      description: "创建本地目录。",
+      parameters: {
+        type: "object",
+        properties: {
+          dirPath: { type: "string", description: "要创建的目录路径" },
+        },
+        required: ["dirPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "copy_file",
+      description: "复制本地文件。",
+      parameters: {
+        type: "object",
+        properties: {
+          sourcePath: { type: "string", description: "源文件路径" },
+          destinationPath: { type: "string", description: "目标文件路径" },
+          overwrite: { type: "boolean", description: "目标已存在时是否覆盖" },
+        },
+        required: ["sourcePath", "destinationPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "copy_directory",
+      description: "递归复制本地目录。",
+      parameters: {
+        type: "object",
+        properties: {
+          sourcePath: { type: "string", description: "源目录路径" },
+          destinationPath: { type: "string", description: "目标目录路径" },
+          overwrite: { type: "boolean", description: "目标已存在时是否覆盖" },
+        },
+        required: ["sourcePath", "destinationPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_directory",
       description: "列出指定目录下的文件和子目录。",
       parameters: {
@@ -74,6 +139,188 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
           dirPath: { type: "string", description: "目录路径" },
         },
         required: ["dirPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_json",
+      description: "读取并解析本地 JSON 文件。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "要读取的 JSON 文件路径" },
+        },
+        required: ["filePath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_csv",
+      description: "读取本地 CSV 文件预览。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "要读取的 CSV 文件路径" },
+          maxRows: { type: "number", description: "最多预览多少行" },
+        },
+        required: ["filePath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "file_exists",
+      description: "检查本地文件或目录是否存在。",
+      parameters: {
+        type: "object",
+        properties: {
+          targetPath: { type: "string", description: "要检查的本地路径" },
+        },
+        required: ["targetPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "path_stat",
+      description: "读取本地文件或目录的元数据。",
+      parameters: {
+        type: "object",
+        properties: {
+          targetPath: { type: "string", description: "要查看的本地路径" },
+        },
+        required: ["targetPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_json",
+      description: "将结构化数据写入本地 JSON 文件。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "要写入的 JSON 文件路径" },
+          data: { description: "要序列化为 JSON 的结构化数据" },
+          pretty: { type: "boolean", description: "是否格式化输出 JSON" },
+        },
+        required: ["filePath", "data"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "insert_into_file",
+      description: "在本地文本文件指定行前后插入内容。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "要编辑的文件路径" },
+          text: { type: "string", description: "要插入的文本" },
+          lineNumber: { type: "number", description: "行号，从 1 开始" },
+          position: {
+            type: "string",
+            enum: ["before", "after"],
+            description: "插入到该行之前或之后",
+          },
+        },
+        required: ["filePath", "text", "lineNumber", "position"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "make_zip",
+      description: "将本地文件或目录压缩为 zip 文件。",
+      parameters: {
+        type: "object",
+        properties: {
+          sourcePath: { type: "string", description: "要压缩的文件或目录路径" },
+          zipPath: { type: "string", description: "zip 文件输出路径" },
+          overwrite: { type: "boolean", description: "目标 zip 已存在时是否覆盖" },
+        },
+        required: ["sourcePath", "zipPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_url",
+      description: "在系统默认浏览器中打开 URL。",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "要打开的 http 或 https 链接" },
+        },
+        required: ["url"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "extract_zip",
+      description: "将 zip 文件解压到本地目录。",
+      parameters: {
+        type: "object",
+        properties: {
+          zipPath: { type: "string", description: "要解压的 zip 文件路径" },
+          destinationPath: { type: "string", description: "解压输出目录路径" },
+          overwrite: { type: "boolean", description: "目标目录已存在时是否覆盖" },
+        },
+        required: ["zipPath", "destinationPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_file",
+      description: "移动或重命名本地文件。",
+      parameters: {
+        type: "object",
+        properties: {
+          sourcePath: { type: "string", description: "源文件路径" },
+          destinationPath: { type: "string", description: "目标文件路径" },
+        },
+        required: ["sourcePath", "destinationPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_directory",
+      description: "移动或重命名本地目录。",
+      parameters: {
+        type: "object",
+        properties: {
+          sourcePath: { type: "string", description: "源目录路径" },
+          destinationPath: { type: "string", description: "目标目录路径" },
+          overwrite: { type: "boolean", description: "目标已存在时是否覆盖" },
+        },
+        required: ["sourcePath", "destinationPath"],
         additionalProperties: false,
       },
     },
@@ -96,6 +343,42 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "replace_in_file",
+      description: "替换本地文本文件中的指定内容。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "要编辑的文件路径" },
+          searchText: { type: "string", description: "要查找的文本" },
+          replaceText: { type: "string", description: "替换成的文本" },
+          replaceAll: { type: "boolean", description: "是否替换全部匹配项" },
+        },
+        required: ["filePath", "searchText", "replaceText"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "replace_regex_in_file",
+      description: "用正则表达式替换本地文本文件内容。",
+      parameters: {
+        type: "object",
+        properties: {
+          filePath: { type: "string", description: "要编辑的文件路径" },
+          pattern: { type: "string", description: "正则表达式" },
+          replaceText: { type: "string", description: "替换文本" },
+          flags: { type: "string", description: "正则标志，如 g、i、m" },
+        },
+        required: ["filePath", "pattern", "replaceText"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "search_files",
       description: "在指定目录中按文件名关键词搜索文件。",
       parameters: {
@@ -105,6 +388,52 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
           keyword: { type: "string", description: "文件名关键词" },
         },
         required: ["dirPath", "keyword"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_file_content",
+      description: "在指定目录中按文本内容搜索文件，并返回匹配行。",
+      parameters: {
+        type: "object",
+        properties: {
+          dirPath: { type: "string", description: "要搜索的目录路径" },
+          keyword: { type: "string", description: "文件内容关键字" },
+        },
+        required: ["dirPath", "keyword"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_path",
+      description: "打开本地文件或目录。",
+      parameters: {
+        type: "object",
+        properties: {
+          targetPath: { type: "string", description: "要打开的本地文件或目录路径" },
+        },
+        required: ["targetPath"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reveal_in_folder",
+      description: "在系统资源管理器中定位本地文件或目录。",
+      parameters: {
+        type: "object",
+        properties: {
+          targetPath: { type: "string", description: "要定位的本地文件或目录路径" },
+        },
+        required: ["targetPath"],
         additionalProperties: false,
       },
     },
