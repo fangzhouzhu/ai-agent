@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import styles from './TaskPanel.module.css'
 import type { Task, TaskStep } from '../../../preload/index'
+import { useAppDialog } from './AppDialogProvider'
 
 const STEP_ICONS: Record<TaskStep['type'], string> = {
   plan: '📋',
@@ -33,6 +34,7 @@ interface Props {
 }
 
 const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) => {
+  const { confirm } = useAppDialog()
   const [tasks, setTasks] = useState<Task[]>([])
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null)
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
@@ -252,8 +254,8 @@ const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) 
                 {/* 删除 */}
                 <button
                   className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-                  onClick={() => {
-                    if (window.confirm('确定删除此任务记录？')) {
+                  onClick={async () => {
+                    if (await confirm({ message: '确定删除此任务记录？', tone: 'danger' })) {
                       void handleDelete(selectedTask.id)
                     }
                   }}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import styles from './SkillsPanel.module.css'
 import type { SkillAttachment, SkillConfig } from '../../../preload/index'
+import { useAppDialog } from './AppDialogProvider'
 
 type SkillDraft = {
   id?: string
@@ -52,6 +53,7 @@ function normalizeSkill(draft: SkillDraft): SkillConfig {
 }
 
 const SkillsPanel: React.FC = () => {
+  const { confirm } = useAppDialog()
   const [skills, setSkills] = useState<SkillConfig[]>([])
   const [draft, setDraft] = useState<SkillDraft | null>(null)
   const [keywordInput, setKeywordInput] = useState('')
@@ -126,11 +128,11 @@ const SkillsPanel: React.FC = () => {
     async (skillId: string) => {
       const target = skills.find((skill) => skill.id === skillId)
       if (!target) return
-      if (!window.confirm(`确定删除技能“${target.name}”吗？`)) return
+      if (!await confirm({ message: `确定删除技能“${target.name}”吗？`, tone: 'danger' })) return
       await persist(skills.filter((skill) => skill.id !== skillId))
       setMenuOpenId(null)
     },
-    [persist, skills],
+    [confirm, persist, skills],
   )
 
   const handleToggle = useCallback(

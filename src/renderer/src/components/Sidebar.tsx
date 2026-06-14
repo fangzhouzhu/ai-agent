@@ -1,10 +1,12 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { Conversation } from '../types/conversation'
 import styles from './Sidebar.module.css'
+import { useAppDialog } from './AppDialogProvider'
 
 type AgentSummary = {
   id: string
   name: string
+  avatar?: string
 }
 
 interface Props {
@@ -14,6 +16,7 @@ interface Props {
   onSelect: (id: string) => void
   onNew: () => void
   onDelete: (id: string) => void
+  onRename: (id: string, title: string) => void | Promise<void>
   onOpenSettings: () => void
   currentView: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat'
   onViewChange: (view: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat') => void
@@ -25,12 +28,49 @@ interface Props {
   onSelectTask: (id: string | null) => void
 }
 
+function getAgentTextLogo(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return 'AI'
+
+  const alphaNumeric = trimmed.match(/[A-Za-z0-9]+/g)
+  if (alphaNumeric && alphaNumeric.length > 0) {
+    return alphaNumeric
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase()
+  }
+
+  return trimmed.slice(0, 2).toUpperCase()
+}
+
+const MessageBubbleIcon: React.FC = () => (
+  <svg
+    className={styles.defaultBubbleIcon}
+    viewBox="0 0 20 20"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M5.2 4.75H14.8C16.01 4.75 17 5.74 17 6.95V10.6C17 11.81 16.01 12.8 14.8 12.8H9.45L7 14.8V12.8H5.2C3.99 12.8 3 11.81 3 10.6V6.95C3 5.74 3.99 4.75 5.2 4.75Z"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinejoin="round"
+    />
+    <circle cx="7.35" cy="8.8" r="0.75" fill="currentColor" />
+    <circle cx="10" cy="8.8" r="0.75" fill="currentColor" />
+    <circle cx="12.65" cy="8.8" r="0.75" fill="currentColor" />
+  </svg>
+)
+
 const Sidebar: React.FC<Props> = ({
   conversations,
+  agents,
   activeId,
   onSelect,
   onNew,
   onDelete,
+  onRename,
   onOpenSettings,
   currentView,
   onViewChange,
@@ -39,12 +79,30 @@ const Sidebar: React.FC<Props> = ({
   onSelectKb,
   onSelectTask,
 }) => {
+  const { confirm, prompt } = useAppDialog()
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
   const handleNewChat = useCallback(() => {
     onNew()
     onViewChange('chat')
   }, [onNew, onViewChange])
 
   const sortedConversations = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)
+  const agentMap = new Map(agents.map((agent) => [agent.id, agent]))
+
+  useEffect(() => {
+    if (!menuOpenId) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpenId(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [menuOpenId])
 
   return (
     <aside className={styles.sidebar}>
@@ -112,30 +170,87 @@ const Sidebar: React.FC<Props> = ({
             <div className={styles.emptyText}>暂无对话记录</div>
           ) : (
             <div className={styles.list}>
-              {sortedConversations.map((conv) => (
-                <button
-                  key={conv.id}
-                  className={`${styles.listItem} ${
-                    currentView === 'chat' && conv.id === activeId ? styles.active : ''
-                  }`}
-                  onClick={() => onSelect(conv.id)}
-                  title={conv.title}
-                >
-                  <span className={styles.itemIcon}>◉</span>
-                  <span className={styles.itemTitle}>{conv.title}</span>
-                  <span
-                    className={styles.deleteBtn}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDelete(conv.id)
-                    }}
-                    title="删除"
-                    aria-label="删除"
+              {sortedConversations.map((conv) => {
+                const agent = conv.agentProfileId ? agentMap.get(conv.agentProfileId) : null
+                const agentLogo = agent ? (agent.avatar?.trim() || getAgentTextLogo(agent.name)) : null
+
+                return (
+                  <button
+                    key={conv.id}
+                    className={`${styles.listItem} ${
+                      currentView === 'chat' && conv.id === activeId ? styles.active : ''
+                    }`}
+                    onClick={() => onSelect(conv.id)}
+                    title={agent ? `${agent.name} · ${conv.title}` : conv.title}
                   >
-                    ×
-                  </span>
-                </button>
-              ))}
+                    <span
+                      className={`${styles.itemBadge} ${
+                        agent ? styles.itemBadgeAgent : styles.itemBadgeDefault
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {agent ? (
+                        <span className={styles.itemBadgeText}>{agentLogo}</span>
+                      ) : (
+                        <MessageBubbleIcon />
+                      )}
+                    </span>
+                    <span className={styles.itemTitle}>{conv.title}</span>
+                    <div className={styles.itemMenuWrap} ref={menuOpenId === conv.id ? menuRef : null}>
+                      <button
+                        type="button"
+                        className={`${styles.itemMenuBtn} ${menuOpenId === conv.id ? styles.itemMenuBtnVisible : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setMenuOpenId((prev) => prev === conv.id ? null : conv.id)
+                        }}
+                        title="更多操作"
+                        aria-label="更多操作"
+                      >
+                        ...
+                      </button>
+                      {menuOpenId === conv.id && (
+                        <div className={styles.itemMenuDropdown} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className={styles.itemMenuAction}
+                            onClick={async () => {
+                              const nextTitle = await prompt({
+                                title: '编辑对话名称',
+                                initialValue: conv.title,
+                                placeholder: '请输入新的会话名称',
+                              })
+                              if (nextTitle && nextTitle.trim()) {
+                                await onRename(conv.id, nextTitle)
+                              }
+                              setMenuOpenId(null)
+                            }}
+                          >
+                            重命名
+                          </button>
+                          <button
+                            type="button"
+                            className={`${styles.itemMenuAction} ${styles.itemMenuActionDanger}`}
+                            onClick={async () => {
+                              if (await confirm({
+                                title: '确认删除对话？',
+                                message: `删除后，“${conv.title}”聊天记录将不可恢复。`,
+                                confirmText: '删除',
+                                tone: 'danger',
+                              })) {
+                                onDelete(conv.id)
+                              }
+                              setMenuOpenId(null)
+                            }}
+                          >
+                            删除
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           )}
         </section>

@@ -78,6 +78,8 @@ import {
   getConversationMeta,
   getWechatBotSettings,
   saveWechatBotSettings,
+  loadWechatBotMessages,
+  saveWechatBotMessages,
   getKbUiState,
   saveKbUiState,
   type ConvMeta,
@@ -85,12 +87,14 @@ import {
   type ModelSettings,
   type OnlineProviderSettings,
   type WechatBotSettings,
+  type WechatBotPanelMessage,
   type SkillConfig,
   type AgentProfile,
 } from "./storage";
 import {
   clearOfficialWeixinState,
   ensureOpenClawRuntimeInstalled,
+  getOpenClawGatewayState,
   listLocalBotTokens,
   loadOfficialWeixinAccounts,
   restartOpenClawGateway,
@@ -117,19 +121,7 @@ type WechatBotStatus = {
   updatedAt: number;
 };
 
-type WechatBotMessage = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  text: string;
-  status: "received" | "sent" | "error";
-  source?: "wechat" | "panel" | "system";
-  toolCalls?: { toolName: string; input: unknown }[];
-  toolResults?: { toolName: string; result: string }[];
-  modelInfo?: { model: string; scene: string; skill?: string };
-  durationMs?: number;
-  isStreaming?: boolean;
-  createdAt: number;
-};
+type WechatBotMessage = WechatBotPanelMessage;
 
 type ClawBotQrResponse = {
   ret?: number;
@@ -169,7 +161,7 @@ let wechatBotStatus: WechatBotStatus = {
   message: "尚未绑定微信 ClawBot",
   updatedAt: Date.now(),
 };
-const wechatBotMessages: WechatBotMessage[] = [];
+const wechatBotMessages: WechatBotMessage[] = loadWechatBotMessages();
 let activeWechatLogin: WechatLoginSession | null = null;
 
 const runtimeImport = new Function(
@@ -214,6 +206,7 @@ function appendWechatBotMessage(
   if (wechatBotMessages.length > 80) {
     wechatBotMessages.splice(0, wechatBotMessages.length - 80);
   }
+  saveWechatBotMessages(wechatBotMessages);
   emitWechatBotUpdate();
   return next;
 }
@@ -236,6 +229,7 @@ function updateWechatBotMessage(
           ...patch,
         };
   wechatBotMessages[index] = next;
+  saveWechatBotMessages(wechatBotMessages);
   emitWechatBotUpdate();
   return next;
 }
@@ -534,6 +528,7 @@ async function unbindWechatBot(): Promise<WechatBotStatus> {
   clearOfficialWeixinState();
   stopOpenClawGateway();
   wechatBotMessages.splice(0, wechatBotMessages.length);
+  saveWechatBotMessages(wechatBotMessages);
 
   saveWechatBotSettings({
     enabled: false,
@@ -657,6 +652,15 @@ type RouteDecision = {
   useCalculatorTool: boolean;
   useTools: boolean;
   useAdvancedModel: boolean;
+};
+
+type KnowledgeRequestOptions = {
+  kbIds?: string[];
+  ragOnly?: boolean;
+  minScore?: number;
+  topK?: number;
+  fallbackToChat?: boolean;
+  citationRequired?: boolean;
 };
 
 function resolveRouteDecision(
@@ -833,6 +837,10 @@ ipcMain.handle(
       fileIds,
       kbIds,
       ragOnly,
+      minScore,
+      topK,
+      fallbackToChat,
+      citationRequired,
     }: {
       history: ChatMessage[];
       message: string;
@@ -841,6 +849,10 @@ ipcMain.handle(
       fileIds?: string[];
       kbIds?: string[];
       ragOnly?: boolean;
+      minScore?: number;
+      topK?: number;
+      fallbackToChat?: boolean;
+      citationRequired?: boolean;
     },
   ) => {
     const webContents = event.sender;
@@ -854,17 +866,33 @@ ipcMain.handle(
 
     try {
       const activeAgent = getEffectiveAgentProfile(conversationId);
-      const effectiveKbIds = activeAgent?.knowledge.defaultKbIds ?? kbIds ?? [];
-      const effectiveRagOnly = activeAgent?.knowledge.ragOnly ?? ragOnly ?? false;
-      const effectiveMinScore = activeAgent?.knowledge.minScore ?? 0.6;
-      const effectiveTopK = activeAgent?.knowledge.topK ?? 6;
+      const knowledgeOptions: KnowledgeRequestOptions = {
+        kbIds,
+        ragOnly,
+        minScore,
+        topK,
+        fallbackToChat,
+        citationRequired,
+      };
+      const effectiveKbIds =
+        activeAgent?.knowledge.defaultKbIds ?? knowledgeOptions.kbIds ?? [];
+      const effectiveRagOnly =
+        activeAgent?.knowledge.ragOnly ?? knowledgeOptions.ragOnly ?? false;
+      const effectiveMinScore =
+        activeAgent?.knowledge.minScore ?? knowledgeOptions.minScore ?? 0.6;
+      const effectiveTopK =
+        activeAgent?.knowledge.topK ?? knowledgeOptions.topK ?? 6;
       const effectiveFallbackToChat =
-        activeAgent?.knowledge.fallbackToChat ?? !effectiveRagOnly;
+        activeAgent?.knowledge.fallbackToChat ??
+        knowledgeOptions.fallbackToChat ??
+        !effectiveRagOnly;
       const forceAgent = useAgent || Boolean(activeAgent?.models.forceAgent);
       const useFileRag = Array.isArray(fileIds) && fileIds.length > 0;
       const hasSelectedKbs =
         Array.isArray(effectiveKbIds) && effectiveKbIds.length > 0;
-      const useKbRag = hasSelectedKbs && shouldUseKnowledgeBase(message);
+      const useKbRag =
+        hasSelectedKbs &&
+        (effectiveRagOnly || shouldUseKnowledgeBase(message));
       const useRag = useFileRag || useKbRag;
       const route = resolveRouteDecision(message, {
         suppressToolsForRag: useRag,
@@ -899,7 +927,7 @@ ipcMain.handle(
             ? `Agent/工具（${reason}）`
             : fallbackUseAdvanced
               ? `复杂任务（${reason}）`
-              : `普通对话（${reason}）`,
+              : `通用（${reason}）`,
           skill: matchedSkill?.skill.name,
         };
         webContents.send("chat:model-info", fallbackModelInfo);
@@ -962,7 +990,7 @@ ipcMain.handle(
               }
             : {
                 model: describeRouteModel("chat"),
-                scene: "普通对话",
+                scene: "通用",
                 skill: matchedSkill?.skill.name,
               };
 
@@ -1267,6 +1295,15 @@ ipcMain.handle("settings:refresh-wechat-bot-qr", async () => {
 
 ipcMain.handle("settings:get-wechat-bot-status", async () => {
   return checkWechatBotBinding();
+});
+
+ipcMain.handle("settings:get-openclaw-gateway-state", async () => {
+  return getOpenClawGatewayState();
+});
+
+ipcMain.handle("settings:restart-openclaw-gateway", async () => {
+  await restartOpenClawGateway();
+  return getOpenClawGatewayState();
 });
 
 ipcMain.handle("settings:unbind-wechat-bot", async () => {

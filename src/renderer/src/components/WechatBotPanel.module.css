@@ -37,6 +37,7 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  position: relative;
 }
 
 .badge {
@@ -70,6 +71,64 @@
   border: 1px solid rgba(178, 196, 242, 0.82);
   background: rgba(245, 248, 255, 0.94);
   color: #244173;
+}
+
+.gatewayStatusWrap {
+  position: relative;
+}
+
+.gatewayStatusIcon {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(229, 97, 114, 0.38);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 250, 251, 0.98), rgba(255, 235, 239, 0.95));
+  color: #be2f3d;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.gatewayPopover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 10;
+  width: 280px;
+  padding: 14px;
+  border: 1px solid rgba(245, 169, 178, 0.74);
+  border-radius: 16px;
+  background: rgba(255, 246, 248, 0.98);
+  box-shadow: 0 16px 40px rgba(198, 75, 89, 0.16);
+}
+
+.gatewayPopoverTitle {
+  margin-bottom: 6px;
+  color: #be2f3d;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.gatewayPopoverText {
+  margin-bottom: 12px;
+  color: #d33a48;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.restartBtn {
+  border: 1px solid rgba(229, 97, 114, 0.36);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 234, 238, 0.95));
+  color: #be2f3d;
+}
+
+.restartBtn:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .chatArea {
@@ -150,5 +209,14 @@
 
   .chatArea {
     padding: 18px 14px;
+  }
+
+  .headerActions {
+    gap: 8px;
+  }
+
+  .gatewayPopover {
+    width: min(280px, calc(100vw - 32px));
+    right: -6px;
   }
 }

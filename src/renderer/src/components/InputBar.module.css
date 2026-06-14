@@ -2,7 +2,11 @@
   position: relative;
   z-index: 2;
   padding: 16px 34px 28px;
-  background: linear-gradient(180deg, rgba(241, 247, 255, 0), rgba(241, 247, 255, 0.72));
+  background: linear-gradient(
+    180deg,
+    rgba(241, 247, 255, 0),
+    rgba(241, 247, 255, 0.72)
+  );
 }
 
 .inner {
@@ -11,8 +15,14 @@
   border-radius: 22px;
   border: 1px solid rgba(188, 204, 244, 0.78);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(249, 251, 255, 0.96)) padding-box,
-    linear-gradient(135deg, rgba(96, 123, 246, 0.3), rgba(45, 212, 191, 0.22)) border-box;
+    linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.95),
+        rgba(249, 251, 255, 0.96)
+      )
+      padding-box,
+    linear-gradient(135deg, rgba(96, 123, 246, 0.3), rgba(45, 212, 191, 0.22))
+      border-box;
   box-shadow:
     0 22px 56px rgba(43, 70, 142, 0.13),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -33,6 +43,7 @@
 }
 
 .uploadBtn,
+.agentSelect,
 .modelSelect {
   border: 1px solid rgba(176, 194, 241, 0.82);
   background: rgba(255, 255, 255, 0.9);
@@ -53,11 +64,14 @@
   padding: 7px 14px;
   font-size: 12px;
   font-weight: 800;
+  border-color: #3564f3;
+  background: linear-gradient(135deg, #4d6bff, #1da8df);
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(53, 100, 243, 0.18);
 }
 
+.agentSelect,
 .modelSelect {
-  width: min(310px, 30vw);
-  min-width: 180px;
   height: 36px;
   border-radius: 999px;
   padding: 0 42px 0 14px;
@@ -79,7 +93,19 @@
   background-repeat: no-repeat;
 }
 
+.agentSelect {
+  width: 100px;
+  min-width: 100px;
+}
+
+.modelSelect {
+  width: 150px;
+  min-width: 150px;
+}
+
 .uploadBtn:hover:not(:disabled),
+.agentSelect:hover,
+.agentSelect:focus,
 .modelSelect:hover,
 .modelSelect:focus {
   transform: translateY(-1px);
@@ -89,9 +115,16 @@
 }
 
 .uploadBtn:disabled,
+.agentSelect:disabled,
 .modelSelect:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.uploadBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4162ff, #199dd0);
+  color: #ffffff;
+  box-shadow: 0 14px 26px rgba(53, 100, 243, 0.24);
 }
 
 .hint {

@@ -7,6 +7,7 @@ import KnowledgeBasePanel from './components/KnowledgeBase'
 import TaskPanel from './components/TaskPanel'
 import SkillsPanel from './components/SkillsPanel'
 import WechatBotPanel from './components/WechatBotPanel'
+import { useAppDialog } from './components/AppDialogProvider'
 
 const TitleBar: React.FC = () => (
   <div style={{
@@ -137,9 +138,34 @@ type SkillConfig = {
 type AgentMode = 'general' | 'domain' | 'workflow'
 
 function getAgentModeLabel(mode: AgentMode): string {
-  if (mode === 'general') return '通用'
-  if (mode === 'workflow') return '流程'
-  return '领域'
+  if (mode === 'general') return '通用助手'
+  if (mode === 'workflow') return '流程助手'
+  return '专业助手'
+}
+
+const agentModeDescriptions: Record<
+  AgentMode,
+  {
+    title: string
+    description: string
+    example: string
+  }
+> = {
+  domain: {
+    title: '专业助手',
+    description: '适合固定专业场景，强调身份、知识边界和回答口径。',
+    example: '例如 HR、法务、财务、产品顾问。',
+  },
+  workflow: {
+    title: '流程助手',
+    description: '适合有明确步骤的任务，强调按流程推进、检查和交付结果。',
+    example: '例如面试流程、入职办理、周报生成、数据整理。',
+  },
+  general: {
+    title: '通用助手',
+    description: '适合日常聊天和泛问答，不强绑定某个专业角色或固定流程。',
+    example: '例如日常咨询、灵感发散、普通问答。',
+  },
 }
 
 type AgentProfile = {
@@ -175,6 +201,12 @@ type AgentProfile = {
   isDefault?: boolean
   createdAt: number
   updatedAt: number
+}
+
+const GENERAL_AGENT_ID = 'general-assistant'
+
+function isLockedAgent(agent: Pick<AgentProfile, 'id' | 'isDefault'>): boolean {
+  return agent.id === GENERAL_AGENT_ID || Boolean(agent.isDefault)
 }
 
 type ApiTestState = {
@@ -428,6 +460,7 @@ function normalizeDraftSkills(skills: SkillConfig[]): SkillConfig[] {
 }
 
 const App: React.FC = () => {
+  const { confirm } = useAppDialog()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -445,6 +478,8 @@ const App: React.FC = () => {
   const [activeAgentMenuId, setActiveAgentMenuId] = useState<string | null>(null)
   const [agentKbPickerOpen, setAgentKbPickerOpen] = useState(false)
   const [agentKbSearch, setAgentKbSearch] = useState('')
+  const [agentModeInfoOpen, setAgentModeInfoOpen] = useState(false)
+  const [agentModeInfoPosition, setAgentModeInfoPosition] = useState({ top: 0, left: 0 })
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null)
   const [wechatBotConfig, setWechatBotConfig] = useState<WechatBotConfig>(defaultWechatBotConfig)
   const [draftWechatBotConfig, setDraftWechatBotConfig] = useState<WechatBotConfig>(defaultWechatBotConfig)
@@ -471,6 +506,9 @@ const App: React.FC = () => {
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [runningTaskCount, setRunningTaskCount] = useState(0)
+  const [globalSelectedKbIds, setGlobalSelectedKbIds] = useState<string[]>([])
+  const [globalKbRagOnly, setGlobalKbRagOnly] = useState(false)
+  const [globalKbMinScore, setGlobalKbMinScore] = useState(0.6)
 
   const ragFilesRef = useRef<RagFileMeta[]>([])
   const streamingMsgIdRef = useRef<string | null>(null)
@@ -479,6 +517,8 @@ const App: React.FC = () => {
   const typingTargetRef = useRef<{ convId: string; msgId: string } | null>(null)
   const skillFormRef = useRef<HTMLFormElement | null>(null)
   const agentKbPickerRef = useRef<HTMLDivElement | null>(null)
+  const agentModeInfoRef = useRef<HTMLDivElement | null>(null)
+  const agentModeInfoButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const refreshModelConfig = useCallback(async () => {
     const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces, savedAgents, savedKnowledgeBases] = await Promise.all([
@@ -536,10 +576,11 @@ const App: React.FC = () => {
         console.error('electronAPI.storage 未就绪，请重启应用')
         return
       }
-      const [metas, activeIdStored, uploaded] = await Promise.all([
+      const [metas, activeIdStored, uploaded, kbUiState] = await Promise.all([
         window.electronAPI.storage.list(),
         window.electronAPI.storage.getActive(),
         window.electronAPI.rag.list(),
+        window.electronAPI.getKbUiState(),
       ])
 
       const convs: Conversation[] = metas.map((m) => ({
@@ -557,6 +598,9 @@ const App: React.FC = () => {
 
       setRagFiles(uploaded)
       ragFilesRef.current = uploaded
+      setGlobalSelectedKbIds(kbUiState.selectedIds ?? [])
+      setGlobalKbRagOnly(Boolean(kbUiState.ragOnly))
+      setGlobalKbMinScore(typeof kbUiState.minScore === 'number' ? kbUiState.minScore : 0.6)
       await refreshModelConfig()
     }
     init()
@@ -617,6 +661,8 @@ const App: React.FC = () => {
   const activeConversationAgent = agents.find((agent) => agent.id === activeConversation?.agentProfileId) ?? null
   const pendingAgent = agents.find((agent) => agent.id === pendingAgentId) ?? null
   const kbEditingAgent = activeConversationAgent ?? pendingAgent
+  const selectableAgents = agents.filter((agent) => !isLockedAgent(agent))
+  const currentAgentModeDescription = agentModeDescriptions[agentEditorDraft?.mode ?? 'domain']
 
   const cloneAgent = useCallback((agent: AgentProfile): AgentProfile => ({
     ...agent,
@@ -673,9 +719,40 @@ const App: React.FC = () => {
   }, [agentKbPickerOpen])
 
   useEffect(() => {
+    if (!agentModeInfoOpen) return
+
+    const updatePosition = () => {
+      const rect = agentModeInfoButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setAgentModeInfoPosition({
+        top: rect.bottom + 10,
+        left: Math.min(rect.left - 8, window.innerWidth - 300),
+      })
+    }
+
+    updatePosition()
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!agentModeInfoRef.current?.contains(event.target as Node)) {
+        setAgentModeInfoOpen(false)
+      }
+    }
+
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [agentModeInfoOpen])
+
+  useEffect(() => {
     if (!showAgentModal) {
       setAgentKbPickerOpen(false)
       setAgentKbSearch('')
+      setAgentModeInfoOpen(false)
     }
   }, [showAgentModal])
 
@@ -703,15 +780,48 @@ const App: React.FC = () => {
     })
   }, [kbEditingAgent, persistAgent])
 
+  const handleKnowledgeBaseSelectionChange = useCallback(async (ids: string[]) => {
+    if (kbEditingAgent) {
+      await handleAgentKnowledgeChange({ defaultKbIds: ids })
+      return
+    }
+    setGlobalSelectedKbIds(ids)
+    await window.electronAPI.saveKbUiState(ids, globalKbRagOnly, globalKbMinScore)
+  }, [globalKbMinScore, globalKbRagOnly, handleAgentKnowledgeChange, kbEditingAgent])
+
+  const handleKnowledgeBaseRagOnlyChange = useCallback(async (value: boolean) => {
+    if (kbEditingAgent) {
+      await handleAgentKnowledgeChange({ ragOnly: value })
+      return
+    }
+    setGlobalKbRagOnly(value)
+    await window.electronAPI.saveKbUiState(globalSelectedKbIds, value, globalKbMinScore)
+  }, [globalKbMinScore, globalSelectedKbIds, handleAgentKnowledgeChange, kbEditingAgent])
+
+  const handleKnowledgeBaseMinScoreChange = useCallback(async (value: number) => {
+    if (kbEditingAgent) {
+      await handleAgentKnowledgeChange({ minScore: value })
+      return
+    }
+    setGlobalKbMinScore(value)
+    await window.electronAPI.saveKbUiState(globalSelectedKbIds, globalKbRagOnly, value)
+  }, [globalKbRagOnly, globalSelectedKbIds, handleAgentKnowledgeChange, kbEditingAgent])
+
   const handleSelectConversationAgent = useCallback(async (agentId: string) => {
+    const normalizedAgentId = agentId === GENERAL_AGENT_ID ? '' : agentId
+
+    if (activeConversation && activeConversation.messages.length > 0) {
+      return
+    }
+
     if (!activeConversation) {
-      setPendingAgentId(agentId || null)
+      setPendingAgentId(normalizedAgentId || null)
       return
     }
 
     const updatedConversation: Conversation = {
       ...activeConversation,
-      agentProfileId: agentId || null,
+      agentProfileId: normalizedAgentId || null,
       updatedAt: Date.now(),
     }
     setConversations((prev) => prev.map((item) => item.id === updatedConversation.id ? updatedConversation : item))
@@ -768,6 +878,35 @@ const App: React.FC = () => {
     },
     [activeId, conversations]
   )
+
+  const handleRenameConversation = useCallback(async (id: string, title: string) => {
+    const nextTitle = title.trim()
+    if (!nextTitle) return
+
+    let updatedConversation: Conversation | null = null
+
+    setConversations((prev) =>
+      prev.map((conv) => {
+        if (conv.id !== id) return conv
+        updatedConversation = {
+          ...conv,
+          title: nextTitle,
+          updatedAt: Date.now(),
+        }
+        return updatedConversation
+      })
+    )
+
+    if (!updatedConversation) return
+
+    await window.electronAPI.storage.updateMeta({
+      id: updatedConversation.id,
+      title: updatedConversation.title,
+      agentProfileId: updatedConversation.agentProfileId,
+      createdAt: updatedConversation.createdAt,
+      updatedAt: updatedConversation.updatedAt,
+    })
+  }, [])
 
   const updateOnlineConfig = useCallback((patch: Partial<OnlineProviderConfig>) => {
     setDraftModelConfig((prev) => ({
@@ -949,6 +1088,9 @@ const App: React.FC = () => {
   }, [])
 
   const handleSelectAgentDraft = useCallback((agent: AgentProfile) => {
+    if (isLockedAgent(agent)) {
+      return
+    }
     setAgentEditorDraft(cloneAgent(agent))
     setAgentModalMode('edit')
     setShowAgentModal(true)
@@ -956,6 +1098,10 @@ const App: React.FC = () => {
 
   const handleSaveAgent = useCallback(async () => {
     if (!agentEditorDraft) return
+    if (isLockedAgent(agentEditorDraft)) {
+      window.alert('内置通用智能体不允许修改')
+      return
+    }
     if (!agentEditorDraft.name.trim()) {
       window.alert('请先填写智能体名称')
       return
@@ -971,6 +1117,11 @@ const App: React.FC = () => {
   }, [agentEditorDraft, cloneAgent, persistAgent])
 
   const handleDeleteAgent = useCallback(async (agentId: string) => {
+    const target = agents.find((agent) => agent.id === agentId)
+    if (target && isLockedAgent(target)) {
+      window.alert('内置通用智能体不允许删除')
+      return
+    }
     const ok = await window.electronAPI.agents.delete(agentId)
     if (!ok) return
     setAgents((prev) => prev.filter((agent) => agent.id !== agentId))
@@ -980,7 +1131,7 @@ const App: React.FC = () => {
     }
     setAgentEditorDraft(null)
     setShowAgentModal(false)
-  }, [pendingAgentId])
+  }, [agents, pendingAgentId])
 
   useEffect(() => {
     if (!activeAgentMenuId) return
@@ -994,7 +1145,7 @@ const App: React.FC = () => {
   }, [activeAgentMenuId])
 
   const handleStartAgentChat = useCallback((agentId: string) => {
-    setPendingAgentId(agentId)
+    setPendingAgentId(agentId === GENERAL_AGENT_ID ? null : agentId)
     setActiveId(null)
     setCurrentView('chat')
     setRagContextId(uuidv4())
@@ -1559,6 +1710,25 @@ const App: React.FC = () => {
     window.electronAPI.abortChat()
   }, [])
 
+  const buildKnowledgeOptions = useCallback((agent: AgentProfile | null | undefined) => {
+    if (agent) {
+      return {
+        kbIds: agent.knowledge.defaultKbIds,
+        ragOnly: agent.knowledge.ragOnly,
+        minScore: agent.knowledge.minScore,
+        topK: agent.knowledge.topK,
+        fallbackToChat: agent.knowledge.fallbackToChat,
+        citationRequired: agent.knowledge.citationRequired,
+      }
+    }
+
+    return {
+      kbIds: globalSelectedKbIds,
+      ragOnly: globalKbRagOnly,
+      minScore: globalKbMinScore,
+    }
+  }, [globalKbMinScore, globalKbRagOnly, globalSelectedKbIds])
+
   const handleCopyMessage = useCallback(async (message: Message) => {
     try {
       await navigator.clipboard.writeText(message.content || '')
@@ -1780,9 +1950,10 @@ const App: React.FC = () => {
         convId,
         Boolean(activeConversationAgent?.models.forceAgent || activeConversationAgent?.mode !== 'general'),
         ragFilesRef.current.map((file) => file.id),
+        buildKnowledgeOptions(activeConversationAgent),
       )
     },
-    [activeConversationAgent, isLoading, isRagProcessing, activeId, conversations, persistConversation, ragFiles, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [activeConversationAgent, buildKnowledgeOptions, isLoading, isRagProcessing, activeId, conversations, persistConversation, ragFiles, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   // 发送消息
@@ -1956,9 +2127,14 @@ const App: React.FC = () => {
             : pendingAgent)?.mode !== 'general'
         ),
         currentRagFiles.map((file) => file.id),
+        buildKnowledgeOptions(
+          (targetConv?.agentProfileId
+            ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
+            : pendingAgent) ?? null
+        ),
       )
     },
-    [agents, isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, pendingAgent, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [agents, buildKnowledgeOptions, isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, pendingAgent, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
   )
 
   return (
@@ -1966,11 +2142,12 @@ const App: React.FC = () => {
       <TitleBar />
       <Sidebar
         conversations={conversations}
-        agents={agents.map((agent) => ({ id: agent.id, name: agent.name }))}
+        agents={agents.map((agent) => ({ id: agent.id, name: agent.name, avatar: agent.avatar }))}
         activeId={activeId}
         onSelect={handleSelect}
         onNew={handleNew}
         onDelete={handleDelete}
+        onRename={handleRenameConversation}
         onOpenSettings={() => void handleOpenModelConfig()}
         currentView={currentView}
         onViewChange={setCurrentView}
@@ -2015,49 +2192,51 @@ const App: React.FC = () => {
                       <span className={styles.agentOverviewAvatar}>{agent.avatar || agent.name.slice(0, 1)}</span>
                       <div className={styles.agentOverviewTopActions}>
                         <span className={styles.agentOverviewMode}>{getAgentModeLabel(agent.mode)}</span>
-                        <div className={styles.agentCardMenuWrap}>
-                          <button
-                            type="button"
-                            className={styles.agentCardMenuBtn}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setActiveAgentMenuId((prev) => prev === agent.id ? null : agent.id)
-                            }}
-                            title="更多操作"
-                            aria-label="更多操作"
-                          >
-                            ⋯
-                          </button>
-                          {activeAgentMenuId === agent.id && (
-                            <div
-                              className={styles.agentCardMenu}
-                              onPointerDown={(e) => e.stopPropagation()}
+                        {!isLockedAgent(agent) && (
+                          <div className={styles.agentCardMenuWrap}>
+                            <button
+                              type="button"
+                              className={styles.agentCardMenuBtn}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setActiveAgentMenuId((prev) => prev === agent.id ? null : agent.id)
+                              }}
+                              title="更多操作"
+                              aria-label="更多操作"
                             >
-                              <button
-                                type="button"
-                                className={styles.agentCardMenuItem}
-                                onClick={() => {
-                                  setActiveAgentMenuId(null)
-                                  handleSelectAgentDraft(agent)
-                                }}
+                              ⋯
+                            </button>
+                            {activeAgentMenuId === agent.id && (
+                              <div
+                                className={styles.agentCardMenu}
+                                onPointerDown={(e) => e.stopPropagation()}
                               >
-                                编辑
-                              </button>
-                              <button
-                                type="button"
-                                className={`${styles.agentCardMenuItem} ${styles.agentCardMenuItemDanger}`}
-                                onClick={() => {
-                                  setActiveAgentMenuId(null)
-                                  if (window.confirm(`确定删除智能体“${agent.name || '未命名智能体'}”吗？`)) {
-                                    void handleDeleteAgent(agent.id)
-                                  }
-                                }}
-                              >
-                                删除
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                                <button
+                                  type="button"
+                                  className={styles.agentCardMenuItem}
+                                  onClick={() => {
+                                    setActiveAgentMenuId(null)
+                                    handleSelectAgentDraft(agent)
+                                  }}
+                                >
+                                  编辑
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`${styles.agentCardMenuItem} ${styles.agentCardMenuItemDanger}`}
+                                  onClick={async () => {
+                                    setActiveAgentMenuId(null)
+                                    if (await confirm({ message: `确定删除智能体“${agent.name || '未命名智能体'}”吗？`, tone: 'danger' })) {
+                                      void handleDeleteAgent(agent.id)
+                                    }
+                                  }}
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className={styles.agentOverviewName}>{agent.name}</div>
@@ -2080,15 +2259,15 @@ const App: React.FC = () => {
           </div>
         ) : currentView === 'kb' ? (
           <KnowledgeBasePanel
-            selectedKbIds={kbEditingAgent?.knowledge.defaultKbIds ?? []}
-            onSelectionChange={(ids) => void handleAgentKnowledgeChange({ defaultKbIds: ids })}
-            ragOnly={kbEditingAgent?.knowledge.ragOnly ?? false}
-            onRagOnlyChange={(value) => void handleAgentKnowledgeChange({ ragOnly: value })}
-            minScore={kbEditingAgent?.knowledge.minScore ?? 0.6}
-            onMinScoreChange={(value) => void handleAgentKnowledgeChange({ minScore: value })}
+            selectedKbIds={kbEditingAgent?.knowledge.defaultKbIds ?? globalSelectedKbIds}
+            onSelectionChange={(ids) => void handleKnowledgeBaseSelectionChange(ids)}
+            ragOnly={kbEditingAgent?.knowledge.ragOnly ?? globalKbRagOnly}
+            onRagOnlyChange={(value) => void handleKnowledgeBaseRagOnlyChange(value)}
+            minScore={kbEditingAgent?.knowledge.minScore ?? globalKbMinScore}
+            onMinScoreChange={(value) => void handleKnowledgeBaseMinScoreChange(value)}
             activeKbId={activeKbId}
             onActiveKbIdChange={setActiveKbId}
-            agentName={kbEditingAgent?.name ?? '通用助手'}
+            agentName={kbEditingAgent?.name ?? '通用'}
           />
         ) : currentView === 'task' ? (
           <TaskPanel
@@ -2108,28 +2287,14 @@ const App: React.FC = () => {
                 </span>
                 <div className={styles.agentPillRow}>
                   <span className={styles.chatModePill}>
-                    {activeConversationAgent ? '智能体对话' : '普通对话'}
+                    {activeConversationAgent && !isLockedAgent(activeConversationAgent) ? '智能体对话' : '通用'}
                   </span>
-                  {activeConversationAgent && (
+                  {activeConversationAgent && !isLockedAgent(activeConversationAgent) && (
                     <span className={styles.agentPill}>
                       {activeConversationAgent.name}
                     </span>
                   )}
                 </div>
-              </div>
-              <div className={styles.agentToolbar}>
-                <select
-                  className={styles.agentSelect}
-                  value={activeConversation?.agentProfileId ?? pendingAgent?.id ?? ''}
-                  onChange={(e) => void handleSelectConversationAgent(e.target.value)}
-                >
-                  <option value="">普通对话</option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
 
@@ -2155,6 +2320,10 @@ const App: React.FC = () => {
               localModels={selectableModels}
               onlineModelCandidates={onlineModelCandidates}
               skills={draftSkills}
+              agents={selectableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
+              selectedAgentId={activeConversation?.agentProfileId ?? pendingAgent?.id ?? ''}
+              canSelectAgent={!activeConversation || (activeConversation.loaded && activeConversation.messages.length === 0)}
+              onSelectAgent={(agentId) => void handleSelectConversationAgent(agentId)}
               onUpdateRoute={handleInlineRouteUpdate}
               onApplyOnlineProfile={handleInlineApplyOnlineProfile}
             />
@@ -2163,12 +2332,7 @@ const App: React.FC = () => {
       </div>
 
       {showAgentModal && agentEditorDraft && (
-        <div
-          className={styles.modalOverlay}
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setShowAgentModal(false)
-          }}
-        >
+        <div className={styles.modalOverlay}>
           <div className={styles.agentModal} onMouseDown={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div>
@@ -2196,19 +2360,59 @@ const App: React.FC = () => {
                     placeholder="例如：产品助手 / 法务助手"
                   />
                 </label>
-                <label className={styles.fieldItem}>
-                  <span>模式</span>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabelRow}>
+                    <span>模式</span>
+                    <div className={styles.infoPopoverWrap}>
+                      <button
+                        ref={agentModeInfoButtonRef}
+                        type="button"
+                        className={styles.infoIconBtn}
+                        onClick={() => setAgentModeInfoOpen((prev) => !prev)}
+                        aria-label="查看模式说明"
+                        title="查看模式说明"
+                      >
+                        i
+                      </button>
+                    </div>
+                  </span>
                   <select
                     className={styles.fieldSelect}
                     value={agentEditorDraft.mode}
                     onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, mode: e.target.value as AgentMode } : prev)}
                   >
-                    <option value="domain">领域</option>
-                    <option value="workflow">流程</option>
-                    <option value="general">通用</option>
+                    <option value="domain">专业助手</option>
+                    <option value="workflow">流程助手</option>
+                    <option value="general">通用助手</option>
                   </select>
-                </label>
+                  <div className={styles.fieldHint}>
+                    当前模式：{currentAgentModeDescription.title}。{currentAgentModeDescription.description}
+                    {currentAgentModeDescription.example}
+                  </div>
+                </div>
               </div>
+
+              {agentModeInfoOpen && (
+                <div
+                  ref={agentModeInfoRef}
+                  className={styles.infoPopover}
+                  style={{
+                    top: `${Math.max(16, agentModeInfoPosition.top)}px`,
+                    left: `${Math.max(16, agentModeInfoPosition.left)}px`,
+                  }}
+                >
+                  <div className={styles.infoPopoverTitle}>模式说明</div>
+                  <div className={styles.infoPopoverText}>
+                    专业助手：面向某个专业角色，回答更稳定、口径更统一。
+                  </div>
+                  <div className={styles.infoPopoverText}>
+                    流程助手：面向一类固定任务，适合拆步骤、按阶段推进。
+                  </div>
+                  <div className={styles.infoPopoverText}>
+                    通用助手：像默认助手一样处理日常问题，适用范围最广。
+                  </div>
+                </div>
+              )}
 
               <label className={styles.fieldItem}>
                 <span>描述</span>
@@ -2380,19 +2584,7 @@ const App: React.FC = () => {
             </div>
 
             <div className={styles.agentModalFooter}>
-              {agentModalMode === 'edit' && (
-                <button
-                  className={`${styles.miniBtn} ${styles.dangerBtn}`}
-                  onClick={() => {
-                    if (window.confirm(`确定删除智能体“${agentEditorDraft.name || '未命名智能体'}”吗？`)) {
-                      void handleDeleteAgent(agentEditorDraft.id)
-                    }
-                  }}
-                >
-                  删除智能体
-                </button>
-              )}
-              <div className={styles.profileActions}>
+              <div className={styles.profileActions} style={{ marginLeft: 'auto' }}>
                 <button className={styles.miniBtn} onClick={() => setShowAgentModal(false)}>
                   取消
                 </button>
@@ -2623,11 +2815,11 @@ const App: React.FC = () => {
                           </button>
                           <button
                             className={`${styles.miniBtn} ${styles.dangerBtn}`}
-                            onClick={() => {
-                              if (window.confirm(`确定删除预设“${profile.name}”吗？`)) {
-                                handleDeleteOnlineProfile(profile.id)
-                              }
-                            }}
+                                onClick={async () => {
+                                  if (await confirm({ message: `确定删除预设“${profile.name}”吗？`, tone: 'danger' })) {
+                                    handleDeleteOnlineProfile(profile.id)
+                                  }
+                                }}
                           >
                             删除
                           </button>
@@ -2813,11 +3005,11 @@ const App: React.FC = () => {
                           <button
                             type="button"
                             className={`${styles.miniBtn} ${styles.dangerBtn}`}
-                            onClick={() => {
-                              if (window.confirm(`确定删除技能“${activeSkillDraft.name || '未命名技能'}”吗？`)) {
-                                void handleDeleteSkill(activeSkillDraft.id)
-                              }
-                            }}
+                              onClick={async () => {
+                                if (await confirm({ message: `确定删除技能“${activeSkillDraft.name || '未命名技能'}”吗？`, tone: 'danger' })) {
+                                  void handleDeleteSkill(activeSkillDraft.id)
+                                }
+                              }}
                           >
                             删除
                           </button>

@@ -19,7 +19,7 @@ type WeixinAccountData = {
   savedAt?: string;
 };
 
-type GatewayState = {
+export type GatewayState = {
   running: boolean;
   installing: boolean;
   runtimeReady: boolean;

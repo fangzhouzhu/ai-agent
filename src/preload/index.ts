@@ -277,6 +277,14 @@ export type WechatBotMessage = {
   createdAt: number;
 };
 
+export type OpenClawGatewayState = {
+  running: boolean;
+  installing: boolean;
+  runtimeReady: boolean;
+  lastError?: string;
+  logs: string[];
+};
+
 export type ToolRisk = "read" | "write" | "delete" | "network" | "system";
 
 export type ToolPolicy = {
@@ -301,6 +309,14 @@ const api = {
     conversationId: string | null,
     useAgent: boolean,
     fileIds: string[] = [],
+    knowledgeOptions?: {
+      kbIds?: string[];
+      ragOnly?: boolean;
+      minScore?: number;
+      topK?: number;
+      fallbackToChat?: boolean;
+      citationRequired?: boolean;
+    },
   ) =>
     ipcRenderer.invoke("chat:send", {
       history,
@@ -308,6 +324,7 @@ const api = {
       conversationId,
       useAgent,
       fileIds,
+      ...knowledgeOptions,
     }),
 
   onToken: (callback: (token: string) => void) => {
@@ -391,6 +408,10 @@ const api = {
     ipcRenderer.invoke("settings:refresh-wechat-bot-qr"),
   getWechatBotStatus: (): Promise<WechatBotStatus> =>
     ipcRenderer.invoke("settings:get-wechat-bot-status"),
+  getOpenClawGatewayState: (): Promise<OpenClawGatewayState> =>
+    ipcRenderer.invoke("settings:get-openclaw-gateway-state"),
+  restartOpenClawGateway: (): Promise<OpenClawGatewayState> =>
+    ipcRenderer.invoke("settings:restart-openclaw-gateway"),
   unbindWechatBot: (): Promise<WechatBotStatus> =>
     ipcRenderer.invoke("settings:unbind-wechat-bot"),
   sendWechatBotMessage: (

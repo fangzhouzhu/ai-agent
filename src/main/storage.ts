@@ -18,6 +18,8 @@ const INDEX_FILE = () => join(getDataDir(), "index.json");
 const ACTIVE_FILE = () => join(getDataDir(), "active.json");
 const SETTINGS_FILE = () => join(getDataDir(), "settings.json");
 const AGENTS_FILE = () => join(getDataDir(), "agents.json");
+const WECHAT_BOT_MESSAGES_FILE = () => join(getDataDir(), "wechat-bot-messages.json");
+const GENERAL_AGENT_ID = "general-assistant";
 
 export interface ConvMeta {
   id: string;
@@ -130,6 +132,20 @@ export interface WechatBotSettings {
   updatedAt?: number;
 }
 
+export interface WechatBotPanelMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+  status: "received" | "sent" | "error";
+  source?: "wechat" | "panel" | "system";
+  toolCalls?: { toolName: string; input: unknown }[];
+  toolResults?: { toolName: string; result: string }[];
+  modelInfo?: { model: string; scene: string; skill?: string };
+  durationMs?: number;
+  isStreaming?: boolean;
+  createdAt: number;
+}
+
 export interface ModelSettings {
   chatModel?: string;
   agentModel?: string;
@@ -178,6 +194,24 @@ function createAgentDefaults() {
   };
 }
 
+function createGeneralAgentProfile(existing?: Partial<AgentProfile>): AgentProfile {
+  const now = Date.now();
+  return {
+    id: GENERAL_AGENT_ID,
+    name: "通用",
+    description: "默认通用智能体，用于日常对话、问答与轻量任务。",
+    systemPrompt: "",
+    ...createAgentDefaults(),
+    mode: "general",
+    models: {
+      forceAgent: false,
+    },
+    isDefault: true,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: existing?.updatedAt ?? now,
+  };
+}
+
 function readJSON<T>(filePath: string, fallback: T): T {
   try {
     if (!fs.existsSync(filePath)) return fallback;
@@ -197,7 +231,7 @@ export function listConversations(): ConvMeta[] {
       id: meta.id,
       title: meta.title,
       agentProfileId:
-        meta.agentProfileId && meta.agentProfileId !== "general-assistant"
+        meta.agentProfileId && meta.agentProfileId !== GENERAL_AGENT_ID
           ? meta.agentProfileId
           : null,
       createdAt: meta.createdAt,
@@ -295,6 +329,16 @@ export function saveWechatBotSettings(wechatBot: WechatBotSettings): void {
   });
 }
 
+export function loadWechatBotMessages(): WechatBotPanelMessage[] {
+  return readJSON<WechatBotPanelMessage[]>(WECHAT_BOT_MESSAGES_FILE(), [])
+    .filter((message) => Boolean(message?.id && message?.role && message?.text !== undefined))
+    .slice(-80);
+}
+
+export function saveWechatBotMessages(messages: WechatBotPanelMessage[]): void {
+  writeJSON(WECHAT_BOT_MESSAGES_FILE(), messages.slice(-80));
+}
+
 export function getKbUiState(): {
   selectedIds: string[];
   ragOnly: boolean;
@@ -322,9 +366,13 @@ export function saveKbUiState(
 
 export function listAgentProfiles(): AgentProfile[] {
   const defaults = createAgentDefaults();
-  const agents = readJSON<AgentProfile[]>(AGENTS_FILE(), []).filter(
+  const storedAgents = readJSON<AgentProfile[]>(AGENTS_FILE(), []);
+  const generalAgent = createGeneralAgentProfile(
+    storedAgents.find((agent) => agent.id === GENERAL_AGENT_ID),
+  );
+  const agents = storedAgents.filter(
     (agent) =>
-      agent.id !== "general-assistant" &&
+      agent.id !== GENERAL_AGENT_ID &&
       agent.name?.trim() !== "通用助手",
   );
   const normalized = agents.map((agent) => ({
@@ -361,8 +409,9 @@ export function listAgentProfiles(): AgentProfile[] {
     isDefault: false,
   }));
   normalized.sort((a, b) => b.updatedAt - a.updatedAt);
-  writeJSON(AGENTS_FILE(), normalized);
-  return normalized;
+  const nextAgents = [generalAgent, ...normalized];
+  writeJSON(AGENTS_FILE(), nextAgents);
+  return nextAgents;
 }
 
 export function getAgentProfile(id: string): AgentProfile | null {
@@ -370,10 +419,15 @@ export function getAgentProfile(id: string): AgentProfile | null {
 }
 
 export function saveAgentProfile(agent: AgentProfile): AgentProfile {
+  if (agent.id === GENERAL_AGENT_ID) {
+    return createGeneralAgentProfile(getAgentProfile(GENERAL_AGENT_ID) ?? undefined);
+  }
+
   const defaults = createAgentDefaults();
   const agents = listAgentProfiles();
+  const customAgents = agents.filter((item) => item.id !== GENERAL_AGENT_ID);
   const now = Date.now();
-  const existing = agents.find((item) => item.id === agent.id);
+  const existing = customAgents.find((item) => item.id === agent.id);
   const next: AgentProfile = {
     ...defaults,
     ...agent,
@@ -402,16 +456,19 @@ export function saveAgentProfile(agent: AgentProfile): AgentProfile {
   };
 
   const nextAgents = existing
-    ? agents.map((item) => (item.id === next.id ? next : item))
-    : [next, ...agents];
+    ? customAgents.map((item) => (item.id === next.id ? next : item))
+    : [next, ...customAgents];
   writeJSON(AGENTS_FILE(), nextAgents);
   return next;
 }
 
 export function deleteAgentProfile(id: string): boolean {
+  if (id === GENERAL_AGENT_ID) return false;
+
   const agents = listAgentProfiles();
-  const filtered = agents.filter((agent) => agent.id !== id);
-  if (filtered.length === agents.length) return false;
+  const customAgents = agents.filter((agent) => agent.id !== GENERAL_AGENT_ID);
+  const filtered = customAgents.filter((agent) => agent.id !== id);
+  if (filtered.length === customAgents.length) return false;
   writeJSON(AGENTS_FILE(), filtered);
 
   const metas = listConversations().map((meta) =>

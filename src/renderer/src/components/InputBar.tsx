@@ -55,6 +55,11 @@ type SkillConfig = {
   enabled: boolean
 }
 
+type AgentOption = {
+  id: string
+  name: string
+}
+
 interface Props {
   onSend: (message: string) => void
   onAbort: () => void
@@ -68,6 +73,10 @@ interface Props {
   localModels: string[]
   onlineModelCandidates: string[]
   skills: SkillConfig[]
+  agents: AgentOption[]
+  selectedAgentId: string
+  canSelectAgent: boolean
+  onSelectAgent: (agentId: string) => void | Promise<void>
   onUpdateRoute: (routeKey: RouteKey, patch: Partial<RouteModelConfig>) => void | Promise<void>
   onApplyOnlineProfile: (profileId: string) => void | Promise<void>
 }
@@ -181,6 +190,10 @@ const InputBar: React.FC<Props> = ({
   localModels,
   onlineModelCandidates,
   skills,
+  agents,
+  selectedAgentId,
+  canSelectAgent,
+  onSelectAgent,
   onUpdateRoute,
   onApplyOnlineProfile,
 }) => {
@@ -508,6 +521,21 @@ const InputBar: React.FC<Props> = ({
               >
                 上传文档
               </button>
+
+              <select
+                className={styles.agentSelect}
+                value={selectedAgentId}
+                onChange={(e) => void onSelectAgent(e.target.value)}
+                disabled={!canSelectAgent}
+                title={canSelectAgent ? '选择当前新对话使用的智能体' : '对话开始后不可再次切换智能体'}
+              >
+                <option value="">通用</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
 
               <select
                 className={styles.modelSelect}

@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import type { WechatBotMessage, WechatBotStatus } from '../../../preload/index'
+import type {
+  OpenClawGatewayState,
+  WechatBotMessage,
+  WechatBotStatus,
+} from '../../../preload/index'
 import type { Message } from '../types/conversation'
 import MessageBubble from './MessageBubble'
 import styles from './WechatBotPanel.module.css'
@@ -32,26 +36,55 @@ function toChatMessage(message: WechatBotMessage): Message | null {
   }
 }
 
+function shouldShowGatewayRestart(
+  status: WechatBotStatus | null,
+  gatewayState: OpenClawGatewayState | null
+): boolean {
+  if (!gatewayState) return false
+  if (gatewayState.installing) return false
+  if (gatewayState.lastError) return true
+
+  return status?.status === 'bound' && gatewayState.running === false
+}
+
 const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
   const [status, setStatus] = useState<WechatBotStatus | null>(null)
   const [messages, setMessages] = useState<WechatBotMessage[]>([])
+  const [gatewayState, setGatewayState] = useState<OpenClawGatewayState | null>(null)
+  const [isRestartingGateway, setIsRestartingGateway] = useState(false)
+  const [showGatewayPopover, setShowGatewayPopover] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const gatewayPopoverRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let disposed = false
 
     const load = async () => {
-      const [nextStatus, nextMessages] = await Promise.all([
+      const [nextStatus, nextMessages, nextGatewayState] = await Promise.all([
         window.electronAPI.getWechatBotStatus(),
         window.electronAPI.listWechatBotMessages(),
+        window.electronAPI.getOpenClawGatewayState(),
       ])
 
       if (disposed) return
       setStatus(nextStatus)
       setMessages(nextMessages)
+      setGatewayState(nextGatewayState)
     }
 
     void load()
+
+    const timer = window.setInterval(() => {
+      void window.electronAPI
+        .getOpenClawGatewayState()
+        .then((nextGatewayState) => {
+          if (!disposed) {
+            setGatewayState(nextGatewayState)
+          }
+        })
+        .catch(() => {})
+    }, 5000)
+
     const remove = window.electronAPI.onWechatBotUpdate((data) => {
       setStatus(data.status)
       setMessages(data.messages)
@@ -59,6 +92,7 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
 
     return () => {
       disposed = true
+      window.clearInterval(timer)
       remove()
     }
   }, [])
@@ -67,7 +101,22 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages])
 
+  useEffect(() => {
+    if (!showGatewayPopover) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!gatewayPopoverRef.current?.contains(event.target as Node)) {
+        setShowGatewayPopover(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [showGatewayPopover])
+
   const isBound = status?.status === 'bound'
+  const showRestartGateway = shouldShowGatewayRestart(status, gatewayState)
+  const gatewayErrorText = gatewayState?.lastError || 'OpenClaw gateway 当前未正常运行。'
   const renderedMessages = useMemo(
     () =>
       messages.map((message) => ({
@@ -97,6 +146,48 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
           <p>这里会同步展示微信 ClawBot 的消息，以及 Centibot 按同一套聊天界面呈现的处理结果。</p>
         </div>
         <div className={styles.headerActions}>
+          {showRestartGateway && (
+            <div ref={gatewayPopoverRef} className={styles.gatewayStatusWrap}>
+              <button
+                className={styles.gatewayStatusIcon}
+                title="网关状态异常"
+                aria-label="网关状态异常"
+                onClick={() => setShowGatewayPopover((current) => !current)}
+              >
+                !
+              </button>
+              {showGatewayPopover && (
+                <div className={styles.gatewayPopover}>
+                  <div className={styles.gatewayPopoverTitle}>网关状态异常</div>
+                  <div className={styles.gatewayPopoverText}>{gatewayErrorText}</div>
+                  <button
+                    className={`${styles.sendBtn} ${styles.restartBtn}`}
+                    disabled={isRestartingGateway}
+                    onClick={async () => {
+                      try {
+                        setIsRestartingGateway(true)
+                        const nextGatewayState = await window.electronAPI.restartOpenClawGateway()
+                        setGatewayState(nextGatewayState)
+                        setShowGatewayPopover(false)
+                      } catch (error) {
+                        setGatewayState((current) => ({
+                          running: false,
+                          installing: current?.installing ?? false,
+                          runtimeReady: current?.runtimeReady ?? false,
+                          logs: current?.logs ?? [],
+                          lastError: error instanceof Error ? error.message : '重启 OpenClaw gateway 失败',
+                        }))
+                      } finally {
+                        setIsRestartingGateway(false)
+                      }
+                    }}
+                  >
+                    {isRestartingGateway ? '重启中...' : '重启网关'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <span className={`${styles.badge} ${isBound ? styles.badgeOn : ''}`}>
             {status ? statusLabel[status.status] : '加载中'}
           </span>

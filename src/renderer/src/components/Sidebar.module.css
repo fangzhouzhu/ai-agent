@@ -143,18 +143,29 @@
   transition:
     background 0.16s ease,
     color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
+    box-shadow 0.16s ease;
 }
 
 .navItem:hover,
-.listItem:hover,
 .emptyAction:hover,
-.navItemActive,
-.active {
+.navItemActive {
   background: rgba(235, 241, 255, 0.86);
   color: #102052;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.listItem:hover {
+  background: rgba(239, 244, 255, 0.84);
+  color: #102052;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.active {
+  background: rgba(220, 230, 255, 0.98);
+  color: #0e214f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 0 0 1px rgba(130, 157, 240, 0.24);
 }
 
 .newChatBtn {
@@ -174,8 +185,7 @@
   box-shadow: 0 20px 38px rgba(82, 106, 244, 0.28);
 }
 
-.navIcon,
-.itemIcon {
+.navIcon {
   width: 17px;
   color: #506391;
   flex-shrink: 0;
@@ -228,6 +238,56 @@
   font-size: 13px;
 }
 
+.itemBadge {
+  width: 18px;
+  height: 18px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  box-shadow:
+    0 6px 14px rgba(48, 74, 142, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.itemBadgeDefault {
+  border: 1px solid rgba(195, 206, 232, 0.96);
+  background: linear-gradient(180deg, #ffffff, #f7faff);
+  color: #8898b6;
+}
+
+.itemBadgeAgent {
+  border: 1px solid rgba(126, 148, 255, 0.3);
+  background: linear-gradient(135deg, #4f6cff, #62b8d6);
+  color: #ffffff;
+}
+
+.itemBadgeText {
+  max-width: 100%;
+  padding: 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.itemBadgeGlyph {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.defaultBubbleIcon {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
 .itemTitle {
   flex: 1;
   min-width: 0;
@@ -236,25 +296,84 @@
   white-space: nowrap;
 }
 
-.deleteBtn {
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
-  color: #8999ba;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
+.itemMenuWrap {
+  position: relative;
   flex-shrink: 0;
 }
 
-.listItem:hover .deleteBtn {
+.itemMenuBtn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8b96ad;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
-.deleteBtn:hover {
-  background: rgba(255, 232, 236, 0.96);
-  color: #d33a48;
+.listItem:hover .itemMenuBtn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.itemMenuBtnVisible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.itemMenuBtn:hover {
+  background: rgba(236, 240, 247, 0.98);
+  color: #51669b;
+}
+
+.itemMenuDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 104px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(184, 198, 235, 0.92);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 16px 32px rgba(48, 74, 142, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  z-index: 20;
+}
+
+.itemMenuAction {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #243964;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.itemMenuAction:hover {
+  background: rgba(238, 244, 255, 0.92);
+}
+
+.itemMenuActionDanger {
+  color: #c73e4c;
+}
+
+.itemMenuActionDanger:hover {
+  background: rgba(255, 237, 240, 0.96);
 }
 
 .emptyAction,

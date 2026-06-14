@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import styles from './KnowledgeBase.module.css'
+import { useAppDialog } from './AppDialogProvider'
 
 type KnowledgeBase = {
   id: string
@@ -93,6 +94,7 @@ const KnowledgeBasePanel: React.FC<Props> = ({
   activeKbId: controlledActiveKbId,
   onActiveKbIdChange,
 }) => {
+  const { confirm } = useAppDialog()
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [internalActiveKbId, setInternalActiveKbId] = useState<string | null>(null)
   const [documents, setDocuments] = useState<KbDocument[]>([])
@@ -176,13 +178,13 @@ const KnowledgeBasePanel: React.FC<Props> = ({
   const handleDeleteKb = useCallback(
     async (kbId: string, e: React.MouseEvent) => {
       e.stopPropagation()
-      if (!window.confirm('确定要删除该知识库及其所有文档和索引吗？')) return
+      if (!await confirm({ message: '确定要删除该知识库及其所有文档和索引吗？', tone: 'danger' })) return
       await window.electronAPI.kb.delete(kbId)
       if (activeKbId === kbId) setActiveKbId(null)
       onSelectionChange(selectedKbIds.filter((id) => id !== kbId))
       await refreshKbs()
     },
-    [activeKbId, selectedKbIds, onSelectionChange, refreshKbs],
+    [activeKbId, confirm, selectedKbIds, onSelectionChange, refreshKbs],
   )
 
   const handleStartEditKb = useCallback((kb: KnowledgeBase, e: React.MouseEvent) => {
@@ -228,14 +230,14 @@ const KnowledgeBasePanel: React.FC<Props> = ({
 
   const handleRemoveDoc = useCallback(
     async (docId: string) => {
-      if (!window.confirm('确定要从知识库中移除该文档吗？')) return
+      if (!await confirm({ message: '确定要从知识库中移除该文档吗？', tone: 'danger' })) return
       await window.electronAPI.kb.removeDoc(docId)
       if (activeKbId) {
         await refreshDocs(activeKbId)
         await refreshKbs()
       }
     },
-    [activeKbId, refreshDocs, refreshKbs],
+    [activeKbId, confirm, refreshDocs, refreshKbs],
   )
 
   const handleRebuildDoc = useCallback(
