@@ -23,12 +23,45 @@ export type StoredMessage = {
   ragContextId?: string;
   durationMs?: number;
   isError?: boolean;
+  isStopped?: boolean;
 };
 
 export type ModelRouteInfo = {
   model: string;
   scene: string;
   skill?: string;
+};
+
+export type ChatTokenEvent = {
+  conversationId: string;
+  token: string;
+};
+
+export type ChatToolCallEvent = {
+  conversationId: string;
+  toolName: string;
+  input: unknown;
+};
+
+export type ChatToolResultEvent = {
+  conversationId: string;
+  toolName: string;
+  result: string;
+};
+
+export type ChatModelInfoEvent = {
+  conversationId: string;
+  modelInfo: ModelRouteInfo;
+};
+
+export type ChatDoneEvent = {
+  conversationId: string;
+  status: "done" | "aborted";
+};
+
+export type ChatErrorEvent = {
+  conversationId: string;
+  error: string;
 };
 
 export type RagFileMeta = {
@@ -327,51 +360,44 @@ const api = {
       ...knowledgeOptions,
     }),
 
-  onToken: (callback: (token: string) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, token: string) =>
-      callback(token);
+  onToken: (callback: (data: ChatTokenEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: ChatTokenEvent) =>
+      callback(data);
     ipcRenderer.on("chat:token", handler);
     return () => ipcRenderer.removeListener("chat:token", handler);
   },
 
-  onToolCall: (
-    callback: (data: { toolName: string; input: unknown }) => void,
-  ) => {
-    const handler = (
-      _: Electron.IpcRendererEvent,
-      data: { toolName: string; input: unknown },
-    ) => callback(data);
+  onToolCall: (callback: (data: ChatToolCallEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: ChatToolCallEvent) =>
+      callback(data);
     ipcRenderer.on("chat:tool-call", handler);
     return () => ipcRenderer.removeListener("chat:tool-call", handler);
   },
 
-  onToolResult: (
-    callback: (data: { toolName: string; result: string }) => void,
-  ) => {
-    const handler = (
-      _: Electron.IpcRendererEvent,
-      data: { toolName: string; result: string },
-    ) => callback(data);
+  onToolResult: (callback: (data: ChatToolResultEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: ChatToolResultEvent) =>
+      callback(data);
     ipcRenderer.on("chat:tool-result", handler);
     return () => ipcRenderer.removeListener("chat:tool-result", handler);
   },
 
-  onModelInfo: (callback: (data: ModelRouteInfo) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, data: ModelRouteInfo) =>
+  onModelInfo: (callback: (data: ChatModelInfoEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: ChatModelInfoEvent) =>
       callback(data);
     ipcRenderer.on("chat:model-info", handler);
     return () => ipcRenderer.removeListener("chat:model-info", handler);
   },
 
-  onDone: (callback: () => void) => {
-    const handler = () => callback();
+  onDone: (callback: (data: ChatDoneEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: ChatDoneEvent) =>
+      callback(data);
     ipcRenderer.on("chat:done", handler);
     return () => ipcRenderer.removeListener("chat:done", handler);
   },
 
-  onError: (callback: (err: string) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, err: string) =>
-      callback(err);
+  onError: (callback: (data: ChatErrorEvent) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: ChatErrorEvent) =>
+      callback(data);
     ipcRenderer.on("chat:error", handler);
     return () => ipcRenderer.removeListener("chat:error", handler);
   },
@@ -462,7 +488,8 @@ const api = {
   ): Promise<void> =>
     ipcRenderer.invoke("kb:save-ui-state", selectedIds, ragOnly, minScore),
 
-  abortChat: () => ipcRenderer.send("chat:abort"),
+  abortChat: (conversationId: string | null) =>
+    ipcRenderer.send("chat:abort", conversationId),
 
   rag: {
     pickFiles: (): Promise<RagFileMeta[]> =>

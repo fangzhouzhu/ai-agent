@@ -105,8 +105,12 @@ import {
 } from "./openclawRuntime";
 
 // 当前请求的 AbortController 和 WebContents 引用
-let currentAbortController: AbortController | null = null;
-let currentWebContents: Electron.WebContents | null = null;
+type ChatRequestState = {
+  controller: AbortController;
+  webContents: Electron.WebContents;
+};
+
+const chatRequests = new Map<string, ChatRequestState>();
 
 type WechatBotStatus = {
   status: "idle" | "waiting_scan" | "bound" | "error" | "unbound";
@@ -858,14 +862,51 @@ ipcMain.handle(
     const webContents = event.sender;
 
     // 中止上一次未完成的请求
-    currentAbortController?.abort();
+    const requestConversationId = conversationId ?? randomUUID();
+    if (chatRequests.has(requestConversationId)) {
+      throw new Error("当前对话正在生成中，请先停止当前回复。");
+    }
     const controller = new AbortController();
-    currentAbortController = controller;
-    currentWebContents = webContents;
+    chatRequests.set(requestConversationId, { controller, webContents });
     const { signal } = controller;
+    const emitToken = (token: string) => {
+      webContents.send("chat:token", { conversationId: requestConversationId, token });
+    };
+    const emitToolCall = (toolName: string, input: unknown) => {
+      webContents.send("chat:tool-call", {
+        conversationId: requestConversationId,
+        toolName,
+        input,
+      });
+    };
+    const emitToolResult = (toolName: string, result: string) => {
+      webContents.send("chat:tool-result", {
+        conversationId: requestConversationId,
+        toolName,
+        result,
+      });
+    };
+    const emitModelInfo = (modelInfo: { model: string; scene: string; skill?: string }) => {
+      webContents.send("chat:model-info", {
+        conversationId: requestConversationId,
+        modelInfo,
+      });
+    };
+    const emitDone = (status: "done" | "aborted" = "done") => {
+      webContents.send("chat:done", {
+        conversationId: requestConversationId,
+        status,
+      });
+    };
+    const emitError = (message: string) => {
+      webContents.send("chat:error", {
+        conversationId: requestConversationId,
+        error: message,
+      });
+    };
 
     try {
-      const activeAgent = getEffectiveAgentProfile(conversationId);
+      const activeAgent = getEffectiveAgentProfile(requestConversationId);
       const knowledgeOptions: KnowledgeRequestOptions = {
         kbIds,
         ragOnly,
@@ -890,9 +931,7 @@ ipcMain.handle(
       const useFileRag = Array.isArray(fileIds) && fileIds.length > 0;
       const hasSelectedKbs =
         Array.isArray(effectiveKbIds) && effectiveKbIds.length > 0;
-      const useKbRag =
-        hasSelectedKbs &&
-        (effectiveRagOnly || shouldUseKnowledgeBase(message));
+      const useKbRag = hasSelectedKbs;
       const useRag = useFileRag || useKbRag;
       const route = resolveRouteDecision(message, {
         suppressToolsForRag: useRag,
@@ -930,21 +969,15 @@ ipcMain.handle(
               : `通用（${reason}）`,
           skill: matchedSkill?.skill.name,
         };
-        webContents.send("chat:model-info", fallbackModelInfo);
+        emitModelInfo(fallbackModelInfo);
 
         if (fallbackUseTools) {
           await chatWithAgent(
             fallbackRealtimeTool ? [] : history,
             message,
-            (token) => {
-              webContents.send("chat:token", token);
-            },
-            (toolName, input) => {
-              webContents.send("chat:tool-call", { toolName, input });
-            },
-            (toolName, result) => {
-              webContents.send("chat:tool-result", { toolName, result });
-            },
+            emitToken,
+            emitToolCall,
+            emitToolResult,
             signal,
             matchedSkill?.skill,
           );
@@ -954,9 +987,7 @@ ipcMain.handle(
         await chatStream(
           fallbackRealtimeTool ? [] : history,
           message,
-          (token) => {
-            webContents.send("chat:token", token);
-          },
+          emitToken,
           signal,
           fallbackUseAdvanced ? getAgentModel() : getChatModel(),
           fallbackUseAdvanced ? getAgentProvider() : getChatProvider(),
@@ -994,7 +1025,7 @@ ipcMain.handle(
                 skill: matchedSkill?.skill.name,
               };
 
-      webContents.send("chat:model-info", modelInfo);
+      emitModelInfo(modelInfo);
 
       // 自动路由：文档问答 -> RAG 模型；工具/复杂任务 -> Agent 模型；其余 -> 普通对话模型
       if (useRag) {
@@ -1012,8 +1043,7 @@ ipcMain.handle(
             if (!effectiveRagOnly || effectiveFallbackToChat) {
               await runFallbackChat("知识库无结果");
             } else {
-              webContents.send(
-                "chat:token",
+              emitToken(
                 "没有在选中的知识库中找到足够相关的内容。你可以降低相关度阈值、换一种问法，或切换为“知识库优先”让模型在无结果时继续普通回答。",
               );
             }
@@ -1024,10 +1054,22 @@ ipcMain.handle(
                   `[${c.index}] 来源：${c.source}（知识库：${c.kbName}，相关度：${c.score.toFixed(3)}）\n${c.content}`,
               )
               .join("\n\n---\n\n");
-            const augmentedUserMessage = `请根据以下知识库内容回答问题。
+            const augmentedUserMessage = `请根据以下知识库内容直接回答问题。
+
+先输出“回答”部分，给出明确、具体的答案，不要只输出依据或来源。
+如果问题是在问人物会什么、有哪些技能、做过什么，请优先整理成要点列表。
+回答时只使用知识库中能支持的内容，不要编造。
 
 ${RAG_CITATION_PROMPT}
-依据小节中还必须列出每条证据所属的知识库名称。
+“依据”小节必须放在正文之后，并列出每条证据所属的知识库名称。
+
+请严格使用下面结构：
+回答：
+1. ...
+2. ...
+
+依据：
+[1] 来源：...
 
 知识库内容：
 ${context}
@@ -1041,9 +1083,7 @@ ${context}
               await chatStream(
                 effectiveHistory,
                 augmentedUserMessage,
-                (token) => {
-                  webContents.send("chat:token", token);
-                },
+                emitToken,
                 signal,
                 getRagModel(),
                 getRagProvider(),
@@ -1054,16 +1094,10 @@ ${context}
                 try {
                   await runFallbackChat("知识库回答失败，已回退");
                 } catch {
-                  webContents.send(
-                    "chat:token",
-                    buildKnowledgeBaseFailureMessage(ragErr),
-                  );
+                  emitToken(buildKnowledgeBaseFailureMessage(ragErr));
                 }
               } else {
-                webContents.send(
-                  "chat:token",
-                  buildKnowledgeBaseFailureMessage(ragErr),
-                );
+                emitToken(buildKnowledgeBaseFailureMessage(ragErr));
               }
             }
           }
@@ -1073,7 +1107,7 @@ ${context}
             message,
             fileIds ?? [],
             (token) => {
-              webContents.send("chat:token", token);
+              emitToken(token);
             },
             signal,
             matchedSkill?.skill,
@@ -1108,7 +1142,7 @@ ${context}
               effectiveHistory,
               augmentedUserMessage,
               (token) => {
-                webContents.send("chat:token", token);
+                emitToken(token);
               },
               signal,
               getRagModel(),
@@ -1120,13 +1154,13 @@ ${context}
               effectiveHistory,
               message,
               (token) => {
-                webContents.send("chat:token", token);
+                emitToken(token);
               },
               (toolName, input) => {
-                webContents.send("chat:tool-call", { toolName, input });
+                emitToolCall(toolName, input);
               },
               (toolName, result) => {
-                webContents.send("chat:tool-result", { toolName, result });
+                emitToolResult(toolName, result);
               },
               signal,
               matchedSkill?.skill,
@@ -1136,7 +1170,7 @@ ${context}
               effectiveHistory,
               message,
               (token) => {
-                webContents.send("chat:token", token);
+                emitToken(token);
               },
               signal,
               useAdvancedModel ? getAgentModel() : getChatModel(),
@@ -1150,13 +1184,13 @@ ${context}
               effectiveHistory,
               message,
               (token) => {
-                webContents.send("chat:token", token);
+                emitToken(token);
               },
               (toolName, input) => {
-                webContents.send("chat:tool-call", { toolName, input });
+                emitToolCall(toolName, input);
               },
               (toolName, result) => {
-                webContents.send("chat:tool-result", { toolName, result });
+                emitToolResult(toolName, result);
               },
               signal,
               matchedSkill?.skill,
@@ -1166,7 +1200,7 @@ ${context}
               effectiveHistory,
               message,
               (token) => {
-                webContents.send("chat:token", token);
+                emitToken(token);
               },
               signal,
               useAdvancedModel ? getAgentModel() : getChatModel(),
@@ -1180,13 +1214,13 @@ ${context}
           effectiveHistory,
           message,
           (token) => {
-            webContents.send("chat:token", token);
+            emitToken(token);
           },
           (toolName, input) => {
-            webContents.send("chat:tool-call", { toolName, input });
+            emitToolCall(toolName, input);
           },
           (toolName, result) => {
-            webContents.send("chat:tool-result", { toolName, result });
+            emitToolResult(toolName, result);
           },
           signal,
           matchedSkill?.skill,
@@ -1196,7 +1230,7 @@ ${context}
           effectiveHistory,
           message,
           (token) => {
-            webContents.send("chat:token", token);
+            emitToken(token);
           },
           signal,
           useAdvancedModel ? getAgentModel() : getChatModel(),
@@ -1204,32 +1238,37 @@ ${context}
           matchedSkill?.skill,
         );
       }
-      webContents.send("chat:done");
+      emitDone();
     } catch (err: any) {
       // AbortError 不是错误，发送 done 以保留已输出内容
       if (err?.name === "AbortError" || signal.aborted) {
-        webContents.send("chat:done");
+        emitDone("aborted");
       } else {
-        webContents.send("chat:error", err.message || "未知错误");
+        emitError(err.message || "未知错误");
       }
     } finally {
-      if (currentAbortController === controller) {
-        currentAbortController = null;
-        currentWebContents = null;
+      const currentRequest = chatRequests.get(requestConversationId);
+      if (currentRequest?.controller === controller) {
+        chatRequests.delete(requestConversationId);
       }
     }
   },
 );
 
 // IPC: 中断当前请求
-ipcMain.on("chat:abort", () => {
+ipcMain.on("chat:abort", (_event, conversationId?: string | null) => {
   // 立即通知渲染进程停止，不等待流真正取消
-  if (currentWebContents && !currentWebContents.isDestroyed()) {
-    currentWebContents.send("chat:done");
+  if (!conversationId) return;
+  const request = chatRequests.get(conversationId);
+  if (!request) return;
+  if (!request.webContents.isDestroyed()) {
+    request.webContents.send("chat:done", {
+      conversationId,
+      status: "aborted",
+    });
   }
-  currentAbortController?.abort();
-  currentAbortController = null;
-  currentWebContents = null;
+  request.controller.abort();
+  chatRequests.delete(conversationId);
 });
 
 // IPC: 获取模型列表

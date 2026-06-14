@@ -124,16 +124,9 @@ export async function similaritySearch(
     .distanceType("cosine")
     .limit(filterDocIds ? totalRows : topK);
 
-  if (filterDocIds && filterDocIds.length > 0) {
-    const ids = filterDocIds
-      .map((id) => `'${id.replace(/'/g, "''")}'`)
-      .join(", ");
-    query = query.where(`"documentId" IN (${ids})`);
-  }
-
   const results = await query.toArray();
 
-  const chunks = results.map((row) => {
+  let chunks = results.map((row) => {
     const chunk = fromRow(row as unknown as LanceRow);
     // _distance is cosine distance (0 = identical, 2 = opposite); convert to similarity [0, 1]
     const dist: number = (row as Record<string, number>)["_distance"] ?? 1;
@@ -142,6 +135,8 @@ export async function similaritySearch(
   });
 
   if (filterDocIds) {
+    const allowed = new Set(filterDocIds);
+    chunks = chunks.filter((chunk) => allowed.has(chunk.documentId));
     return chunks.slice(0, topK);
   }
 

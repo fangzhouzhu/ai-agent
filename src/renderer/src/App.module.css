@@ -6,8 +6,16 @@
   padding-top: 38px;
   box-sizing: border-box;
   background:
-    radial-gradient(circle at 34% 4%, rgba(255, 255, 255, 0.96) 0 17%, transparent 31%),
-    radial-gradient(circle at 84% 74%, rgba(114, 152, 255, 0.12) 0 13%, transparent 28%),
+    radial-gradient(
+      circle at 34% 4%,
+      rgba(255, 255, 255, 0.96) 0 17%,
+      transparent 31%
+    ),
+    radial-gradient(
+      circle at 84% 74%,
+      rgba(114, 152, 255, 0.12) 0 13%,
+      transparent 28%
+    ),
     linear-gradient(135deg, #f8fbff 0%, #edf4ff 48%, #f6fbff 100%);
   color: #13244f;
 }
@@ -28,9 +36,19 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle, rgba(111, 141, 218, 0.16) 1px, transparent 1.3px) 118px 22px / 18px 18px,
-    linear-gradient(142deg, transparent 0 29%, rgba(255, 255, 255, 0.52) 29.2% 39%, transparent 39.2%),
-    radial-gradient(ellipse at 34% 0%, rgba(255, 255, 255, 0.9), transparent 42%);
+    radial-gradient(circle, rgba(111, 141, 218, 0.16) 1px, transparent 1.3px)
+      118px 22px / 18px 18px,
+    linear-gradient(
+      142deg,
+      transparent 0 29%,
+      rgba(255, 255, 255, 0.52) 29.2% 39%,
+      transparent 39.2%
+    ),
+    radial-gradient(
+      ellipse at 34% 0%,
+      rgba(255, 255, 255, 0.9),
+      transparent 42%
+    );
   opacity: 0.8;
 }
 
@@ -121,8 +139,16 @@
   border: 1px solid rgba(183, 200, 243, 0.78);
   border-radius: 24px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(247, 250, 255, 0.95)),
-    radial-gradient(circle at 100% 0%, rgba(77, 107, 255, 0.08), transparent 44%);
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.985),
+      rgba(247, 250, 255, 0.95)
+    ),
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(77, 107, 255, 0.08),
+      transparent 44%
+    );
   padding: 13px 13px 12px;
   box-shadow:
     0 10px 24px rgba(53, 81, 154, 0.08),
@@ -221,27 +247,16 @@
 .agentCardMenuBtn {
   width: 34px;
   height: 34px;
-  border: 1px solid rgba(198, 210, 242, 0.76);
   border-radius: 14px;
-  background: rgba(248, 250, 255, 0.98);
-  color: #61739a;
   cursor: pointer;
   font-size: 18px;
   font-weight: 800;
   line-height: 1;
-  box-shadow:
-    0 4px 12px rgba(67, 95, 163, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transition:
-    background 0.16s ease,
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    color 0.16s ease;
+  border: 0;
+  background: transparent;
 }
 
 .agentCardMenuBtn:hover {
-  background: #ffffff;
-  border-color: rgba(91, 124, 255, 0.44);
   color: #3d578d;
 }
 
@@ -343,7 +358,11 @@
   padding: 14px 16px;
   border-radius: 16px;
   border: 1px solid rgba(183, 199, 241, 0.78);
-  background: linear-gradient(135deg, rgba(245, 249, 255, 0.96), rgba(238, 251, 247, 0.92));
+  background: linear-gradient(
+    135deg,
+    rgba(245, 249, 255, 0.96),
+    rgba(238, 251, 247, 0.92)
+  );
 }
 
 .agentKbPicker {
@@ -531,8 +550,14 @@
   flex-direction: column;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.96)) padding-box,
-    linear-gradient(135deg, rgba(96, 123, 246, 0.34), rgba(79, 211, 198, 0.22)) border-box;
+    linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.98),
+        rgba(247, 250, 255, 0.96)
+      )
+      padding-box,
+    linear-gradient(135deg, rgba(96, 123, 246, 0.34), rgba(79, 211, 198, 0.22))
+      border-box;
   border: 1px solid transparent;
   border-radius: 24px;
   box-shadow:
@@ -664,8 +689,14 @@
   flex-direction: column;
   overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.96)) padding-box,
-    linear-gradient(135deg, rgba(96, 123, 246, 0.34), rgba(79, 211, 198, 0.22)) border-box;
+    linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.98),
+        rgba(247, 250, 255, 0.96)
+      )
+      padding-box,
+    linear-gradient(135deg, rgba(96, 123, 246, 0.34), rgba(79, 211, 198, 0.22))
+      border-box;
   border: 1px solid transparent;
   border-radius: 24px;
   box-shadow:
@@ -950,7 +981,11 @@
   padding: 12px 13px;
   border-radius: 14px;
   border: 1px solid rgba(174, 193, 240, 0.76);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 248, 255, 0.96));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.98),
+    rgba(243, 248, 255, 0.96)
+  );
   box-shadow:
     0 18px 36px rgba(44, 72, 146, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
@@ -1207,7 +1242,11 @@
   margin-top: 12px;
   padding: 11px 13px;
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(233, 242, 255, 0.94), rgba(240, 255, 250, 0.88));
+  background: linear-gradient(
+    135deg,
+    rgba(233, 242, 255, 0.94),
+    rgba(240, 255, 250, 0.88)
+  );
   border: 1px solid rgba(152, 180, 244, 0.58);
   color: #31528d;
   font-size: 12px;

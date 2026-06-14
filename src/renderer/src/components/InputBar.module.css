@@ -209,11 +209,11 @@
 
 .inputStage {
   position: relative;
-  min-height: 64px;
+  min-height: 34px;
 }
 
 .inputShell {
-  min-height: 64px;
+  min-height: 34px;
   border-radius: 16px;
   cursor: text;
 }
@@ -263,7 +263,7 @@
   font-size: 15px;
   font-family: inherit;
   line-height: 1.7;
-  min-height: 54px;
+  min-height: 30px;
   max-height: 210px;
   background: transparent;
   border: none;
@@ -368,8 +368,8 @@
 
 .sendBtn,
 .stopBtn {
-  width: 54px;
-  height: 54px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   cursor: pointer;
   display: flex;

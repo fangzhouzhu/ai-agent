@@ -12,7 +12,7 @@
 .dialog {
   position: relative;
   width: min(448px, calc(100vw - 32px));
-  min-height: 136px;
+  min-height: 100px;
   border-radius: 16px;
   background: #ffffff;
   border: 1px solid rgba(206, 214, 231, 0.96);
@@ -103,7 +103,7 @@
 }
 
 .footer {
-  padding: 12px 20px 18px;
+  padding: 12px 20px 12px;
   display: flex;
   justify-content: flex-end;
   gap: 12px;

@@ -463,7 +463,7 @@ const App: React.FC = () => {
   const { confirm } = useAppDialog()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [loadingConversationIds, setLoadingConversationIds] = useState<string[]>([])
   const [ragFiles, setRagFiles] = useState<RagFileMeta[]>([])
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [isRagProcessing, setIsRagProcessing] = useState(false)
@@ -506,15 +506,10 @@ const App: React.FC = () => {
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [runningTaskCount, setRunningTaskCount] = useState(0)
-  const [globalSelectedKbIds, setGlobalSelectedKbIds] = useState<string[]>([])
-  const [globalKbRagOnly, setGlobalKbRagOnly] = useState(false)
-  const [globalKbMinScore, setGlobalKbMinScore] = useState(0.6)
-
   const ragFilesRef = useRef<RagFileMeta[]>([])
-  const streamingMsgIdRef = useRef<string | null>(null)
-  const tokenQueueRef = useRef('')
-  const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const typingTargetRef = useRef<{ convId: string; msgId: string } | null>(null)
+  const streamingMsgIdRef = useRef<Record<string, string | null>>({})
+  const tokenQueueRef = useRef<Record<string, string>>({})
+  const typingTimerRef = useRef<Record<string, ReturnType<typeof setInterval> | null>>({})
   const skillFormRef = useRef<HTMLFormElement | null>(null)
   const agentKbPickerRef = useRef<HTMLDivElement | null>(null)
   const agentModeInfoRef = useRef<HTMLDivElement | null>(null)
@@ -576,11 +571,10 @@ const App: React.FC = () => {
         console.error('electronAPI.storage 未就绪，请重启应用')
         return
       }
-      const [metas, activeIdStored, uploaded, kbUiState] = await Promise.all([
+      const [metas, activeIdStored, uploaded] = await Promise.all([
         window.electronAPI.storage.list(),
         window.electronAPI.storage.getActive(),
         window.electronAPI.rag.list(),
-        window.electronAPI.getKbUiState(),
       ])
 
       const convs: Conversation[] = metas.map((m) => ({
@@ -598,9 +592,6 @@ const App: React.FC = () => {
 
       setRagFiles(uploaded)
       ragFilesRef.current = uploaded
-      setGlobalSelectedKbIds(kbUiState.selectedIds ?? [])
-      setGlobalKbRagOnly(Boolean(kbUiState.ragOnly))
-      setGlobalKbMinScore(typeof kbUiState.minScore === 'number' ? kbUiState.minScore : 0.6)
       await refreshModelConfig()
     }
     init()
@@ -660,9 +651,25 @@ const App: React.FC = () => {
   const activeConversation = conversations.find((c) => c.id === activeId) ?? null
   const activeConversationAgent = agents.find((agent) => agent.id === activeConversation?.agentProfileId) ?? null
   const pendingAgent = agents.find((agent) => agent.id === pendingAgentId) ?? null
-  const kbEditingAgent = activeConversationAgent ?? pendingAgent
   const selectableAgents = agents.filter((agent) => !isLockedAgent(agent))
   const currentAgentModeDescription = agentModeDescriptions[agentEditorDraft?.mode ?? 'domain']
+  const activeIsLoading = activeId ? loadingConversationIds.includes(activeId) : false
+
+  const isConversationLoading = useCallback(
+    (conversationId: string | null | undefined) =>
+      Boolean(conversationId && loadingConversationIds.includes(conversationId)),
+    [loadingConversationIds]
+  )
+
+  const markConversationLoading = useCallback((conversationId: string) => {
+    setLoadingConversationIds((prev) =>
+      prev.includes(conversationId) ? prev : [...prev, conversationId]
+    )
+  }, [])
+
+  const clearConversationLoading = useCallback((conversationId: string) => {
+    setLoadingConversationIds((prev) => prev.filter((id) => id !== conversationId))
+  }, [])
 
   const cloneAgent = useCallback((agent: AgentProfile): AgentProfile => ({
     ...agent,
@@ -768,44 +775,6 @@ const App: React.FC = () => {
     }
     return saved
   }, [agentEditorDraft?.id, cloneAgent])
-
-  const handleAgentKnowledgeChange = useCallback(async (patch: Partial<AgentProfile['knowledge']>) => {
-    if (!kbEditingAgent) return
-    await persistAgent({
-      ...kbEditingAgent,
-      knowledge: {
-        ...kbEditingAgent.knowledge,
-        ...patch,
-      },
-    })
-  }, [kbEditingAgent, persistAgent])
-
-  const handleKnowledgeBaseSelectionChange = useCallback(async (ids: string[]) => {
-    if (kbEditingAgent) {
-      await handleAgentKnowledgeChange({ defaultKbIds: ids })
-      return
-    }
-    setGlobalSelectedKbIds(ids)
-    await window.electronAPI.saveKbUiState(ids, globalKbRagOnly, globalKbMinScore)
-  }, [globalKbMinScore, globalKbRagOnly, handleAgentKnowledgeChange, kbEditingAgent])
-
-  const handleKnowledgeBaseRagOnlyChange = useCallback(async (value: boolean) => {
-    if (kbEditingAgent) {
-      await handleAgentKnowledgeChange({ ragOnly: value })
-      return
-    }
-    setGlobalKbRagOnly(value)
-    await window.electronAPI.saveKbUiState(globalSelectedKbIds, value, globalKbMinScore)
-  }, [globalKbMinScore, globalSelectedKbIds, handleAgentKnowledgeChange, kbEditingAgent])
-
-  const handleKnowledgeBaseMinScoreChange = useCallback(async (value: number) => {
-    if (kbEditingAgent) {
-      await handleAgentKnowledgeChange({ minScore: value })
-      return
-    }
-    setGlobalKbMinScore(value)
-    await window.electronAPI.saveKbUiState(globalSelectedKbIds, globalKbRagOnly, value)
-  }, [globalKbRagOnly, globalSelectedKbIds, handleAgentKnowledgeChange, kbEditingAgent])
 
   const handleSelectConversationAgent = useCallback(async (agentId: string) => {
     const normalizedAgentId = agentId === GENERAL_AGENT_ID ? '' : agentId
@@ -1647,11 +1616,12 @@ const App: React.FC = () => {
 
   const flushTypingStep = useCallback(
     (convId: string, msgId: string) => {
-      const pending = tokenQueueRef.current
+      const pending = tokenQueueRef.current[convId] ?? ''
       if (!pending) {
-        if (typingTimerRef.current) {
-          clearInterval(typingTimerRef.current)
-          typingTimerRef.current = null
+        const timer = typingTimerRef.current[convId]
+        if (timer) {
+          clearInterval(timer)
+          typingTimerRef.current[convId] = null
         }
         return
       }
@@ -1660,7 +1630,7 @@ const App: React.FC = () => {
       const charsPerStep =
         pending.length > 240 ? 48 : pending.length > 120 ? 24 : pending.length > 60 ? 12 : 4
       const chunk = pending.slice(0, charsPerStep)
-      tokenQueueRef.current = pending.slice(charsPerStep)
+      tokenQueueRef.current[convId] = pending.slice(charsPerStep)
       appendToStreamingMessage(convId, msgId, chunk)
     },
     [appendToStreamingMessage]
@@ -1668,13 +1638,10 @@ const App: React.FC = () => {
 
   const ensureTypingLoop = useCallback(
     (convId: string, msgId: string) => {
-      typingTargetRef.current = { convId, msgId }
-      if (typingTimerRef.current) return
+      if (typingTimerRef.current[convId]) return
 
-      typingTimerRef.current = setInterval(() => {
-        const target = typingTargetRef.current
-        if (!target) return
-        flushTypingStep(target.convId, target.msgId)
+      typingTimerRef.current[convId] = setInterval(() => {
+        flushTypingStep(convId, msgId)
       }, 12)
     },
     [flushTypingStep]
@@ -1683,32 +1650,32 @@ const App: React.FC = () => {
   const enqueueToken = useCallback(
     (convId: string, msgId: string, token: string) => {
       if (!token) return
-      tokenQueueRef.current += token
+      tokenQueueRef.current[convId] = (tokenQueueRef.current[convId] ?? '') + token
       ensureTypingLoop(convId, msgId)
     },
     [ensureTypingLoop]
   )
 
   const flushAllQueuedTokens = useCallback((convId: string, msgId: string) => {
-    if (!tokenQueueRef.current) return
-    const rest = tokenQueueRef.current
-    tokenQueueRef.current = ''
+    const rest = tokenQueueRef.current[convId] ?? ''
+    if (!rest) return
+    tokenQueueRef.current[convId] = ''
     appendToStreamingMessage(convId, msgId, rest)
   }, [appendToStreamingMessage])
 
-  const resetTokenBuffer = useCallback(() => {
-    tokenQueueRef.current = ''
-    typingTargetRef.current = null
-    if (typingTimerRef.current) {
-      clearInterval(typingTimerRef.current)
-      typingTimerRef.current = null
+  const resetTokenBuffer = useCallback((convId: string) => {
+    tokenQueueRef.current[convId] = ''
+    const timer = typingTimerRef.current[convId]
+    if (timer) {
+      clearInterval(timer)
+      typingTimerRef.current[convId] = null
     }
   }, [])
 
   // 中断请求
   const handleAbort = useCallback(() => {
-    window.electronAPI.abortChat()
-  }, [])
+    window.electronAPI.abortChat(activeId)
+  }, [activeId])
 
   const buildKnowledgeOptions = useCallback((agent: AgentProfile | null | undefined) => {
     if (agent) {
@@ -1722,12 +1689,8 @@ const App: React.FC = () => {
       }
     }
 
-    return {
-      kbIds: globalSelectedKbIds,
-      ragOnly: globalKbRagOnly,
-      minScore: globalKbMinScore,
-    }
-  }, [globalKbMinScore, globalKbRagOnly, globalSelectedKbIds])
+    return {}
+  }, [])
 
   const handleCopyMessage = useCallback(async (message: Message) => {
     try {
@@ -1789,9 +1752,10 @@ const App: React.FC = () => {
 
   const handleRegenerateMessage = useCallback(
     async (messageId: string) => {
-      if (isLoading || isRagProcessing || !activeId) return
+      if (activeIsLoading || isRagProcessing || !activeId) return
 
-      const targetConv = conversations.find((c) => c.id === activeId)
+      const convId = activeId
+      const targetConv = conversations.find((c) => c.id === convId)
       if (!targetConv) return
 
       const aiIndex = targetConv.messages.findIndex(
@@ -1832,11 +1796,11 @@ const App: React.FC = () => {
         ragContextId: targetRagContextId,
       }
 
-      resetTokenBuffer()
-      streamingMsgIdRef.current = aiMsgId
+      resetTokenBuffer(convId)
+      streamingMsgIdRef.current[convId] = aiMsgId
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === activeId
+          c.id === convId
             ? {
                 ...c,
                 messages: [...baseMessages, nextAiMsg],
@@ -1846,18 +1810,20 @@ const App: React.FC = () => {
         )
       )
 
-      setIsLoading(true)
+      markConversationLoading(convId)
 
-      const removeToken = window.electronAPI.onToken((token) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
-        enqueueToken(activeId, aiMsgId, token)
+      const removeToken = window.electronAPI.onToken(({ conversationId, token }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
+        enqueueToken(convId, aiMsgId, token)
       })
 
-      const removeToolCall = window.electronAPI.onToolCall(({ toolName, input }) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
+      const removeToolCall = window.electronAPI.onToolCall(({ conversationId, toolName, input }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         setConversations((prev) =>
           prev.map((c) =>
-            c.id === activeId
+            c.id === convId
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
@@ -1871,11 +1837,12 @@ const App: React.FC = () => {
         )
       })
 
-      const removeToolResult = window.electronAPI.onToolResult(({ toolName, result }) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
+      const removeToolResult = window.electronAPI.onToolResult(({ conversationId, toolName, result }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         setConversations((prev) =>
           prev.map((c) =>
-            c.id === activeId
+            c.id === convId
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
@@ -1889,11 +1856,12 @@ const App: React.FC = () => {
         )
       })
 
-      const removeModelInfo = window.electronAPI.onModelInfo((modelInfo) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
+      const removeModelInfo = window.electronAPI.onModelInfo(({ conversationId, modelInfo }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         setConversations((prev) =>
           prev.map((c) =>
-            c.id === activeId
+            c.id === convId
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
@@ -1905,12 +1873,15 @@ const App: React.FC = () => {
         )
       })
 
+      let finalized = false
       const finalize = (errorUpdate?: Partial<Message>) => {
-        flushAllQueuedTokens(activeId, aiMsgId)
+        if (finalized) return
+        finalized = true
+        flushAllQueuedTokens(convId, aiMsgId)
         const durationMs = Math.max(0, Date.now() - responseStartedAt)
         setConversations((prev) => {
           const updated = prev.map((c) =>
-            c.id === activeId
+            c.id === convId
               ? {
                   ...c,
                   messages: c.messages.map((m) =>
@@ -1920,17 +1891,22 @@ const App: React.FC = () => {
                 }
               : c
           )
-          const updatedConv = updated.find((c) => c.id === activeId)
+          const updatedConv = updated.find((c) => c.id === convId)
           if (updatedConv) persistConversation(updatedConv)
           return updated
         })
-        setIsLoading(false)
+        clearConversationLoading(convId)
         cleanup()
       }
 
-      const removeDone = window.electronAPI.onDone(() => finalize())
-      const removeError = window.electronAPI.onError((err) =>
-        finalize({ content: `错误：${err}`, isError: true })
+      const removeDone = window.electronAPI.onDone(({ conversationId, status }) => {
+        if (conversationId !== convId) return
+        finalize(status === 'aborted' ? { isStopped: true } : undefined)
+      })
+      const removeError = window.electronAPI.onError(({ conversationId, error }) =>
+        conversationId === convId
+          ? finalize({ content: `错误：${error}`, isError: true })
+          : undefined
       )
 
       const cleanup = () => {
@@ -1940,28 +1916,36 @@ const App: React.FC = () => {
         removeModelInfo()
         removeDone()
         removeError()
-        resetTokenBuffer()
-        streamingMsgIdRef.current = null
+        resetTokenBuffer(convId)
+        streamingMsgIdRef.current[convId] = null
       }
 
-      await window.electronAPI.sendMessage(
-        history,
-        userMsg.content,
-        convId,
-        Boolean(activeConversationAgent?.models.forceAgent || activeConversationAgent?.mode !== 'general'),
-        ragFilesRef.current.map((file) => file.id),
-        buildKnowledgeOptions(activeConversationAgent),
-      )
+      try {
+        await window.electronAPI.sendMessage(
+          history,
+          userMsg.content,
+          convId,
+          Boolean(activeConversationAgent?.models.forceAgent || activeConversationAgent?.mode !== 'general'),
+          ragFilesRef.current.map((file) => file.id),
+          buildKnowledgeOptions(activeConversationAgent),
+        )
+      } catch (error) {
+        finalize({
+          content: `错误：${error instanceof Error ? error.message : '发送失败'}`,
+          isError: true,
+        })
+      }
     },
-    [activeConversationAgent, buildKnowledgeOptions, isLoading, isRagProcessing, activeId, conversations, persistConversation, ragFiles, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [activeConversationAgent, activeIsLoading, buildKnowledgeOptions, isRagProcessing, activeId, conversations, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer, markConversationLoading, clearConversationLoading]
   )
 
   // 发送消息
   const handleSend = useCallback(
     async (text: string) => {
-      if (isLoading || isRagProcessing) return
+      if (isRagProcessing) return
 
       let convId = activeId
+      if (convId && isConversationLoading(convId)) return
       let targetConv = conversations.find((c) => c.id === convId)
       if (!convId) {
         const conv = createConversation(pendingAgent?.id ?? null)
@@ -1989,8 +1973,8 @@ const App: React.FC = () => {
         ragContextId: activeRagContextId,
       }
 
-      resetTokenBuffer()
-      streamingMsgIdRef.current = aiMsgId
+      resetTokenBuffer(convId)
+      streamingMsgIdRef.current[convId] = aiMsgId
 
       const isFirstMsg = (targetConv?.messages.length ?? 0) === 0
       const newTitle = isFirstMsg ? generateTitle(text) : (targetConv?.title ?? '新对话')
@@ -2008,7 +1992,7 @@ const App: React.FC = () => {
         )
       )
 
-      setIsLoading(true)
+      markConversationLoading(convId)
 
       const history = (targetConv?.messages ?? [])
         .filter((m) => (!activeRagContextId ? true : m.ragContextId === activeRagContextId))
@@ -2017,13 +2001,15 @@ const App: React.FC = () => {
           content: m.content,
         }))
 
-      const removeToken = window.electronAPI.onToken((token) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
+      const removeToken = window.electronAPI.onToken(({ conversationId, token }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         enqueueToken(convId, aiMsgId, token)
       })
 
-      const removeToolCall = window.electronAPI.onToolCall(({ toolName, input }) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
+      const removeToolCall = window.electronAPI.onToolCall(({ conversationId, toolName, input }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         setConversations((prev) =>
           prev.map((c) =>
             c.id === convId
@@ -2040,8 +2026,9 @@ const App: React.FC = () => {
         )
       })
 
-      const removeToolResult = window.electronAPI.onToolResult(({ toolName, result }) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
+      const removeToolResult = window.electronAPI.onToolResult(({ conversationId, toolName, result }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         setConversations((prev) =>
           prev.map((c) =>
             c.id === convId
@@ -2058,8 +2045,9 @@ const App: React.FC = () => {
         )
       })
 
-      const removeModelInfo = window.electronAPI.onModelInfo((modelInfo) => {
-        if (streamingMsgIdRef.current !== aiMsgId) return
+      const removeModelInfo = window.electronAPI.onModelInfo(({ conversationId, modelInfo }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         setConversations((prev) =>
           prev.map((c) =>
             c.id === convId
@@ -2074,7 +2062,10 @@ const App: React.FC = () => {
         )
       })
 
+      let finalized = false
       const finalize = (errorUpdate?: Partial<Message>) => {
+        if (finalized) return
+        finalized = true
         flushAllQueuedTokens(convId, aiMsgId)
         const durationMs = Math.max(0, Date.now() - responseStartedAt)
         setConversations((prev) => {
@@ -2093,14 +2084,19 @@ const App: React.FC = () => {
           if (updatedConv) persistConversation(updatedConv)
           return updated
         })
-        setIsLoading(false)
+        clearConversationLoading(convId)
         cleanup()
       }
 
-      const removeDone = window.electronAPI.onDone(() => finalize())
+      const removeDone = window.electronAPI.onDone(({ conversationId, status }) => {
+        if (conversationId !== convId) return
+        finalize(status === 'aborted' ? { isStopped: true } : undefined)
+      })
 
-      const removeError = window.electronAPI.onError((err) =>
-        finalize({ content: `错误：${err}`, isError: true })
+      const removeError = window.electronAPI.onError(({ conversationId, error }) =>
+        conversationId === convId
+          ? finalize({ content: `错误：${error}`, isError: true })
+          : undefined
       )
 
       const cleanup = () => {
@@ -2110,31 +2106,38 @@ const App: React.FC = () => {
         removeModelInfo()
         removeDone()
         removeError()
-        resetTokenBuffer()
-        streamingMsgIdRef.current = null
+        resetTokenBuffer(convId)
+        streamingMsgIdRef.current[convId] = null
       }
 
-      await window.electronAPI.sendMessage(
-        history,
-        text,
-        convId,
-        Boolean(
-          (targetConv?.agentProfileId
-            ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
-            : pendingAgent)?.models.forceAgent ||
-          (targetConv?.agentProfileId
-            ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
-            : pendingAgent)?.mode !== 'general'
-        ),
-        currentRagFiles.map((file) => file.id),
-        buildKnowledgeOptions(
-          (targetConv?.agentProfileId
-            ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
-            : pendingAgent) ?? null
-        ),
-      )
+      try {
+        await window.electronAPI.sendMessage(
+          history,
+          text,
+          convId,
+          Boolean(
+            (targetConv?.agentProfileId
+              ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
+              : pendingAgent)?.models.forceAgent ||
+            (targetConv?.agentProfileId
+              ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
+              : pendingAgent)?.mode !== 'general'
+          ),
+          currentRagFiles.map((file) => file.id),
+          buildKnowledgeOptions(
+            (targetConv?.agentProfileId
+              ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
+              : pendingAgent) ?? null
+          ),
+        )
+      } catch (error) {
+        finalize({
+          content: `错误：${error instanceof Error ? error.message : '发送失败'}`,
+          isError: true,
+        })
+      }
     },
-    [agents, buildKnowledgeOptions, isLoading, isRagProcessing, activeId, conversations, ragFiles, ragContextId, pendingAgent, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer]
+    [agents, buildKnowledgeOptions, isRagProcessing, activeId, conversations, ragContextId, pendingAgent, persistConversation, enqueueToken, flushAllQueuedTokens, resetTokenBuffer, isConversationLoading, markConversationLoading, clearConversationLoading]
   )
 
   return (
@@ -2151,7 +2154,6 @@ const App: React.FC = () => {
         onOpenSettings={() => void handleOpenModelConfig()}
         currentView={currentView}
         onViewChange={setCurrentView}
-        selectedKbCount={kbEditingAgent?.knowledge.defaultKbIds.length ?? 0}
         runningTaskCount={runningTaskCount}
         activeKbId={activeKbId}
         activeTaskId={activeTaskId}
@@ -2259,15 +2261,8 @@ const App: React.FC = () => {
           </div>
         ) : currentView === 'kb' ? (
           <KnowledgeBasePanel
-            selectedKbIds={kbEditingAgent?.knowledge.defaultKbIds ?? globalSelectedKbIds}
-            onSelectionChange={(ids) => void handleKnowledgeBaseSelectionChange(ids)}
-            ragOnly={kbEditingAgent?.knowledge.ragOnly ?? globalKbRagOnly}
-            onRagOnlyChange={(value) => void handleKnowledgeBaseRagOnlyChange(value)}
-            minScore={kbEditingAgent?.knowledge.minScore ?? globalKbMinScore}
-            onMinScoreChange={(value) => void handleKnowledgeBaseMinScoreChange(value)}
             activeKbId={activeKbId}
             onActiveKbIdChange={setActiveKbId}
-            agentName={kbEditingAgent?.name ?? '通用'}
           />
         ) : currentView === 'task' ? (
           <TaskPanel
@@ -2300,7 +2295,7 @@ const App: React.FC = () => {
 
             <ChatArea
               messages={activeConversation?.messages ?? []}
-              isLoading={isLoading || (activeConversation !== null && !activeConversation.loaded)}
+              isLoading={activeIsLoading || (activeConversation !== null && !activeConversation.loaded)}
               onCopyMessage={handleCopyMessage}
               onEditUserMessage={handleEditUserMessage}
               onDeleteMessage={handleDeleteMessage}
@@ -2310,7 +2305,7 @@ const App: React.FC = () => {
             <InputBar
               onSend={handleSend}
               onAbort={handleAbort}
-              isLoading={isLoading}
+              isLoading={activeIsLoading}
               isRagProcessing={isRagProcessing}
               ragStatusText={ragStatusText}
               ragFiles={ragFiles}

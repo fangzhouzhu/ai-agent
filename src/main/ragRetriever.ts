@@ -7,9 +7,37 @@ const embeddingsCache = new Map<string, OllamaEmbeddings>();
 function getEmbeddings(model: string): OllamaEmbeddings {
   const cached = embeddingsCache.get(model);
   if (cached) return cached;
-  const e = new OllamaEmbeddings({ model, baseUrl: "http://localhost:11434" });
-  embeddingsCache.set(model, e);
-  return e;
+  const instance = new OllamaEmbeddings({
+    model,
+    baseUrl: "http://localhost:11434",
+  });
+  embeddingsCache.set(model, instance);
+  return instance;
+}
+
+function buildQueryTokens(query: string): string[] {
+  const baseTokens = query
+    .toLowerCase()
+    .split(/[\s，。！？；：\n\t]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1);
+  const tokens = new Set<string>(baseTokens);
+
+  for (const token of baseTokens) {
+    const normalized = token.replace(/[^\p{Script=Han}a-z0-9]/gu, "");
+    if (normalized.length <= 1) continue;
+
+    if (/[\p{Script=Han}]/u.test(normalized)) {
+      for (let size = 2; size <= 3; size++) {
+        if (normalized.length < size) continue;
+        for (let index = 0; index <= normalized.length - size; index++) {
+          tokens.add(normalized.slice(index, index + size));
+        }
+      }
+    }
+  }
+
+  return [...tokens];
 }
 
 function keywordScore(text: string, queryTokens: string[]): number {
@@ -29,8 +57,7 @@ export interface RetrievedChunk {
   content: string;
   score: number;
 }
-// 加入最低相关度阈值 MIN_RELEVANCE_SCORE = 0.45（混合分数 = 向量相似度 × 0.7 + 关键词命中率 × 0.3）。低于阈值的 chunks 全部过滤掉，返回空数组
-// 调高后，模型获取到的上下文质量更高，但也可能导致某些查询没有任何相关内容返回（触发后续的降级策略）。可以根据实际情况调整这个阈值，以在相关性和覆盖率之间找到最佳平衡点。
+
 const MIN_RELEVANCE_SCORE = 0.6;
 
 export async function retrieveFromKbs(
@@ -39,13 +66,9 @@ export async function retrieveFromKbs(
   topK = 6,
   minScore = MIN_RELEVANCE_SCORE,
 ): Promise<RetrievedChunk[]> {
-  const queryTokens = query
-    .toLowerCase()
-    .split(/[\s，。！？；：\n\t]+/)
-    .filter((t) => t.length > 1);
-
+  const queryTokens = buildQueryTokens(query);
   const wantsOverview =
-    /总结|概括|概述|全文|内容|讲了什么|说了什么|主要内容|描述|介绍|分析一下|看一下|看看/i.test(
+    /总结|概括|概述|全文|内容|讲了什么|说了什么|主要内容|描述|介绍|分析一下|看一看|看看/i.test(
       query,
     );
 
@@ -60,18 +83,20 @@ export async function retrieveFromKbs(
     const kb = getKnowledgeBase(kbId);
     if (!kb) continue;
 
+    const kbDocs = listDocuments(kbId);
+    const readyDocIds = kbDocs
+      .filter((doc) => doc.status === "ready")
+      .map((doc) => doc.id);
+    if (readyDocIds.length === 0) continue;
+
     const embeddings = getEmbeddings(kb.embeddingModel);
     const queryEmbedding = await embeddings.embedQuery(query);
-
     const fetchK = wantsOverview ? topK * 3 : topK * 2;
-    const hits = await similaritySearch(kbId, queryEmbedding, fetchK);
-
-    const kbDocs = listDocuments(kbId);
+    const hits = await similaritySearch(kbId, queryEmbedding, fetchK, readyDocIds);
 
     for (const hit of hits) {
-      const doc = kbDocs.find((d) => d.id === hit.documentId);
+      const doc = kbDocs.find((item) => item.id === hit.documentId);
       const kw = keywordScore(hit.text, queryTokens);
-      // Hybrid: 70% vector + 30% keyword
       const hybridScore = hit.score * 0.7 + kw * 0.3;
 
       results.push({
@@ -83,22 +108,19 @@ export async function retrieveFromKbs(
     }
   }
 
-  // Deduplicate by content
   const unique = results.filter(
-    (r, i, arr) => arr.findIndex((x) => x.content === r.content) === i,
+    (result, index, arr) =>
+      arr.findIndex((item) => item.content === result.content) === index,
   );
 
-  // Sort by hybrid score
   unique.sort((a, b) => b.score - a.score);
+  const relevant = unique.filter((item) => item.score >= minScore);
 
-  // Filter by minimum relevance threshold; if nothing passes, return empty → triggers fallback
-  const relevant = unique.filter((r) => r.score >= minScore);
-
-  return relevant.slice(0, topK).map((r, i) => ({
-    index: i + 1,
-    source: r.source,
-    kbName: r.kbName,
-    content: r.content,
-    score: r.score,
+  return relevant.slice(0, topK).map((item, index) => ({
+    index: index + 1,
+    source: item.source,
+    kbName: item.kbName,
+    content: item.content,
+    score: item.score,
   }));
 }

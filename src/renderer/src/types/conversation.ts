@@ -17,6 +17,7 @@ export interface Message {
   durationMs?: number;
   isStreaming?: boolean;
   isError?: boolean;
+  isStopped?: boolean;
 }
 
 export interface ConvMeta {
@@ -72,5 +73,6 @@ export function toStoredMessage(m: Message) {
     ragContextId: m.ragContextId,
     durationMs: m.durationMs,
     isError: m.isError,
+    isStopped: m.isStopped,
   };
 }

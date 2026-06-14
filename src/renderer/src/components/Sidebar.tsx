@@ -20,7 +20,6 @@ interface Props {
   onOpenSettings: () => void
   currentView: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat'
   onViewChange: (view: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat') => void
-  selectedKbCount: number
   runningTaskCount: number
   activeKbId?: string | null
   activeTaskId?: string | null
@@ -74,7 +73,6 @@ const Sidebar: React.FC<Props> = ({
   onOpenSettings,
   currentView,
   onViewChange,
-  selectedKbCount,
   runningTaskCount,
   onSelectKb,
   onSelectTask,
@@ -142,7 +140,6 @@ const Sidebar: React.FC<Props> = ({
           >
             <span className={styles.navIcon}>▣</span>
             <span>知识库</span>
-            {selectedKbCount > 0 && <span className={styles.countBadge}>{selectedKbCount}</span>}
           </button>
           <button
             className={`${styles.navItem} ${currentView === 'task' ? styles.navItemActive : ''}`}
@@ -175,12 +172,20 @@ const Sidebar: React.FC<Props> = ({
                 const agentLogo = agent ? (agent.avatar?.trim() || getAgentTextLogo(agent.name)) : null
 
                 return (
-                  <button
+                  <div
                     key={conv.id}
                     className={`${styles.listItem} ${
                       currentView === 'chat' && conv.id === activeId ? styles.active : ''
                     }`}
                     onClick={() => onSelect(conv.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onSelect(conv.id)
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     title={agent ? `${agent.name} · ${conv.title}` : conv.title}
                   >
                     <span
@@ -248,7 +253,7 @@ const Sidebar: React.FC<Props> = ({
                         </div>
                       )}
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
@@ -260,9 +265,10 @@ const Sidebar: React.FC<Props> = ({
         <div className={styles.userAvatar}>C</div>
         <button
           className={styles.settingsBtn}
+          type="button"
           onClick={onOpenSettings}
-          title="设置"
-          aria-label="设置"
+          title="打开设置"
+          aria-label="打开设置"
         >
           ⚙
         </button>

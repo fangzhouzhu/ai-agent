@@ -45,6 +45,24 @@ type AssistantContentParts = {
   thought: string
 }
 
+function splitStructuredKnowledgeAnswer(text: string): AssistantContentParts | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  const hasAnswerSection = /(^|\n)\s*(?:#{1,6}\s*)?回答\s*[:：]/.test(trimmed)
+  const hasEvidenceSection = /(^|\n)\s*(?:#{1,6}\s*)?依据\s*[:：]/.test(trimmed)
+
+  if (hasAnswerSection && hasEvidenceSection) {
+    return { answer: trimmed, thought: '' }
+  }
+
+  if (/^\s*(?:#{1,6}\s*)?回答\s*[:：]/.test(trimmed)) {
+    return { answer: trimmed, thought: '' }
+  }
+
+  return null
+}
+
 function parseDetailLines(text: string): DetailItem[] {
   return text
     .split(/\r?\n/)
@@ -261,6 +279,14 @@ function splitAssistantDisplayContent(text: string): AssistantContentParts {
   })
 
   const plainContent = stripToolMarkup(withoutTaggedThought)
+  const structuredAnswer = splitStructuredKnowledgeAnswer(plainContent)
+  if (structuredAnswer) {
+    return {
+      thought: thoughts.join('\n\n'),
+      answer: structuredAnswer.answer,
+    }
+  }
+
   const likelyAnswerStart = findLikelyAnswerStart(plainContent)
   if (likelyAnswerStart !== null && likelyAnswerStart > 0) {
     const leakedThought = plainContent.slice(0, likelyAnswerStart).trim()
@@ -921,6 +947,10 @@ const MessageBubble: React.FC<Props> = ({
             </div>
           )}
         </div>
+
+        {!isUser && message.isStopped && !message.isStreaming && (
+          <div className={styles.stoppedNotice}>已停止生成</div>
+        )}
 
         {!isUser && message.modelInfo && (
           <div className={styles.metaInfo}>

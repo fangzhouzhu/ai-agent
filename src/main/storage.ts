@@ -39,6 +39,7 @@ export interface StoredMessage {
   ragContextId?: string;
   durationMs?: number;
   isError?: boolean;
+  isStopped?: boolean;
 }
 
 export type ModelProvider = "ollama" | "openai-compatible";

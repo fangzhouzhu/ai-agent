@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import styles from './KnowledgeBase.module.css'
 import { useAppDialog } from './AppDialogProvider'
 
@@ -39,13 +39,6 @@ type KbIndexingProgress = {
 }
 
 interface Props {
-  selectedKbIds: string[]
-  onSelectionChange: (ids: string[]) => void
-  ragOnly: boolean
-  onRagOnlyChange: (v: boolean) => void
-  minScore: number
-  onMinScoreChange: (v: number) => void
-  agentName: string
   activeKbId?: string | null
   onActiveKbIdChange?: (id: string | null) => void
 }
@@ -84,13 +77,6 @@ const statusColor: Record<string, string> = {
 }
 
 const KnowledgeBasePanel: React.FC<Props> = ({
-  selectedKbIds,
-  onSelectionChange,
-  ragOnly,
-  onRagOnlyChange,
-  minScore,
-  onMinScoreChange,
-  agentName,
   activeKbId: controlledActiveKbId,
   onActiveKbIdChange,
 }) => {
@@ -107,22 +93,18 @@ const KnowledgeBasePanel: React.FC<Props> = ({
   const [editingKbId, setEditingKbId] = useState<string | null>(null)
   const [editingKbName, setEditingKbName] = useState('')
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const activeKbId = controlledActiveKbId ?? internalActiveKbId
-  const setActiveKbId = useCallback(
-    (id: string | null) => {
-      setInternalActiveKbId(id)
-      onActiveKbIdChange?.(id)
-    },
-    [onActiveKbIdChange],
-  )
 
-  // Load KB list
+  const activeKbId = controlledActiveKbId ?? internalActiveKbId
+  const setActiveKbId = useCallback((id: string | null) => {
+    setInternalActiveKbId(id)
+    onActiveKbIdChange?.(id)
+  }, [onActiveKbIdChange])
+
   const refreshKbs = useCallback(async () => {
     const kbs = await window.electronAPI.kb.list()
     setKnowledgeBases(kbs)
   }, [])
 
-  // Load docs for active KB
   const refreshDocs = useCallback(async (kbId: string) => {
     setIsLoadingDocs(true)
     try {
@@ -134,29 +116,27 @@ const KnowledgeBasePanel: React.FC<Props> = ({
   }, [])
 
   useEffect(() => {
-    refreshKbs()
+    void refreshKbs()
   }, [refreshKbs])
 
   useEffect(() => {
-    if (activeKbId) {
-      refreshDocs(activeKbId)
-    } else {
+    if (!activeKbId) {
       setDocuments([])
+      return
     }
+    void refreshDocs(activeKbId)
   }, [activeKbId, refreshDocs])
 
-  // Subscribe to indexing progress
   useEffect(() => {
     const unsub = window.electronAPI.kb.onIndexingProgress((data) => {
       setProgressMap((prev) => ({ ...prev, [data.docId]: data }))
-
-      // Refresh docs list when any doc status changes
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
       refreshTimerRef.current = setTimeout(() => {
-        if (activeKbId) refreshDocs(activeKbId)
-        refreshKbs()
+        if (activeKbId) void refreshDocs(activeKbId)
+        void refreshKbs()
       }, 600)
     })
+
     return () => {
       unsub()
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
@@ -173,19 +153,17 @@ const KnowledgeBasePanel: React.FC<Props> = ({
     setNewKbDesc('')
     setIsAddingKb(false)
     await refreshKbs()
-  }, [newKbName, newKbDesc, refreshKbs])
+  }, [newKbDesc, newKbName, refreshKbs])
 
-  const handleDeleteKb = useCallback(
-    async (kbId: string, e: React.MouseEvent) => {
-      e.stopPropagation()
-      if (!await confirm({ message: '确定要删除该知识库及其所有文档和索引吗？', tone: 'danger' })) return
-      await window.electronAPI.kb.delete(kbId)
-      if (activeKbId === kbId) setActiveKbId(null)
-      onSelectionChange(selectedKbIds.filter((id) => id !== kbId))
-      await refreshKbs()
-    },
-    [activeKbId, confirm, selectedKbIds, onSelectionChange, refreshKbs],
-  )
+  const handleDeleteKb = useCallback(async (kbId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!await confirm({ message: '确定要删除该知识库及其所有文档和索引吗？', tone: 'danger' })) {
+      return
+    }
+    await window.electronAPI.kb.delete(kbId)
+    if (activeKbId === kbId) setActiveKbId(null)
+    await refreshKbs()
+  }, [activeKbId, confirm, refreshKbs, setActiveKbId])
 
   const handleStartEditKb = useCallback((kb: KnowledgeBase, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -197,6 +175,7 @@ const KnowledgeBasePanel: React.FC<Props> = ({
     if (!editingKbId || !editingKbName.trim()) return
     await window.electronAPI.kb.update(editingKbId, { name: editingKbName.trim() })
     setEditingKbId(null)
+    setEditingKbName('')
     await refreshKbs()
   }, [editingKbId, editingKbName, refreshKbs])
 
@@ -204,17 +183,6 @@ const KnowledgeBasePanel: React.FC<Props> = ({
     setEditingKbId(null)
     setEditingKbName('')
   }, [])
-
-  const handleToggleSelect = useCallback(
-    (kbId: string, e: React.MouseEvent) => {
-      e.stopPropagation()
-      const next = selectedKbIds.includes(kbId)
-        ? selectedKbIds.filter((id) => id !== kbId)
-        : [...selectedKbIds, kbId]
-      onSelectionChange(next)
-    },
-    [selectedKbIds, onSelectionChange],
-  )
 
   const handleAddFiles = useCallback(async () => {
     if (!activeKbId) return
@@ -228,30 +196,25 @@ const KnowledgeBasePanel: React.FC<Props> = ({
     }
   }, [activeKbId, refreshDocs, refreshKbs])
 
-  const handleRemoveDoc = useCallback(
-    async (docId: string) => {
-      if (!await confirm({ message: '确定要从知识库中移除该文档吗？', tone: 'danger' })) return
-      await window.electronAPI.kb.removeDoc(docId)
-      if (activeKbId) {
-        await refreshDocs(activeKbId)
-        await refreshKbs()
-      }
-    },
-    [activeKbId, confirm, refreshDocs, refreshKbs],
-  )
+  const handleRemoveDoc = useCallback(async (docId: string) => {
+    if (!await confirm({ message: '确定要从知识库中移除该文档吗？', tone: 'danger' })) {
+      return
+    }
+    await window.electronAPI.kb.removeDoc(docId)
+    if (activeKbId) {
+      await refreshDocs(activeKbId)
+      await refreshKbs()
+    }
+  }, [activeKbId, confirm, refreshDocs, refreshKbs])
 
-  const handleRebuildDoc = useCallback(
-    async (docId: string) => {
-      await window.electronAPI.kb.rebuildDoc(docId)
-    },
-    [],
-  )
+  const handleRebuildDoc = useCallback(async (docId: string) => {
+    await window.electronAPI.kb.rebuildDoc(docId)
+  }, [])
 
-  const activeKb = knowledgeBases.find((k) => k.id === activeKbId) ?? null
+  const activeKb = knowledgeBases.find((item) => item.id === activeKbId) ?? null
 
   return (
     <div className={styles.container}>
-      {/* Left panel: KB list */}
       <div className={styles.leftPanel}>
         <div className={styles.leftHeader}>
           <span className={styles.leftTitle}>知识库</span>
@@ -272,7 +235,7 @@ const KnowledgeBasePanel: React.FC<Props> = ({
               value={newKbName}
               onChange={(e) => setNewKbName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateKb()
+                if (e.key === 'Enter') void handleCreateKb()
                 if (e.key === 'Escape') setIsAddingKb(false)
               }}
               autoFocus
@@ -284,7 +247,7 @@ const KnowledgeBasePanel: React.FC<Props> = ({
               onChange={(e) => setNewKbDesc(e.target.value)}
             />
             <div className={styles.newKbActions}>
-              <button className={styles.confirmBtn} onClick={handleCreateKb}>
+              <button className={styles.confirmBtn} onClick={() => void handleCreateKb()}>
                 创建
               </button>
               <button className={styles.cancelBtn} onClick={() => setIsAddingKb(false)}>
@@ -305,12 +268,6 @@ const KnowledgeBasePanel: React.FC<Props> = ({
               onClick={() => setActiveKbId(kb.id === activeKbId ? null : kb.id)}
             >
               <div className={styles.kbItemTop}>
-                {/* 勾选框在最左侧 */}
-                <button
-                  className={`${styles.selectBtn} ${selectedKbIds.includes(kb.id) ? styles.selectBtnActive : ''}`}
-                  onClick={(e) => handleToggleSelect(kb.id, e)}
-                  title={selectedKbIds.includes(kb.id) ? '取消选用' : '选用此知识库'}
-                />
                 {editingKbId === kb.id ? (
                   <input
                     className={styles.kbNameInput}
@@ -319,29 +276,41 @@ const KnowledgeBasePanel: React.FC<Props> = ({
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setEditingKbName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.stopPropagation(); void handleSaveEditKb() }
-                      if (e.key === 'Escape') { e.stopPropagation(); handleCancelEditKb() }
+                      if (e.key === 'Enter') {
+                        e.stopPropagation()
+                        void handleSaveEditKb()
+                      }
+                      if (e.key === 'Escape') {
+                        e.stopPropagation()
+                        handleCancelEditKb()
+                      }
                     }}
-                    onBlur={handleSaveEditKb}
+                    onBlur={() => void handleSaveEditKb()}
                   />
                 ) : (
                   <span className={styles.kbName}>{kb.name}</span>
                 )}
-                {/* 操作按钮 hover 时显示 */}
                 <div className={styles.kbItemActions}>
                   <button
                     className={styles.editKbBtn}
                     onClick={(e) => handleStartEditKb(kb, e)}
                     title="重命名"
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
                   </button>
                   <button
                     className={styles.deleteKbBtn}
-                    onClick={(e) => handleDeleteKb(kb.id, e)}
+                    onClick={(e) => void handleDeleteKb(kb.id, e)}
                     title="删除知识库"
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -351,48 +320,21 @@ const KnowledgeBasePanel: React.FC<Props> = ({
             </div>
           ))}
         </div>
-
-        {selectedKbIds.length > 0 && (
-          <div className={styles.activeNotice}>
-            ✓ 已选 {selectedKbIds.length} 个知识库用于聊天
-          </div>
-        )}
       </div>
 
-      {/* Right panel: document list */}
       <div className={styles.rightPanel}>
         <div className={styles.kbPageToolbar}>
           <div>
             <div className={styles.kbPageTitle}>知识库设置</div>
             <div className={styles.kbPageHint}>
-              勾选知识库后，只有明确询问文档、资料或知识库内容时才会检索。
+              这里仅维护知识库内容本身。知识库关联、检索方式和其他问答配置请到智能体中设置。
             </div>
-          </div>
-          <div className={styles.kbToolbarControls}>
-            <button
-              className={`${styles.modeToggle} ${ragOnly ? styles.modeToggleActive : ''}`}
-              onClick={() => onRagOnlyChange(!ragOnly)}
-              title={ragOnly ? '当前为仅限知识库模式' : '当前为知识库优先模式'}
-            >
-              {ragOnly ? '仅限知识库' : '知识库优先'}
-            </button>
-            <label className={styles.scoreControl}>
-              <span>相关度 {minScore.toFixed(2)}</span>
-              <input
-                type="range"
-                min={0.1}
-                max={0.9}
-                step={0.05}
-                value={minScore}
-                onChange={(e) => onMinScoreChange(parseFloat(e.target.value))}
-              />
-            </label>
           </div>
         </div>
 
         {!activeKb ? (
           <div className={styles.noKbSelected}>
-            <div className={styles.noKbIcon}>📚</div>
+            <div className={styles.noKbIcon}>📎</div>
             <div className={styles.noKbText}>选择左侧知识库查看文档</div>
           </div>
         ) : (
@@ -406,7 +348,7 @@ const KnowledgeBasePanel: React.FC<Props> = ({
               </div>
               <button
                 className={styles.addFileBtn}
-                onClick={handleAddFiles}
+                onClick={() => void handleAddFiles()}
                 disabled={isAddingFiles}
                 title="添加文档到知识库"
               >
@@ -419,7 +361,7 @@ const KnowledgeBasePanel: React.FC<Props> = ({
             ) : documents.length === 0 ? (
               <div className={styles.emptyDocs}>
                 <div>暂无文档</div>
-                <div className={styles.emptyDocsHint}>点击"添加文档"上传 PDF、Word、TXT 等文件</div>
+                <div className={styles.emptyDocsHint}>点击“添加文档”上传 PDF、Word、TXT 等文件</div>
               </div>
             ) : (
               <div className={styles.docTable}>
@@ -432,8 +374,8 @@ const KnowledgeBasePanel: React.FC<Props> = ({
                   <span className={styles.colActions}></span>
                 </div>
                 {documents.map((doc) => {
-                  const prog = progressMap[doc.id]
-                  const displayStatus = prog?.status ?? doc.status
+                  const progress = progressMap[doc.id]
+                  const displayStatus = progress?.status ?? doc.status
 
                   return (
                     <div key={doc.id} className={styles.docRow}>
@@ -449,11 +391,11 @@ const KnowledgeBasePanel: React.FC<Props> = ({
                         >
                           {statusLabel[displayStatus] ?? displayStatus}
                         </span>
-                        {prog && displayStatus !== 'ready' && displayStatus !== 'failed' && (
+                        {progress && displayStatus !== 'ready' && displayStatus !== 'failed' && (
                           <div className={styles.progressBar}>
                             <div
                               className={styles.progressFill}
-                              style={{ width: `${prog.progress ?? 0}%` }}
+                              style={{ width: `${progress.progress ?? 0}%` }}
                             />
                           </div>
                         )}
@@ -463,18 +405,18 @@ const KnowledgeBasePanel: React.FC<Props> = ({
                         {doc.status === 'failed' && (
                           <button
                             className={styles.rebuildBtn}
-                            onClick={() => handleRebuildDoc(doc.id)}
+                            onClick={() => void handleRebuildDoc(doc.id)}
                             title="重新索引"
                           >
-                            ↺
+                            ↻
                           </button>
                         )}
                         <button
                           className={styles.removeDocBtn}
-                          onClick={() => handleRemoveDoc(doc.id)}
+                          onClick={() => void handleRemoveDoc(doc.id)}
                           title="移除文档"
                         >
-                          ✕
+                          ×
                         </button>
                       </span>
                     </div>
