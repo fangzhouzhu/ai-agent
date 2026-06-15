@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import type { Task } from "../../../preload/index";
 
 export interface MessageModelInfo {
   model: string;
@@ -10,6 +11,7 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  task?: Task;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
   modelInfo?: MessageModelInfo;
@@ -33,7 +35,9 @@ export interface Conversation extends ConvMeta {
   loaded: boolean;
 }
 
-export function createConversation(agentProfileId: string | null): Conversation {
+export function createConversation(
+  agentProfileId: string | null,
+): Conversation {
   return {
     id: uuidv4(),
     title: "新对话",
@@ -67,6 +71,7 @@ export function toStoredMessage(m: Message) {
     id: m.id,
     role: m.role,
     content: m.content,
+    task: m.task,
     toolCalls: m.toolCalls,
     toolResults: m.toolResults,
     modelInfo: m.modelInfo,

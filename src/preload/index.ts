@@ -17,6 +17,7 @@ export type StoredMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  task?: Task;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
   modelInfo?: { model: string; scene: string };

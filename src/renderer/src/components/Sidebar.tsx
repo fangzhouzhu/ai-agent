@@ -18,13 +18,11 @@ interface Props {
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void | Promise<void>
   onOpenSettings: () => void
-  currentView: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat'
-  onViewChange: (view: 'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat') => void
+  currentView: 'chat' | 'agents' | 'kb' | 'skills' | 'wechat'
+  onViewChange: (view: 'chat' | 'agents' | 'kb' | 'skills' | 'wechat') => void
   runningTaskCount: number
   activeKbId?: string | null
-  activeTaskId?: string | null
   onSelectKb: (id: string | null) => void
-  onSelectTask: (id: string | null) => void
 }
 
 function getAgentTextLogo(name: string): string {
@@ -75,7 +73,6 @@ const Sidebar: React.FC<Props> = ({
   onViewChange,
   runningTaskCount,
   onSelectKb,
-  onSelectTask,
 }) => {
   const { confirm, prompt } = useAppDialog()
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
@@ -108,6 +105,7 @@ const Sidebar: React.FC<Props> = ({
         <button className={styles.brandBtn} onClick={() => onViewChange('chat')}>
           <span className={styles.logoMark} aria-hidden="true" />
           <span className={styles.logo}>Centibot</span>
+          {runningTaskCount > 0 && <span className={styles.countBadge}>{runningTaskCount}</span>}
         </button>
       </div>
 
@@ -140,17 +138,6 @@ const Sidebar: React.FC<Props> = ({
           >
             <span className={styles.navIcon}>▣</span>
             <span>知识库</span>
-          </button>
-          <button
-            className={`${styles.navItem} ${currentView === 'task' ? styles.navItemActive : ''}`}
-            onClick={() => {
-              onSelectTask(null)
-              onViewChange('task')
-            }}
-          >
-            <span className={styles.navIcon}>■</span>
-            <span>任务</span>
-            {runningTaskCount > 0 && <span className={styles.countBadge}>{runningTaskCount}</span>}
           </button>
           <button
             className={`${styles.navItem} ${currentView === 'skills' ? styles.navItemActive : ''}`}

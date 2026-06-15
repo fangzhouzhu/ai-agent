@@ -40,9 +40,48 @@ type ToolTraceStep = {
   summary: string
   status: 'done' | 'running'
 }
+
+const TASK_STATUS_LABELS: Record<NonNullable<Message['task']>['status'], string> = {
+  pending: '等待中',
+  running: '执行中',
+  paused: '已暂停',
+  waiting_for_approval: '待确认',
+  waiting_for_input: '待输入',
+  blocked: '已阻塞',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
+const TASK_STEP_ICONS: Record<NonNullable<Message['task']>['steps'][number]['type'], string> = {
+  plan: '📋',
+  thinking: '🤔',
+  tool_call: '🔧',
+  tool_result: '📄',
+  output: '✅',
+  error: '❌',
+}
 type AssistantContentParts = {
   answer: string
   thought: string
+}
+
+function isLocalFileHref(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('localfile://')
+}
+
+function decodeLocalFileHref(value: string): string {
+  if (value.startsWith('localfile://')) {
+    return decodeURIComponent(value.slice('localfile://'.length))
+  }
+  return value
+}
+
+function linkifyLocalFilePaths(text: string): string {
+  return text.replace(
+    /([A-Za-z]:[\\/][^\s，,。\n\r]+\.(?:pdf|pptx|txt|md))/g,
+    (match) => `[${match}](localfile://${encodeURIComponent(match)})`,
+  )
 }
 
 function splitStructuredKnowledgeAnswer(text: string): AssistantContentParts | null {
@@ -489,6 +528,20 @@ function renderResultPreview(toolName: string, result: string) {
   return <pre className={styles.toolResultBlock}>{trimmed}</pre>
 }
 
+function getPromotedToolResult(
+  toolResults?: NonNullable<Message['toolResults']>,
+): { toolName: string; result: string } | null {
+  if (!toolResults?.length) return null
+
+  const weatherResult = toolResults.find(
+    (item) => item?.toolName === 'get_weather_current' && Boolean(item.result?.trim()),
+  )
+
+  return weatherResult?.result
+    ? { toolName: weatherResult.toolName, result: weatherResult.result }
+    : null
+}
+
 const ToolCallBadge: React.FC<{ toolName: string; input: unknown; result?: string }> = ({
   toolName,
   input,
@@ -692,6 +745,160 @@ const ToolProcessPanel: React.FC<{
   )
 }
 
+const TaskMessagePanel: React.FC<{
+  task: NonNullable<Message['task']>
+}> = ({ task }) => {
+  const [expandedSteps, setExpandedSteps] = React.useState<Record<string, boolean>>({})
+  const [isStepListExpanded, setIsStepListExpanded] = React.useState(
+    !['completed', 'failed', 'cancelled'].includes(task.status),
+  )
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  React.useEffect(() => {
+    if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+      setIsStepListExpanded(false)
+      return
+    }
+    setIsStepListExpanded(true)
+  }, [task.status])
+
+  const toggleStep = (stepId: string) => {
+    setExpandedSteps((prev) => ({
+      ...prev,
+      [stepId]: !prev[stepId],
+    }))
+  }
+
+  const runTaskAction = async (action: () => Promise<unknown>) => {
+    setIsSubmitting(true)
+    try {
+      await action()
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const canPause = task.status === 'running'
+  const canResume = task.status === 'paused' || task.status === 'blocked'
+  const canCancel = ['running', 'paused', 'waiting_for_approval', 'waiting_for_input', 'blocked'].includes(task.status)
+  const canRerun = ['completed', 'failed', 'cancelled', 'blocked'].includes(task.status)
+
+  return (
+    <div className={styles.taskPanel}>
+      <div className={styles.taskPanelHeader}>
+        <div>
+          <div className={styles.taskPanelTitle}>{task.title}</div>
+          <div className={styles.taskPanelMeta}>
+            <span className={`${styles.taskStatusBadge} ${styles[`taskStatus_${task.status}`]}`}>
+              {TASK_STATUS_LABELS[task.status]}
+            </span>
+            <span>{task.steps.length} 步</span>
+            <span>{new Date(task.updatedAt).toLocaleString('zh-CN')}</span>
+          </div>
+        </div>
+        <div className={styles.taskPanelActions}>
+          {canPause && (
+            <button
+              type="button"
+              className={styles.taskActionBtn}
+              onClick={() => void runTaskAction(() => window.electronAPI.task.pause(task.id))}
+              disabled={isSubmitting}
+            >
+              暂停
+            </button>
+          )}
+          {canResume && (
+            <button
+              type="button"
+              className={styles.taskActionBtn}
+              onClick={() => void runTaskAction(() => window.electronAPI.task.resume(task.id))}
+              disabled={isSubmitting}
+            >
+              继续
+            </button>
+          )}
+          {canCancel && (
+            <button
+              type="button"
+              className={`${styles.taskActionBtn} ${styles.taskActionBtnDanger}`}
+              onClick={() => void runTaskAction(() => window.electronAPI.task.cancel(task.id))}
+              disabled={isSubmitting}
+            >
+              停止
+            </button>
+          )}
+          {canRerun && (
+            <button
+              type="button"
+              className={styles.taskActionBtn}
+              onClick={() => void runTaskAction(() => window.electronAPI.task.rerun(task.id))}
+              disabled={isSubmitting}
+            >
+              重跑
+            </button>
+          )}
+        </div>
+      </div>
+
+      {task.steps.length === 0 ? (
+        <div className={styles.taskEmptyState}>任务已创建，等待执行明细同步...</div>
+      ) : (
+        <>
+          <button
+            type="button"
+            className={styles.taskSectionToggle}
+            onClick={() => setIsStepListExpanded((prev) => !prev)}
+            aria-expanded={isStepListExpanded}
+          >
+            <span>执行计划与过程</span>
+            <span className={styles.taskSectionToggleIcon}>{isStepListExpanded ? '▲' : '▼'}</span>
+          </button>
+          {isStepListExpanded && <div className={styles.taskStepList}>
+          {task.steps.map((step) => {
+            const expanded = Boolean(expandedSteps[step.id])
+            const hasDetail = Boolean(step.content) && step.type !== 'output'
+
+            return (
+              <div key={step.id} className={styles.taskStepItem}>
+                <button
+                  type="button"
+                  className={styles.taskStepHeader}
+                  onClick={() => hasDetail && toggleStep(step.id)}
+                  disabled={!hasDetail}
+                >
+                  <span className={styles.taskStepIcon}>{TASK_STEP_ICONS[step.type]}</span>
+                  <span className={styles.taskStepLabel}>{step.label}</span>
+                  {hasDetail && <span className={styles.taskStepToggle}>{expanded ? '▲' : '▼'}</span>}
+                </button>
+                {expanded && hasDetail && <pre className={styles.taskStepContent}>{step.content}</pre>}
+                {step.type === 'output' && step.content && (
+                  <pre className={styles.taskStepOutput}>{step.content}</pre>
+                )}
+              </div>
+            )
+          })}
+          </div>}
+        </>
+      )}
+
+      {task.outputFiles.length > 0 && (
+        <div className={styles.taskFileList}>
+          {task.outputFiles.map((filePath) => (
+            <button
+              key={filePath}
+              type="button"
+              className={styles.taskFileBtn}
+              onClick={() => void window.electronAPI.openPath(filePath)}
+            >
+              打开文件：{filePath}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const CopyIcon: React.FC = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="9" y="9" width="11" height="11" rx="2" />
@@ -857,14 +1064,19 @@ const MessageBubble: React.FC<Props> = ({
   }
 
   const shouldShowProcessPanel =
+    !message.task &&
     !isUser &&
     ((message.toolCalls?.length ?? 0) > 0 ||
       ['Agent/工具', '复杂任务', 'RAG', '知识库增强'].includes(message.modelInfo?.scene ?? ''))
   const assistantContentParts = splitAssistantDisplayContent(message.content)
-  const displayContent = isUser ? message.content : assistantContentParts.answer
+  const displayContent = isUser ? message.content : linkifyLocalFilePaths(assistantContentParts.answer)
   const thoughtContent = isUser ? '' : assistantContentParts.thought
   const shouldShowThoughtPanel =
-    !isUser && (Boolean(thoughtContent) || Boolean(message.isStreaming) || message.durationMs !== undefined)
+    !message.task && !isUser && (Boolean(thoughtContent) || Boolean(message.isStreaming) || message.durationMs !== undefined)
+  const promotedToolResult =
+    !message.task && !isUser && !message.isStreaming
+      ? getPromotedToolResult(message.toolResults)
+      : null
 
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
@@ -892,6 +1104,24 @@ const MessageBubble: React.FC<Props> = ({
           />
         )}
 
+        {message.task && (
+          <TaskMessagePanel task={message.task} />
+        )}
+
+        {promotedToolResult && (
+          <div className={styles.promotedToolCard}>
+            <div className={styles.promotedToolMeta}>
+              <span className={styles.promotedToolIcon}>
+                {(TOOL_META[promotedToolResult.toolName] ?? { icon: '⚙' }).icon}
+              </span>
+              <span className={styles.promotedToolLabel}>
+                {(TOOL_META[promotedToolResult.toolName] ?? { label: promotedToolResult.toolName }).label}
+              </span>
+            </div>
+            {renderResultPreview(promotedToolResult.toolName, promotedToolResult.result)}
+          </div>
+        )}
+
         {/* 消息内容 */}
         <div className={`${styles.bubble} ${isUser ? styles.userBubble : styles.aiBubble} ${message.isError ? styles.errorBubble : ''}`}>
           {isUser ? (
@@ -915,6 +1145,10 @@ const MessageBubble: React.FC<Props> = ({
                         onClick={(event) => {
                           event.preventDefault()
                           if (href) {
+                            if (isLocalFileHref(href)) {
+                              void window.electronAPI.openPath(decodeLocalFileHref(href))
+                              return
+                            }
                             window.open(href, '_blank', 'noopener,noreferrer')
                           }
                         }}
@@ -994,7 +1228,7 @@ const MessageBubble: React.FC<Props> = ({
                 </button>
               </>
             ) : (
-              isLast && (
+              !message.task && isLast && (
                 <button className={styles.actionBtn} onClick={() => onRegenerate(message.id)} disabled={isLoading} title="重新生成" aria-label="重新生成">
                   <RegenerateIcon />
                 </button>

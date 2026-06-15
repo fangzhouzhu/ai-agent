@@ -4,10 +4,10 @@ import { useMemo } from 'react'
 import ChatArea from './components/ChatArea'
 import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
-import TaskPanel from './components/TaskPanel'
 import SkillsPanel from './components/SkillsPanel'
 import WechatBotPanel from './components/WechatBotPanel'
 import { useAppDialog } from './components/AppDialogProvider'
+import type { Task } from '../../preload/index'
 
 const TitleBar: React.FC = () => (
   <div style={{
@@ -40,6 +40,63 @@ import {
 } from './types/conversation'
 import { v4 as uuidv4 } from 'uuid'
 import styles from './App.module.css'
+
+const TASK_MODEL_INFO = {
+  model: 'Task Runner',
+  scene: '后台任务',
+} as const
+
+function buildTaskTitle(prompt: string): string {
+  return prompt.slice(0, 60) + (prompt.length > 60 ? '…' : '')
+}
+
+function createPendingTaskSnapshot(taskId: string, prompt: string): Task {
+  const now = Date.now()
+  return {
+    id: taskId,
+    title: buildTaskTitle(prompt),
+    prompt,
+    status: 'pending',
+    steps: [],
+    result: '',
+    outputFiles: [],
+    checkpoint: {
+      node: 'created',
+      round: 0,
+      toolCallCount: 0,
+      updatedAt: now,
+      canResume: true,
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function getTaskErrorSummary(task: Task): string {
+  const latestError = [...task.steps].reverse().find((step) => step.type === 'error')
+  return latestError?.content?.trim() || '任务执行失败，请查看步骤详情。'
+}
+
+function getTaskMessageContent(task: Task): string {
+  const result = task.result.trim()
+  if (result) return result
+
+  if (task.status === 'completed') {
+    return task.outputFiles.length > 0
+      ? '任务已完成，生成的文件可在下方任务卡片中直接打开。'
+      : '任务已完成。'
+  }
+
+  if (task.status === 'failed') return `任务失败：${getTaskErrorSummary(task)}`
+  if (task.status === 'cancelled') return '任务已取消，历史步骤已保留。'
+  if (task.status === 'paused') return '任务已暂停，可在当前消息中继续执行。'
+  if (task.status === 'blocked') return '任务因中断被阻塞，可继续执行或重新运行。'
+  if (task.status === 'waiting_for_approval' || task.status === 'waiting_for_input') {
+    return '任务正在等待处理。'
+  }
+
+  return '后台任务已创建，进度会持续同步到当前对话。'
+}
 
 type RagFileMeta = {
   id: string
@@ -502,9 +559,8 @@ const App: React.FC = () => {
     message: '',
   })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
-  const [currentView, setCurrentView] = useState<'chat' | 'agents' | 'kb' | 'task' | 'skills' | 'wechat'>('chat')
+  const [currentView, setCurrentView] = useState<'chat' | 'agents' | 'kb' | 'skills' | 'wechat'>('chat')
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [runningTaskCount, setRunningTaskCount] = useState(0)
   const ragFilesRef = useRef<RagFileMeta[]>([])
   const streamingMsgIdRef = useRef<Record<string, string | null>>({})
@@ -599,12 +655,50 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const remove = window.electronAPI.task.onUpdate((task) => {
-      if (task.status === 'running') {
-        setRunningTaskCount((n) => n)
-      }
-      // 重新计算运行中任务数
       window.electronAPI.task.list().then((list) => {
         setRunningTaskCount(list.filter((t) => t.status === 'running').length)
+      })
+
+      setConversations((prev) => {
+        const changedConversations: Conversation[] = []
+        const updated = prev.map((conv) => {
+          let touched = false
+          const nextMessages = conv.messages.map((message) => {
+            if (message.task?.id !== task.id) return message
+            touched = true
+            return {
+              ...message,
+              task,
+              content: getTaskMessageContent(task),
+              modelInfo: message.modelInfo ?? TASK_MODEL_INFO,
+            }
+          })
+
+          if (!touched) return conv
+
+          const nextConversation = {
+            ...conv,
+            messages: nextMessages,
+            updatedAt: Date.now(),
+          }
+          changedConversations.push(nextConversation)
+          return nextConversation
+        })
+
+        changedConversations.forEach((conversation) => {
+          const meta: ConvMeta = {
+            id: conversation.id,
+            title: conversation.title,
+            agentProfileId: conversation.agentProfileId,
+            createdAt: conversation.createdAt,
+            updatedAt: conversation.updatedAt,
+          }
+          const messages = conversation.messages
+            .filter((message) => !message.isStreaming)
+            .map(toStoredMessage)
+          window.electronAPI.storage.save(meta, messages)
+        })
+        return updated
       })
     })
     return remove
@@ -1941,7 +2035,7 @@ const App: React.FC = () => {
 
   // 发送消息
   const handleSend = useCallback(
-    async (text: string) => {
+    async (text: string, mode: 'chat' | 'task') => {
       if (isRagProcessing) return
 
       let convId = activeId
@@ -1953,6 +2047,59 @@ const App: React.FC = () => {
         setConversations((prev) => [conv, ...prev])
         setActiveId(conv.id)
         convId = conv.id
+      }
+
+      if (!convId || !targetConv) return
+
+      if (mode === 'task') {
+        const userMsg = createMessage('user', text)
+        const isFirstMsg = targetConv.messages.length === 0
+        const newTitle = isFirstMsg ? generateTitle(text) : targetConv.title
+
+        try {
+          const taskId = await window.electronAPI.task.create(text)
+          const task = (await window.electronAPI.task.get(taskId)) ?? createPendingTaskSnapshot(taskId, text)
+          const taskMessage: Message = {
+            id: uuidv4(),
+            role: 'assistant',
+            content: getTaskMessageContent(task),
+            task,
+            modelInfo: TASK_MODEL_INFO,
+          }
+          const updatedConversation: Conversation = {
+            ...targetConv,
+            title: newTitle,
+            messages: [...targetConv.messages, userMsg, taskMessage],
+            updatedAt: Date.now(),
+          }
+
+          setConversations((prev) => prev.map((conversation) =>
+            conversation.id === convId ? updatedConversation : conversation
+          ))
+          persistConversation(updatedConversation)
+        } catch (error) {
+          const errorText = error instanceof Error ? error.message : '任务创建失败'
+          const errorMessage: Message = {
+            id: uuidv4(),
+            role: 'assistant',
+            content: `错误：${errorText}`,
+            isError: true,
+            modelInfo: TASK_MODEL_INFO,
+          }
+          const updatedConversation: Conversation = {
+            ...targetConv,
+            title: newTitle,
+            messages: [...targetConv.messages, userMsg, errorMessage],
+            updatedAt: Date.now(),
+          }
+
+          setConversations((prev) => prev.map((conversation) =>
+            conversation.id === convId ? updatedConversation : conversation
+          ))
+          persistConversation(updatedConversation)
+        }
+
+        return
       }
 
       const currentRagFiles = ragFilesRef.current
@@ -2156,14 +2303,9 @@ const App: React.FC = () => {
         onViewChange={setCurrentView}
         runningTaskCount={runningTaskCount}
         activeKbId={activeKbId}
-        activeTaskId={activeTaskId}
         onSelectKb={(id) => {
           setActiveKbId(id)
           setCurrentView('kb')
-        }}
-        onSelectTask={(id) => {
-            setActiveTaskId(id)
-            setCurrentView('task')
         }}
       />
       <div className={styles.main}>
@@ -2206,7 +2348,7 @@ const App: React.FC = () => {
                               title="更多操作"
                               aria-label="更多操作"
                             >
-                              ⋯
+                              <span className={styles.agentCardMenuIcon} />
                             </button>
                             {activeAgentMenuId === agent.id && (
                               <div
@@ -2263,11 +2405,6 @@ const App: React.FC = () => {
           <KnowledgeBasePanel
             activeKbId={activeKbId}
             onActiveKbIdChange={setActiveKbId}
-          />
-        ) : currentView === 'task' ? (
-          <TaskPanel
-            selectedTaskId={activeTaskId}
-            onSelectedTaskIdChange={setActiveTaskId}
           />
         ) : currentView === 'skills' ? (
           <SkillsPanel />

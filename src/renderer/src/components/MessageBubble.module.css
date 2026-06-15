@@ -244,7 +244,8 @@
   width: min(100%, 650px);
   background:
     linear-gradient(#ffffff, #f7fbff) padding-box,
-    linear-gradient(135deg, rgba(77, 107, 255, 0.58), rgba(32, 183, 199, 0.34)) border-box;
+    linear-gradient(135deg, rgba(77, 107, 255, 0.58), rgba(32, 183, 199, 0.34))
+      border-box;
   border: 1px solid transparent;
   border-radius: 16px;
   overflow: hidden;
@@ -360,6 +361,220 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.taskPanel {
+  width: min(100%, 650px);
+  border-radius: 16px;
+  border: 1px solid rgba(187, 204, 244, 0.84);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.96),
+    rgba(245, 249, 255, 0.96)
+  );
+  box-shadow: 0 18px 36px rgba(53, 81, 154, 0.09);
+  overflow: hidden;
+}
+
+.taskPanelHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 15px 12px;
+  border-bottom: 1px solid rgba(217, 226, 248, 0.92);
+}
+
+.taskPanelTitle {
+  font-size: 14px;
+  font-weight: 800;
+  color: #14265b;
+}
+
+.taskPanelMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  color: #5e7199;
+  font-size: 11.5px;
+}
+
+.taskStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.taskStatus_pending,
+.taskStatus_running,
+.taskStatus_waiting_for_approval,
+.taskStatus_waiting_for_input {
+  background: rgba(226, 238, 255, 0.92);
+  color: #1d5fd1;
+}
+
+.taskStatus_paused,
+.taskStatus_blocked,
+.taskStatus_cancelled {
+  background: rgba(237, 240, 247, 0.96);
+  color: #55657f;
+}
+
+.taskStatus_completed {
+  background: rgba(221, 248, 232, 0.96);
+  color: #13744c;
+}
+
+.taskStatus_failed {
+  background: rgba(255, 233, 236, 0.96);
+  color: #b42318;
+}
+
+.taskPanelActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.taskActionBtn {
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(176, 194, 241, 0.82);
+  background: rgba(255, 255, 255, 0.94);
+  color: #244173;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.taskActionBtn:hover:not(:disabled) {
+  border-color: rgba(91, 124, 255, 0.55);
+  background: #ffffff;
+}
+
+.taskActionBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.taskActionBtnDanger {
+  color: #b42318;
+  border-color: rgba(240, 139, 151, 0.72);
+}
+
+.taskEmptyState {
+  padding: 14px 15px;
+  color: #6c7a96;
+  font-size: 12.5px;
+}
+
+.taskSectionToggle {
+  width: calc(100% - 30px);
+  margin: 12px 15px 0;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(220, 228, 248, 0.95);
+  background: rgba(255, 255, 255, 0.9);
+  color: #1b3367;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.taskSectionToggleIcon {
+  color: #7085b1;
+  font-size: 11px;
+}
+
+.taskStepList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 15px 14px;
+}
+
+.taskStepItem {
+  border: 1px solid rgba(220, 228, 248, 0.95);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.taskStepHeader {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: #14265b;
+  cursor: pointer;
+}
+
+.taskStepHeader:disabled {
+  cursor: default;
+}
+
+.taskStepIcon {
+  flex-shrink: 0;
+}
+
+.taskStepLabel {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.taskStepToggle {
+  color: #7085b1;
+  font-size: 11px;
+}
+
+.taskStepContent,
+.taskStepOutput {
+  margin: 0;
+  padding: 0 12px 12px;
+  color: #4a5976;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.taskStepOutput {
+  color: #162652;
+}
+
+.taskFileList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 15px 15px;
+}
+
+.taskFileBtn {
+  border: 1px solid rgba(176, 194, 241, 0.82);
+  border-radius: 12px;
+  background: rgba(236, 244, 255, 0.92);
+  color: #1a4ea1;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.taskFileBtn:hover {
+  background: rgba(229, 239, 255, 0.98);
 }
 
 .toolCall {
@@ -622,6 +837,41 @@
 .weatherLocation {
   font-size: 12px;
   color: #315ff1;
+}
+
+.promotedToolCard {
+  align-self: flex-start;
+  width: min(100%, 650px);
+  padding: 12px;
+  border-radius: 16px;
+  background:
+    linear-gradient(#ffffff, #f7fbff) padding-box,
+    linear-gradient(135deg, rgba(77, 107, 255, 0.4), rgba(32, 183, 199, 0.26))
+      border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 16px 34px rgba(53, 81, 154, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.promotedToolMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #31528d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.promotedToolIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.promotedToolLabel {
+  line-height: 1;
 }
 
 .metaInfo {

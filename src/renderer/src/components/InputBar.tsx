@@ -61,7 +61,7 @@ type AgentOption = {
 }
 
 interface Props {
-  onSend: (message: string) => void
+  onSend: (message: string, mode: 'chat' | 'task') => void
   onAbort: () => void
   isLoading: boolean
   isRagProcessing: boolean
@@ -198,6 +198,7 @@ const InputBar: React.FC<Props> = ({
   onApplyOnlineProfile,
 }) => {
   const [input, setInput] = useState('')
+  const [sendMode, setSendMode] = useState<'chat' | 'task'>('chat')
   const [selectedSkills, setSelectedSkills] = useState<SkillConfig[]>([])
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -361,7 +362,7 @@ const InputBar: React.FC<Props> = ({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-    onSend(message)
+    onSend(message, sendMode)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -414,7 +415,9 @@ const InputBar: React.FC<Props> = ({
   }
 
   const placeholder =
-    isRagProcessing
+    sendMode === 'task'
+      ? '描述一个要在后台持续执行的任务，例如：整理竞品信息并生成 PDF 报告...'
+      : isRagProcessing
       ? '文档正在分析中，请稍候，完成后即可提问...'
       : ragFiles.length > 0
         ? '基于已上传文档提问，例如：总结重点、提取结论、解释某一段...'
@@ -513,6 +516,24 @@ const InputBar: React.FC<Props> = ({
 
           <div className={styles.composerFooter}>
             <div className={styles.footerControls}>
+              <div className={styles.modeSwitch}>
+                <button
+                  type="button"
+                  className={`${styles.modeBtn} ${sendMode === 'chat' ? styles.modeBtnActive : ''}`}
+                  onClick={() => setSendMode('chat')}
+                  disabled={isBusy}
+                >
+                  对话
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.modeBtn} ${sendMode === 'task' ? styles.modeBtnActive : ''}`}
+                  onClick={() => setSendMode('task')}
+                  disabled={isBusy}
+                >
+                  任务
+                </button>
+              </div>
               <button
                 className={styles.uploadBtn}
                 onClick={() => void onPickFiles()}

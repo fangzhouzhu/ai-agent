@@ -44,7 +44,8 @@
 
 .uploadBtn,
 .agentSelect,
-.modelSelect {
+.modelSelect,
+.modeBtn {
   border: 1px solid rgba(176, 194, 241, 0.82);
   background: rgba(255, 255, 255, 0.9);
   color: #244173;
@@ -68,6 +69,33 @@
   background: linear-gradient(135deg, #4d6bff, #1da8df);
   color: #ffffff;
   box-shadow: 0 10px 20px rgba(53, 100, 243, 0.18);
+}
+
+.modeSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(233, 241, 255, 0.9);
+  border: 1px solid rgba(176, 194, 241, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.modeBtn {
+  height: 30px;
+  border-radius: 999px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.modeBtnActive {
+  border-color: #3564f3;
+  background: linear-gradient(135deg, #4d6bff, #1da8df);
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(53, 100, 243, 0.16);
 }
 
 .agentSelect,
@@ -107,7 +135,9 @@
 .agentSelect:hover,
 .agentSelect:focus,
 .modelSelect:hover,
-.modelSelect:focus {
+.modelSelect:focus,
+.modeBtn:hover,
+.modeBtn:focus {
   transform: translateY(-1px);
   border-color: rgba(91, 124, 255, 0.55);
   background-color: #ffffff;
@@ -116,7 +146,8 @@
 
 .uploadBtn:disabled,
 .agentSelect:disabled,
-.modelSelect:disabled {
+.modelSelect:disabled,
+.modeBtn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

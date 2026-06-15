@@ -13,6 +13,7 @@ import { join } from "path";
 import * as fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { executeTool } from "./runtime/ToolExecutor";
+import { getDefaultArtifactDir } from "./tools/policy";
 import {
   invokeOpenAICompatibleChat,
   type CompatibleMessage,
@@ -345,11 +346,19 @@ function getTaskSystemPrompt(): string {
 2. 每次搜索后立即用 fetch_url 抓取1-2个最相关URL，不要再次搜索
 3. 信息收集完毕后，必须调用 generate_pdf 或 generate_pptx 生成文件
 4. 禁止循环搜索，获得搜索结果后直接进入下一计划步骤
-5. 整个任务最多执行15个工具调用`;
+5. 整个任务最多执行15个工具调用
+6. 如果任务主题是某个行业/品类近几个月动态，必须先拆成“品牌/系列 + 发布 + 参数/图片 + 年月”的检索词，禁止直接搜索过宽泛的大句子
+7. 如果任务是手机新品汇总，优先关注手机厂商官网、发布会稿件和主流科技媒体；忽略政策、节假日、日历、旅游、泛新闻等明显无关结果
+8. 在生成报告前，至少核对每个核心结论对应的抓取页面是否真的提到该机型名称、发布时间、参数或图片来源`;
 }
 
 function getPlanPrompt(userPrompt: string): string {
   return `请为以下任务制定一个清晰的执行计划，直接输出编号步骤列表，每步一行，不超过8步。不要解释，不要调用工具，只输出计划。
+
+如果任务是在整理最近几个月某行业新品/活动：
+- 先拆解信息维度（品牌、时间范围、型号、参数、图片来源）
+- 搜索词要短且具体，不要直接复述整段任务
+- 优先安排“搜索 -> 抓取 -> 校对 -> 生成文档”的节奏
 
 任务：${userPrompt}
 
@@ -360,6 +369,466 @@ function getPlanPrompt(userPrompt: string): string {
 4. 分析汇总数据
 5. 生成PDF/PPT报告`;
 }
+
+function isPhoneLaunchTask(prompt: string): boolean {
+  return /(手机|新机|发布会|发布的新手机|机型|参数|配置|图片|真机图|渲染图|厂商)/i.test(
+    prompt,
+  );
+}
+
+function isFetchResultSuccessful(result: string): boolean {
+  return !/^网页抓取失败[:：]/.test(result) && result.includes("正文:");
+}
+
+function extractMatchedPhoneBrands(text: string): string[] {
+  const brandPatterns: Array<[string, RegExp]> = [
+    ["vivo", /\bvivo\b|vivo|iqoo|iQOO/i],
+    ["OPPO", /\boppo\b|oppo|一加|oneplus|realme/i],
+    ["华为", /华为|\bhuawei\b/i],
+    ["荣耀", /荣耀|\bhonor\b/i],
+    ["小米", /小米|\bxiaomi\b|\bredmi\b/i],
+    ["魅族", /魅族|\bmeizu\b/i],
+    ["努比亚", /努比亚|\bnubia\b/i],
+  ];
+
+  return brandPatterns
+    .filter(([, pattern]) => pattern.test(text))
+    .map(([brand]) => brand);
+}
+
+function hasPhoneTaskEvidence(
+  fetchSuccessCount: number,
+  matchedBrands: Set<string>,
+): boolean {
+  return fetchSuccessCount >= 4 && matchedBrands.size >= 3;
+}
+
+function containsPlaceholderContent(text: string): boolean {
+  return /(暂无具体信息|暂时无具体信息|暂无信息|待补充|后续补充)/.test(text);
+}
+
+type PhoneEvidenceItem = {
+  brand: string;
+  title: string;
+  url: string;
+  excerpt: string;
+};
+
+function extractSearchResultUrls(result: string): string[] {
+  const urls = result.match(/https?:\/\/[^\s\u4e00-\u9fa5<>")]+/g) || [];
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const parsed = new URL(url);
+      return /^https?:$/.test(parsed.protocol);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function splitSearchResultEntries(result: string): Array<{
+  title: string;
+  url: string;
+  body: string;
+}> {
+  return result
+    .split(/\n\n(?=\d+\.)/)
+    .map((block) => block.trim())
+    .filter((block) => /^\d+\./.test(block))
+    .map((block) => {
+      const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const title = lines[0]?.replace(/^\d+\.\s*/, "") || "";
+      const url = lines.find((line) => /^https?:\/\//.test(line)) || "";
+      return {
+        title,
+        url,
+        body: lines.join(" "),
+      };
+    })
+    .filter((entry) => Boolean(entry.url));
+}
+
+function scorePhoneSearchEntry(entry: { title: string; url: string; body: string }, query: string): number {
+  const haystack = `${entry.title} ${entry.body} ${entry.url}`.toLowerCase();
+  let score = 0;
+
+  if (/(gov\.cn|mwr\.gov\.cn|holiday|日历|节假日|政策|国务院|农历|放假)/i.test(haystack)) {
+    return -100;
+  }
+
+  if (/(ithome|mydrivers|zol|pconline|cnmo|techweb|gsmarena|91mobiles|sina\.com\.cn|163\.com|sohu\.com|oppo\.com|vivo\.com|huawei\.com|honor\.com|mi\.com|xiaomi\.com|iqoo\.com|oneplus\.com|realme\.com)/i.test(haystack)) {
+    score += 6;
+  }
+
+  if (/(手机|新机|发布|发布会|参数|配置|影像|图片|真机图|渲染图|售价|开售)/i.test(haystack)) {
+    score += 4;
+  }
+
+  for (const brand of extractMatchedPhoneBrands(`${query} ${entry.title} ${entry.body}`)) {
+    if (haystack.includes(brand.toLowerCase()) || entry.body.includes(brand)) {
+      score += 3;
+    }
+  }
+
+  return score;
+}
+
+function extractRelevantPhoneUrls(result: string, query: string): string[] {
+  const scoredEntries = splitSearchResultEntries(result)
+    .map((entry) => ({
+      entry,
+      score: scorePhoneSearchEntry(entry, query),
+    }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (scoredEntries.length > 0) {
+    return [...new Set(scoredEntries.map((item) => item.entry.url))];
+  }
+
+  return [];
+}
+
+function taskNeedsPpt(prompt: string): boolean {
+  return /(ppt|pptx|演示文稿|幻灯片)/i.test(prompt);
+}
+
+function taskNeedsDocument(prompt: string): boolean {
+  return /(文档|报告|总结|汇总|markdown|md|pdf)/i.test(prompt);
+}
+
+function taskNeedsMarkdown(prompt: string): boolean {
+  return /(markdown|\.md|(^|\s)md(\s|$))/i.test(prompt);
+}
+
+function sanitizeArtifactBaseName(input: string): string {
+  const safe = input
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40);
+  return safe || "任务报告";
+}
+
+function extractExcerptFromFetchResult(result: string): string {
+  const matched = result.match(/正文:\s*([\s\S]+)/);
+  const raw = matched?.[1] ?? result;
+  return raw.replace(/\s+/g, " ").trim().slice(0, 280);
+}
+
+function extractTitleFromFetchResult(result: string): string {
+  const matched = result.match(/网页标题[:：]\s*(.+)/);
+  return matched?.[1]?.trim() || "来源页面";
+}
+
+function extractUrlFromFetchResult(result: string): string {
+  const matched = result.match(/链接[:：]\s*(https?:\/\/[^\s]+)/);
+  return matched?.[1]?.trim() || "";
+}
+
+function collectPhoneEvidenceFromFetchResult(result: string): PhoneEvidenceItem[] {
+  const title = extractTitleFromFetchResult(result);
+  const url = extractUrlFromFetchResult(result);
+  const excerpt = extractExcerptFromFetchResult(result);
+  const brands = extractMatchedPhoneBrands(`${title}\n${excerpt}`);
+
+  if (!url || brands.length === 0 || !excerpt) {
+    return [];
+  }
+
+  return brands.map((brand) => ({
+    brand,
+    title,
+    url,
+    excerpt,
+  }));
+}
+
+function hasUsablePhoneEvidence(evidenceItems: PhoneEvidenceItem[]): boolean {
+  const uniqueBrands = new Set(evidenceItems.map((item) => item.brand));
+  const uniqueUrls = new Set(evidenceItems.map((item) => item.url));
+  return uniqueBrands.size >= 2 && uniqueUrls.size >= 2;
+}
+
+function buildPhoneMarkdownReport(
+  prompt: string,
+  taskResult: string,
+  evidenceItems: PhoneEvidenceItem[],
+): { title: string; content: string } {
+  const now = new Date();
+  const title = `${getRecentMonthRangeText(now)} 中国手机新品整理`;
+  const lines: string[] = [
+    `# ${title}`,
+    "",
+    `- 任务：${prompt}`,
+    `- 生成时间：${now.toLocaleString("zh-CN")}`,
+    `- 统计范围：最近三个月内中国手机厂商发布的新机信息`,
+    "",
+  ];
+
+  if (taskResult.trim()) {
+    lines.push("## 结论摘要", "", taskResult.trim(), "");
+  }
+
+  const grouped = new Map<string, PhoneEvidenceItem[]>();
+  for (const item of evidenceItems) {
+    const list = grouped.get(item.brand) ?? [];
+    if (!list.some((existing) => existing.url === item.url)) {
+      list.push(item);
+    }
+    grouped.set(item.brand, list);
+  }
+
+  if (grouped.size > 0) {
+    lines.push("## 分品牌信息");
+    for (const [brand, items] of grouped) {
+      lines.push("", `### ${brand}`);
+      for (const item of items.slice(0, 2)) {
+        lines.push(`- 标题：${item.title}`);
+        lines.push(`- 摘要：${item.excerpt}`);
+        lines.push(`- 来源：${item.url}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (evidenceItems.length > 0) {
+    lines.push("## 来源列表", "");
+    for (const item of evidenceItems.slice(0, 12)) {
+      lines.push(`- ${item.brand}｜${item.title}｜${item.url}`);
+    }
+  }
+
+  return { title, content: lines.join("\n") };
+}
+
+function buildPhoneSlides(
+  reportTitle: string,
+  taskResult: string,
+  evidenceItems: PhoneEvidenceItem[],
+): Array<{ title: string; content: string }> {
+  const slides: Array<{ title: string; content: string }> = [];
+  const summaryLines = taskResult
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+  slides.push({
+    title: "任务摘要",
+    content:
+      summaryLines.length > 0
+        ? summaryLines.map((line) => `- ${line.replace(/^[-*]\s*/, "")}`).join("\n")
+        : "- 汇总最近三个月中国手机厂商发布的新机\n- 重点保留发布时间、参数、图片来源\n- 结果基于公开网页抓取整理",
+  });
+
+  const grouped = new Map<string, PhoneEvidenceItem[]>();
+  for (const item of evidenceItems) {
+    const list = grouped.get(item.brand) ?? [];
+    if (!list.some((existing) => existing.url === item.url)) {
+      list.push(item);
+    }
+    grouped.set(item.brand, list);
+  }
+
+  for (const [brand, items] of grouped) {
+    const lines: string[] = [];
+    for (const item of items.slice(0, 2)) {
+      lines.push(`- ${item.title}`);
+      lines.push(`- ${item.excerpt}`);
+      lines.push(`- 来源：${item.url}`);
+    }
+    slides.push({
+      title: `${brand} 新机信息`,
+      content: lines.join("\n"),
+    });
+  }
+
+  slides.push({
+    title: "说明",
+    content: `- 标题：${reportTitle}\n- 数据来源：厂商官网与主流科技媒体公开网页\n- 本次输出包含 Markdown 文档与 PPT`,
+  });
+
+  return slides.slice(0, 8);
+}
+
+async function ensureTaskArtifacts(
+  task: Task,
+  evidenceItems: PhoneEvidenceItem[],
+): Promise<void> {
+  if (task.outputFiles.length > 0) return;
+  if (!taskNeedsPpt(task.prompt) && !taskNeedsMarkdown(task.prompt)) return;
+
+  if (isPhoneLaunchTask(task.prompt) && !hasUsablePhoneEvidence(evidenceItems)) {
+    throw new Error("手机新品数据不足，未生成 PPT。请继续补充有效品牌、参数和图片来源后再生成。");
+  }
+
+  const baseDir = getDefaultArtifactDir();
+  const baseName = sanitizeArtifactBaseName(task.title);
+  const { title, content } = buildPhoneMarkdownReport(
+    task.prompt,
+    task.result,
+    evidenceItems,
+  );
+
+  if (taskNeedsMarkdown(task.prompt)) {
+    const docPath = join(baseDir, `${baseName}.md`);
+    const docResult = (
+      await executeTool(
+        "write_file",
+        { filePath: docPath, content },
+        { timeoutMs: 45_000 },
+      )
+    ).result;
+    addStep(task, {
+      type: "tool_result",
+      label: "自动补生成文档",
+      content: docResult,
+    });
+    task.outputFiles = [...new Set([...task.outputFiles, docPath])];
+  }
+
+  if (taskNeedsPpt(task.prompt)) {
+    const pptPath = join(baseDir, `${baseName}.pptx`);
+    const pptResult = (
+      await executeTool(
+        "generate_pptx",
+        {
+          filePath: pptPath,
+          title,
+          slides: buildPhoneSlides(title, task.result, evidenceItems),
+        },
+        { timeoutMs: 45_000 },
+      )
+    ).result;
+    addStep(task, {
+      type: "tool_result",
+      label: "自动补生成 PPT",
+      content: pptResult,
+    });
+    if (/^生成 PPT 失败[:：]/.test(pptResult)) {
+      throw new Error(pptResult);
+    }
+    task.outputFiles = [...new Set([...task.outputFiles, pptPath])];
+  }
+}
+
+const PHONE_TASK_BRANDS = [
+  "华为",
+  "荣耀",
+  "小米",
+  "vivo",
+  "OPPO",
+  "iQOO",
+  "一加",
+  "realme",
+];
+
+const PHONE_TASK_BRAND_SEARCH_CONFIGS = [
+  {
+    brand: "华为",
+    aliases: "Huawei",
+    sites:
+      "(site:huawei.com OR site:consumer.huawei.com OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+  {
+    brand: "荣耀",
+    aliases: "HONOR",
+    sites:
+      "(site:honor.com OR site:honor.cn OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+  {
+    brand: "小米",
+    aliases: "Xiaomi Redmi",
+    sites:
+      "(site:mi.com OR site:xiaomi.com OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+  {
+    brand: "vivo",
+    aliases: "vivo",
+    sites:
+      "(site:vivo.com OR site:vivo.com.cn OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+  {
+    brand: "OPPO",
+    aliases: "OPPO",
+    sites:
+      "(site:oppo.com OR site:oppo.com.cn OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+  {
+    brand: "iQOO",
+    aliases: "iQOO",
+    sites:
+      "(site:iqoo.com OR site:iqoo.com.cn OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+  {
+    brand: "一加",
+    aliases: "OnePlus",
+    sites:
+      "(site:oneplus.com OR site:oneplus.com.cn OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+  {
+    brand: "realme",
+    aliases: "realme 真我",
+    sites:
+      "(site:realme.com OR site:realme.com.cn OR site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)",
+  },
+];
+
+function getRecentMonthRangeText(now = new Date()): string {
+  const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  const end = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${start.getFullYear()}年${start.getMonth() + 1}月至${end.getMonth() + 1}月`;
+  }
+
+  return `${start.getFullYear()}年${start.getMonth() + 1}月至${end.getFullYear()}年${end.getMonth() + 1}月`;
+}
+
+function buildPhoneTaskSearchQueries(prompt: string): string[] {
+  const monthText = getRecentMonthRangeText();
+  const wantsImages = /(图片|配图|真机图|渲染图|海报)/i.test(prompt);
+  const suffix = wantsImages ? "发布 参数 图片" : "发布 参数 配置";
+
+  return PHONE_TASK_BRANDS.map(
+    (brand) => `${monthText} ${brand} 手机 新机 ${suffix}`,
+  );
+}
+
+function buildPhoneTaskSourceFocusedQueries(prompt: string): string[] {
+  const monthText = getRecentMonthRangeText();
+  const wantsImages = /(图片|配图|真机图|渲染图|海报)/i.test(prompt);
+  const suffix = wantsImages ? "发布 参数 图片" : "发布 参数 配置";
+
+  return PHONE_TASK_BRAND_SEARCH_CONFIGS.map(
+    ({ brand, aliases, sites }) =>
+      `${monthText} ${brand} ${aliases} 手机 新机 ${suffix} ${sites}`,
+  );
+}
+
+function buildPhoneTaskMediaQueries(prompt: string): string[] {
+  const monthText = getRecentMonthRangeText();
+  const wantsImages = /(图片|配图|真机图|渲染图|海报)/i.test(prompt);
+  const suffix = wantsImages ? "发布 参数 图片" : "发布 参数 配置";
+  const preferredSites = "(site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)";
+
+  return PHONE_TASK_BRAND_SEARCH_CONFIGS.map(
+    ({ brand, aliases }) =>
+      `${monthText} ${brand} ${aliases} 手机 新机 ${suffix} ${preferredSites}`,
+  );
+}
+
+const PHONE_TASK_BRAND_TAG_URLS = [
+  "https://www.ithome.com/tag/huawei/",
+  "https://www.ithome.com/tag/honor/",
+  "https://www.ithome.com/tag/xiaomi/",
+  "https://www.ithome.com/tag/vivo/",
+  "https://www.ithome.com/tag/oppo/",
+  "https://www.ithome.com/tag/iqoo/",
+  "https://www.ithome.com/tag/oneplus/",
+  "https://www.ithome.com/tag/realme/",
+];
 
 async function runTask(task: Task): Promise<void> {
   task.status = "running";
@@ -465,9 +934,206 @@ async function runTaskWithOpenAI(
 
   // 限制 web_search 调用次数
   let searchCallCount = 0;
-  const MAX_SEARCH_CALLS = 3;
+  const isPhoneTask = isPhoneLaunchTask(task.prompt);
+  const MAX_SEARCH_CALLS = isPhoneTask ? 8 : 3;
   let toolCallCount = 0;
-  const MAX_TOOL_CALLS = 15;
+  const MAX_TOOL_CALLS = isPhoneTask ? 24 : 15;
+  let fetchSuccessCount = 0;
+  const matchedPhoneBrands = new Set<string>();
+  const autoFetchedUrls = new Set<string>();
+  const phoneEvidenceItems: PhoneEvidenceItem[] = [];
+
+  const collectPhoneTaskEvidence = async () => {
+    const queries = buildPhoneTaskMediaQueries(task.prompt);
+
+    addStep(task, {
+      type: "thinking",
+      label: "按品牌拆分采集手机新品信息",
+      content: `将按以下品牌分别搜索并抓取页面：${PHONE_TASK_BRANDS.join("、")}`,
+    });
+
+    for (const url of PHONE_TASK_BRAND_TAG_URLS) {
+      if (toolCallCount >= MAX_TOOL_CALLS) {
+        break;
+      }
+
+      autoFetchedUrls.add(url);
+      toolCallCount += 1;
+      updateCheckpoint(task, {
+        node: "bootstrap:brand_tag_fetch",
+        round: 0,
+        toolCallCount,
+        canResume: true,
+      });
+
+      addStep(task, {
+        type: "tool_call",
+        label: `品牌聚合页抓取: ${url.slice(0, 60)}`,
+        content: JSON.stringify({ url, maxLength: 6000 }, null, 2),
+      });
+
+      let fetchResult = "";
+      try {
+        fetchResult = (
+          await executeTool(
+            "fetch_url",
+            { url, maxLength: 6000 },
+            { timeoutMs: 45_000 },
+          )
+        ).result;
+      } catch (error: any) {
+        fetchResult = `网页抓取失败: ${error?.message || error}`;
+      }
+
+      if (isFetchResultSuccessful(fetchResult)) {
+        fetchSuccessCount += 1;
+        for (const brand of extractMatchedPhoneBrands(fetchResult)) {
+          matchedPhoneBrands.add(brand);
+        }
+        phoneEvidenceItems.push(
+          ...collectPhoneEvidenceFromFetchResult(fetchResult),
+        );
+      }
+
+      addStep(task, {
+        type: "tool_result",
+        label: "fetch_url 返回结果",
+        content:
+          fetchResult.length > 3000
+            ? fetchResult.slice(0, 3000) + "\n…（内容已截断）"
+            : fetchResult,
+      });
+
+      messages.push({
+        role: "tool",
+        tool_call_id: `bootstrap:brand_tag_fetch:${toolCallCount}`,
+        content: fetchResult,
+      });
+
+      if (hasUsablePhoneEvidence(phoneEvidenceItems)) {
+        return;
+      }
+    }
+
+    for (const query of queries) {
+      if (searchCallCount >= MAX_SEARCH_CALLS || toolCallCount >= MAX_TOOL_CALLS) {
+        break;
+      }
+
+      searchCallCount += 1;
+      toolCallCount += 1;
+      updateCheckpoint(task, {
+        node: "bootstrap:web_search",
+        round: 0,
+        toolCallCount,
+        canResume: true,
+      });
+
+      addStep(task, {
+        type: "tool_call",
+        label: `搜索：${query.slice(0, 40)}`,
+        content: JSON.stringify({ query, maxResults: 5 }, null, 2),
+      });
+
+      let searchResult = "";
+      try {
+        searchResult = (
+          await executeTool(
+            "web_search",
+            { query, maxResults: 5 },
+            { timeoutMs: 45_000 },
+          )
+        ).result;
+      } catch (error: any) {
+        searchResult = `工具执行失败: ${error?.message || error}`;
+      }
+
+      addStep(task, {
+        type: "tool_result",
+        label: "web_search 返回结果",
+        content:
+          searchResult.length > 3000
+            ? searchResult.slice(0, 3000) + "\n…（内容已截断）"
+            : searchResult,
+      });
+
+      messages.push({
+        role: "tool",
+        tool_call_id: `bootstrap:web_search:${searchCallCount}`,
+        content: searchResult,
+      });
+
+      const firstUrl = extractRelevantPhoneUrls(searchResult, query).find(
+        (url) => !autoFetchedUrls.has(url),
+      );
+
+      if (!firstUrl || toolCallCount >= MAX_TOOL_CALLS) {
+        continue;
+      }
+
+      autoFetchedUrls.add(firstUrl);
+      toolCallCount += 1;
+      updateCheckpoint(task, {
+        node: "bootstrap:fetch_url",
+        round: 0,
+        toolCallCount,
+        canResume: true,
+      });
+
+      addStep(task, {
+        type: "tool_call",
+        label: `自动抓取：${firstUrl.slice(0, 60)}`,
+        content: JSON.stringify({ url: firstUrl, maxLength: 6000 }, null, 2),
+      });
+
+      let fetchResult = "";
+      try {
+        fetchResult = (
+          await executeTool(
+            "fetch_url",
+            { url: firstUrl, maxLength: 6000 },
+            { timeoutMs: 45_000 },
+          )
+        ).result;
+      } catch (error: any) {
+        fetchResult = `网页抓取失败: ${error?.message || error}`;
+      }
+
+      if (isFetchResultSuccessful(fetchResult)) {
+        fetchSuccessCount += 1;
+        for (const brand of extractMatchedPhoneBrands(fetchResult)) {
+          matchedPhoneBrands.add(brand);
+        }
+        phoneEvidenceItems.push(
+          ...collectPhoneEvidenceFromFetchResult(fetchResult),
+        );
+      }
+
+      addStep(task, {
+        type: "tool_result",
+        label: "fetch_url 返回结果",
+        content:
+          fetchResult.length > 3000
+            ? fetchResult.slice(0, 3000) + "\n…（内容已截断）"
+            : fetchResult,
+      });
+
+      messages.push({
+        role: "tool",
+        tool_call_id: `bootstrap:fetch_url:${searchCallCount}`,
+        content: fetchResult,
+      });
+    }
+  };
+
+  if (isPhoneTask) {
+    await collectPhoneTaskEvidence();
+    if (!hasUsablePhoneEvidence(phoneEvidenceItems) && searchCallCount >= MAX_SEARCH_CALLS) {
+      throw new Error(
+        `手机新品信息采集失败：未抓取到足够有效页面。当前有效页面 ${fetchSuccessCount} 个，品牌覆盖 ${matchedPhoneBrands.size} 个。请检查搜索源或缩小任务范围后重试。`,
+      );
+    }
+  }
 
   for (let round = 0; round < 20; round++) {
     await waitIfPaused(task);
@@ -507,7 +1173,38 @@ async function runTaskWithOpenAI(
     const assistantContent = response.content || "";
 
     if (assistantContent && response.toolCalls.length === 0) {
+      if (
+        isPhoneTask &&
+        (containsPlaceholderContent(assistantContent) ||
+          !hasPhoneTaskEvidence(fetchSuccessCount, matchedPhoneBrands)) &&
+        (searchCallCount < MAX_SEARCH_CALLS || toolCallCount < MAX_TOOL_CALLS)
+      ) {
+        addStep(task, {
+          type: "thinking",
+          label: "证据不足，继续补充手机新品信息",
+          content:
+            `当前仅抓取 ${fetchSuccessCount} 个有效页面，覆盖 ${matchedPhoneBrands.size} 个品牌，且输出仍包含占位内容。继续搜索并抓取更具体的机型发布时间、参数和图片来源。`,
+        });
+        messages.push({
+          role: "user",
+          content:
+            "当前证据不足，且回答仍有占位内容。请继续搜索并抓取更具体的手机新品页面，至少覆盖多个品牌，并补齐发布时间、参数和图片来源后再生成文档。",
+        });
+        continue;
+      }
+
+      if (
+        isPhoneTask &&
+        (containsPlaceholderContent(assistantContent) ||
+          !hasPhoneTaskEvidence(fetchSuccessCount, matchedPhoneBrands))
+      ) {
+        throw new Error(
+          `手机新品证据不足，停止生成。当前有效页面 ${fetchSuccessCount} 个，品牌覆盖 ${matchedPhoneBrands.size} 个。`,
+        );
+      }
+
       task.result = assistantContent;
+      await ensureTaskArtifacts(task, phoneEvidenceItems);
       addStep(task, {
         type: "output",
         label: "任务完成",
@@ -587,6 +1284,96 @@ async function runTaskWithOpenAI(
           resultStr = `工具执行失败: ${e?.message || e}`;
         }
 
+        if (toolName === "web_search" && isPhoneTask) {
+          const candidateUrls = extractRelevantPhoneUrls(
+            resultStr,
+            String(args.query || ""),
+          ).filter(
+            (url) => !autoFetchedUrls.has(url),
+          );
+
+          for (const url of candidateUrls.slice(0, 2)) {
+            autoFetchedUrls.add(url);
+            toolCallCount++;
+            updateCheckpoint(task, {
+              node: `tool:auto-fetch:${toolName}`,
+              round,
+              toolCallCount,
+              canResume: true,
+            });
+
+            addStep(task, {
+              type: "tool_call",
+              label: `自动抓取：${url.slice(0, 60)}`,
+              content: JSON.stringify({ url, maxLength: 6000 }, null, 2),
+            });
+
+            let autoFetchResult = "";
+            try {
+              autoFetchResult = (
+                await executeTool(
+                  "fetch_url",
+                  { url, maxLength: 6000 },
+                  { timeoutMs: 45_000 },
+                )
+              ).result;
+            } catch (error: any) {
+              autoFetchResult = `网页抓取失败: ${error?.message || error}`;
+            }
+
+            if (isFetchResultSuccessful(autoFetchResult)) {
+              fetchSuccessCount += 1;
+              for (const brand of extractMatchedPhoneBrands(autoFetchResult)) {
+                matchedPhoneBrands.add(brand);
+              }
+              phoneEvidenceItems.push(
+                ...collectPhoneEvidenceFromFetchResult(autoFetchResult),
+              );
+            }
+
+            const autoFetchTruncated =
+              autoFetchResult.length > 3000
+                ? autoFetchResult.slice(0, 3000) + "\n…（内容已截断）"
+                : autoFetchResult;
+
+            addStep(task, {
+              type: "tool_result",
+              label: "fetch_url 返回结果",
+              content: autoFetchTruncated,
+            });
+
+            messages.push({
+              role: "tool",
+              tool_call_id: `${toolCall.id}:auto-fetch:${url}`,
+              content: autoFetchTruncated,
+            });
+          }
+        }
+
+        if (toolName === "fetch_url" && isFetchResultSuccessful(resultStr)) {
+          fetchSuccessCount += 1;
+          for (const brand of extractMatchedPhoneBrands(resultStr)) {
+            matchedPhoneBrands.add(brand);
+          }
+          phoneEvidenceItems.push(
+            ...collectPhoneEvidenceFromFetchResult(resultStr),
+          );
+        }
+
+        if (
+          isPhoneTask &&
+          (toolName === "generate_pdf" || toolName === "generate_pptx") &&
+          !hasPhoneTaskEvidence(fetchSuccessCount, matchedPhoneBrands)
+        ) {
+          resultStr = `证据不足，暂不允许生成文档。当前仅抓取 ${fetchSuccessCount} 个有效页面，覆盖 ${matchedPhoneBrands.size} 个品牌。请继续搜索并抓取更具体的机型发布时间、参数与图片来源。`;
+          addStep(task, {
+            type: "error",
+            label: "证据不足，停止生成",
+            content: resultStr,
+          });
+          throw new Error(resultStr);
+        }
+
         const truncated =
           resultStr.length > 3000
             ? resultStr.slice(0, 3000) + "\n…（内容已截断）"
@@ -621,6 +1408,21 @@ async function runTaskWithOpenAI(
     }
 
     break;
+  }
+
+  await ensureTaskArtifacts(task, phoneEvidenceItems);
+
+  if (!task.result.trim() && task.outputFiles.length > 0) {
+    task.result = `任务已完成，已生成文件：\n${task.outputFiles.join("\n")}`;
+    addStep(task, {
+      type: "output",
+      label: "任务完成",
+      content: task.result,
+    });
+  }
+
+  if (!task.result.trim() && task.outputFiles.length === 0) {
+    throw new Error("任务执行结束，但没有生成任何文本结果或文件输出。");
   }
 }
 

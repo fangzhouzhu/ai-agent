@@ -54,6 +54,16 @@ type ModelConfig = {
   activeOnlineProfileId: string | null;
 };
 
+function normalizeWeatherLocation(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^(查|看|问|帮我查|帮我看|请查一下|请问一下)/, "")
+    .replace(/(今天|明天|后天|现在|当前|此刻|实时)+$/g, "")
+    .replace(/(天气|气温|温度|下雨|下雪|阴晴|风力|怎么样|如何|多少)+$/g, "")
+    .replace(/(的|地区)+$/g, "")
+    .trim();
+}
+
 const DEFAULT_ONLINE_SETTINGS: Required<OnlineProviderSettings> = {
   name: "默认在线配置",
   provider: "OpenAI",
@@ -539,15 +549,16 @@ async function preCallTools(
   // 天气关键词 → get_weather_current
   const weatherPattern = /天气|气温|温度|下雨|下雪|阴晴|风力|weather/i;
   if (weatherPattern.test(userMessage)) {
-    // 提取城市：优先匹配"XX天气/XX的天气/XX气温"，支持 1-8 个字符的地名
-    const cityMatch =
-      userMessage.match(
-        /([^\s，,。？?！!、\n]{2,8})(?:的|地区)?(?:天气|气温|温度|下雨|下雪|阴晴|风力)/,
-      ) ||
-      userMessage.match(
-        /(?:查|看|问|帮我查)?([^\s，,。？?！!、\n]{2,8})(?:今天|明天|现在|当前)?(?:天气|气温|温度)/,
-      );
-    const location = cityMatch?.[1]?.trim() || "北京";
+    // 尽量只提取地点本身，避免把“今天/现在/怎么样”带进 location。
+    const weatherLocationPatterns = [
+      /([^\s，,。？?！!、\n]{2,12}?)(?:的|地区)?(?:今天|明天|后天|现在|当前)?(?:天气|气温|温度|下雨|下雪|阴晴|风力)/,
+      /(?:查|看|问|帮我查|帮我看|请查一下|请问一下)?([^\s，,。？?！!、\n]{2,12}?)(?:今天|明天|后天|现在|当前)?(?:天气|气温|温度)/,
+    ];
+    const rawLocation =
+      weatherLocationPatterns
+        .map((pattern) => userMessage.match(pattern)?.[1])
+        .find(Boolean) || "北京";
+    const location = normalizeWeatherLocation(rawLocation) || "北京";
     const args: Record<string, unknown> = { location };
     onToolCall("get_weather_current", args);
     try {

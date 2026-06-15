@@ -245,57 +245,89 @@
 }
 
 .agentCardMenuBtn {
-  width: 34px;
-  height: 34px;
-  border-radius: 14px;
-  cursor: pointer;
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1;
-  border: 0;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9px;
   background: transparent;
+  color: #506391;
+  cursor: pointer;
+  padding: 0;
 }
 
 .agentCardMenuBtn:hover {
-  color: #3d578d;
+  background: rgba(235, 242, 255, 0.94);
+}
+
+.agentCardMenuIcon,
+.agentCardMenuIcon::before,
+.agentCardMenuIcon::after {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.agentCardMenuIcon {
+  position: relative;
+}
+
+.agentCardMenuIcon::before,
+.agentCardMenuIcon::after {
+  content: "";
+  position: absolute;
+  top: 0;
+}
+
+.agentCardMenuIcon::before {
+  left: -7px;
+}
+
+.agentCardMenuIcon::after {
+  left: 7px;
 }
 
 .agentCardMenu {
   position: absolute;
-  top: calc(100% + 6px);
-  right: -2px;
-  min-width: 118px;
-  padding: 10px 8px;
-  border-radius: 18px;
-  border: 1px solid rgba(197, 210, 244, 0.9);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 20px 40px rgba(52, 78, 146, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  z-index: 12;
-  transform-origin: top right;
-  animation: agentMenuIn 0.14s ease-out;
+  top: 32px;
+  right: 0;
+  z-index: 5;
+  min-width: 92px;
+  padding: 6px;
+  border: 1px solid rgba(190, 206, 246, 0.86);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(45, 78, 170, 0.16);
 }
 
 .agentCardMenuItem {
   width: 100%;
   border: none;
+  border-radius: 8px;
   background: transparent;
-  color: #173068;
-  border-radius: 14px;
-  padding: 11px 12px;
-  text-align: left;
-  font-size: 13px;
-  font-weight: 700;
+  color: #244173;
   cursor: pointer;
+  padding: 7px 9px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .agentCardMenuItem:hover {
-  background: rgba(240, 245, 255, 0.95);
+  background: #edf4ff;
 }
 
 .agentCardMenuItemDanger {
-  color: #d64545;
+  color: #d33a48;
+}
+
+.agentCardMenuItemDanger:hover {
+  background: #fff0f1;
+  color: #c22a36;
 }
 
 @keyframes agentMenuIn {
