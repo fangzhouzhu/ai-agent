@@ -340,14 +340,15 @@ export const deleteFileTool = tool(
       const resolvedPath = resolveToolPath(filePath);
       assertNotProtectedPath(resolvedPath);
       if (!fs.existsSync(resolvedPath)) {
-        return `File does not exist: ${resolvedPath}`;
+        return `文件不存在：${resolvedPath}`;
       }
       const stat = fs.statSync(resolvedPath);
       if (!stat.isFile()) {
-        return `Refusing to delete non-file path: ${resolvedPath}`;
+        return `拒绝删除非文件路径：${resolvedPath}`;
       }
+
       await shell.trashItem(resolvedPath);
-      return `File moved to system trash: ${resolvedPath}`;
+      return `文件删除成功：${resolvedPath}`;
     } catch (error) {
       return toToolError("Delete file", error);
     }

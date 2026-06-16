@@ -70,28 +70,68 @@
 .modeSwitch {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px;
-  border-radius: 999px;
-  background: rgba(233, 241, 255, 0.9);
-  border: 1px solid rgba(176, 194, 241, 0.82);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  gap: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .modeBtn {
-  height: 24px;
-  border-radius: 999px;
-  padding: 0 9px;
-  font-size: 10px;
-  font-weight: 800;
+  position: relative;
+  height: auto;
+  border-radius: 0;
+  padding: 2px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
   cursor: pointer;
+  background: transparent;
+  color: #8a96af;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  transition:
+    color 0.18s ease,
+    opacity 0.18s ease;
 }
 
 .modeBtnActive {
-  border-color: #3564f3;
-  background: linear-gradient(135deg, #4d6bff, #1da8df);
-  color: #ffffff;
-  box-shadow: 0 10px 20px rgba(53, 100, 243, 0.16);
+  background: transparent;
+  color: #16306a;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.modeBtn::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #4d6bff, #22b3cf);
+  opacity: 0;
+  transform: scaleX(0.6);
+  box-shadow: 0 4px 10px rgba(77, 107, 255, 0.22);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.modeBtn:hover,
+.modeBtn:focus {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: #58709d;
+  outline: none;
+}
+
+.modeBtnActive::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .agentSelect,
@@ -262,7 +302,8 @@
 .inputTopRow {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
+  margin-bottom: 4px;
 }
 
 .selectedSkillRow {

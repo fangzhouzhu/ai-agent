@@ -50,6 +50,14 @@ export type ChatToolResultEvent = {
   result: string;
 };
 
+export type ChatToolApprovalRequestEvent = {
+  requestId: string;
+  conversationId: string;
+  toolName: string;
+  input: unknown;
+  policy?: ToolPolicy;
+};
+
 export type ChatModelInfoEvent = {
   conversationId: string;
   modelInfo: ModelRouteInfo;
@@ -323,6 +331,7 @@ export type ToolRisk = "read" | "write" | "delete" | "network" | "system";
 
 export type ToolPolicy = {
   name: string;
+  displayName: string;
   risk: ToolRisk[];
   requiresConfirmation: boolean;
   description: string;
@@ -334,6 +343,11 @@ export type TraceSummary = {
   updatedAt: number;
   eventCount: number;
   lastEventType: string;
+};
+
+export type DiagnosticLogInfo = {
+  directory: string;
+  currentFile: string;
 };
 
 const api = {
@@ -381,6 +395,24 @@ const api = {
     ipcRenderer.on("chat:tool-result", handler);
     return () => ipcRenderer.removeListener("chat:tool-result", handler);
   },
+
+  onToolApprovalRequest: (
+    callback: (data: ChatToolApprovalRequestEvent) => void,
+  ) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      data: ChatToolApprovalRequestEvent,
+    ) => callback(data);
+    ipcRenderer.on("chat:tool-approval-request", handler);
+    return () =>
+      ipcRenderer.removeListener("chat:tool-approval-request", handler);
+  },
+
+  respondToolApproval: (
+    requestId: string,
+    approved: boolean,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke("chat:tool-approval-response", { requestId, approved }),
 
   onModelInfo: (callback: (data: ChatModelInfoEvent) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: ChatModelInfoEvent) =>
@@ -470,11 +502,20 @@ const api = {
 
   listToolPolicies: (): Promise<ToolPolicy[]> =>
     ipcRenderer.invoke("tools:list-policies"),
+  updateToolPolicy: (
+    name: string,
+    requiresConfirmation: boolean,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke("tools:update-policy", name, requiresConfirmation),
   diagnostics: {
     listTraces: (): Promise<TraceSummary[]> =>
       ipcRenderer.invoke("diagnostics:list-traces"),
     getTrace: (traceId: string): Promise<unknown[]> =>
       ipcRenderer.invoke("diagnostics:get-trace", traceId),
+    getLogInfo: (): Promise<DiagnosticLogInfo> =>
+      ipcRenderer.invoke("diagnostics:get-log-info"),
+    openLogDirectory: (): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke("diagnostics:open-log-directory"),
   },
 
   getKbUiState: (): Promise<{

@@ -17,7 +17,10 @@ import {
 } from "./openaiCompatible";
 import { buildSkillPrompt } from "./skills";
 import { toAppError } from "./runtime/errors";
-import { executeTool } from "./runtime/ToolExecutor";
+import {
+  executeTool,
+  type ToolApprovalRequest,
+} from "./runtime/ToolExecutor";
 import { createTraceId, recordTrace } from "./runtime/trace";
 import {
   BASE_CHAT_SYSTEM_PROMPT,
@@ -297,6 +300,61 @@ type PreCalledResult = {
   result: string;
 };
 
+type SpecialFolderName =
+  | "desktop"
+  | "documents"
+  | "downloads"
+  | "pictures"
+  | "music"
+  | "videos";
+
+const SPECIAL_FOLDER_MATCHERS: Array<{
+  match: RegExp;
+  folder: SpecialFolderName;
+}> = [
+  { match: /(桌面|desktop)/i, folder: "desktop" },
+  { match: /(文档|我的文档|documents?)/i, folder: "documents" },
+  { match: /(下载|downloads?)/i, folder: "downloads" },
+  { match: /(图片|照片|pictures?|photos?)/i, folder: "pictures" },
+  { match: /(音乐|music)/i, folder: "music" },
+  { match: /(视频|movies?|videos?)/i, folder: "videos" },
+];
+
+function resolveSpecialFolderPath(folder: SpecialFolderName): string {
+  const home = os.homedir();
+  switch (folder) {
+    case "desktop":
+      return path.join(home, "Desktop");
+    case "documents":
+      return path.join(home, "Documents");
+    case "downloads":
+      return path.join(home, "Downloads");
+    case "pictures":
+      return path.join(home, "Pictures");
+    case "music":
+      return path.join(home, "Music");
+    case "videos":
+      return path.join(home, "Videos");
+  }
+}
+
+function extractMentionedSpecialFolderFilePath(userMessage: string): string | null {
+  const folder = SPECIAL_FOLDER_MATCHERS.find((item) => item.match.test(userMessage));
+  if (!folder) return null;
+
+  const folderMatch = userMessage.match(folder.match);
+  if (!folderMatch?.index && folderMatch?.index !== 0) return null;
+
+  const suffix = userMessage.slice(folderMatch.index + folderMatch[0].length);
+  const normalizedSuffix = suffix.replace(/^[的上里中\s"'“”‘’`]+/, "");
+  const fileNameMatch =
+    normalizedSuffix.match(/([^“”"'`，。；;：:\s]+\.[a-zA-Z0-9_-]+)/)?.[1] ?? null;
+
+  if (!fileNameMatch) return null;
+
+  return path.join(resolveSpecialFolderPath(folder.folder), fileNameMatch.trim());
+}
+
 function extractRecentFileReference(
   history: ChatMessage[],
   userMessage: string,
@@ -381,7 +439,6 @@ function detectLocalSystemToolCall(
     { match: /(音乐|music)/i, folder: "music" },
     { match: /(视频|movies?|videos?)/i, folder: "videos" },
   ];
-
   const resolveSpecialFolderPath = (
     folder: "desktop" | "documents" | "downloads" | "pictures" | "music" | "videos",
   ): string => {
@@ -443,7 +500,9 @@ function detectLocalSystemToolCall(
     /(文件|文档|txt|md|json|csv|js|ts|html|css|这个|那个)/i.test(userMessage);
 
   if (deleteIntent) {
-    const filePath = extractRecentFileReference(history, userMessage);
+    const filePath =
+      extractMentionedSpecialFolderFilePath(userMessage) ??
+      extractRecentFileReference(history, userMessage);
     if (filePath) {
       return {
         toolName: "delete_file",
@@ -496,6 +555,7 @@ async function preCallTools(
   userMessage: string,
   onToolCall: (toolName: string, input: unknown) => void,
   onToolResult: (toolName: string, result: string) => void,
+  confirmTool?: (request: ToolApprovalRequest) => Promise<boolean>,
   signal?: AbortSignal,
 ): Promise<PreCalledResult[]> {
   const results: PreCalledResult[] = [];
@@ -507,7 +567,7 @@ async function preCallTools(
       const { result } = await executeTool(
         localSystemTool.toolName,
         localSystemTool.args,
-        { signal },
+        { signal, confirm: confirmTool },
       );
       onToolResult(localSystemTool.toolName, result);
       results.push({
@@ -534,7 +594,7 @@ async function preCallTools(
     const args = { url };
     onToolCall("fetch_url", args);
     try {
-      const { result } = await executeTool("fetch_url", args, { signal });
+      const { result } = await executeTool("fetch_url", args, { signal, confirm: confirmTool });
       onToolResult("fetch_url", result);
       results.push({ toolName: "fetch_url", args, result });
     } catch (e: any) {
@@ -564,6 +624,7 @@ async function preCallTools(
     try {
       const { result } = await executeTool("get_weather_current", args, {
         signal,
+        confirm: confirmTool,
       });
       onToolResult("get_weather_current", result);
       results.push({ toolName: "get_weather_current", args, result });
@@ -648,6 +709,7 @@ export async function chatWithAgent(
   onToolResult: (toolName: string, result: string) => void,
   signal?: AbortSignal,
   skill?: SkillConfig | null,
+  confirmTool?: (request: ToolApprovalRequest) => Promise<boolean>,
 ): Promise<string> {
   const route = modelConfig.agent;
   const preResults = await preCallTools(
@@ -655,6 +717,7 @@ export async function chatWithAgent(
     userMessage,
     onToolCall,
     onToolResult,
+    confirmTool,
     signal,
   );
 
@@ -720,7 +783,10 @@ export async function chatWithAgent(
           } else {
             try {
               resultStr = (
-                await executeTool(toolCall.function.name, args, { signal })
+                await executeTool(toolCall.function.name, args, {
+                  signal,
+                  confirm: confirmTool,
+                })
               ).result;
             } catch (e: any) {
               resultStr = `工具执行失败: ${e?.message || e}`;
@@ -819,7 +885,10 @@ export async function chatWithAgent(
 
         onToolCall(toolCall.name, toolCall.args);
         const resultStr = (
-          await executeTool(toolCall.name, toolCall.args, { signal })
+          await executeTool(toolCall.name, toolCall.args, {
+            signal,
+            confirm: confirmTool,
+          })
         ).result;
         onToolResult(toolCall.name, resultStr);
 

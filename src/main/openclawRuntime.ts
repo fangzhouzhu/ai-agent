@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
+import { writeAppLog } from "./runtime/logger";
 
 type OpenClawConfig = Record<string, unknown>;
 
@@ -118,6 +119,7 @@ function appendGatewayLog(line: string): void {
   if (!text) return;
 
   gatewayState.logs.push(text);
+  writeAppLog("info", "openclaw", text);
   if (gatewayState.logs.length > MAX_LOG_LINES) {
     gatewayState.logs.splice(0, gatewayState.logs.length - MAX_LOG_LINES);
   }

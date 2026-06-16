@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { app, shell, BrowserWindow, ipcMain, dialog } from "electron";
 import { basename, join } from "path";
 import { is } from "@electron-toolkit/utils";
@@ -46,8 +50,14 @@ import { retrieveFromKbs } from "./ragRetriever";
 import { deleteKbVectors } from "./ragStore";
 import { RAG_CITATION_PROMPT } from "./prompts/agentPrompts";
 import { listTraces, getTrace } from "./runtime/trace";
-import { listToolPolicies } from "./tools/policy";
+import {
+  getCurrentLogFilePath,
+  getLogDirectory,
+  writeAppLog,
+} from "./runtime/logger";
+import { listToolPolicies, updateToolPolicy } from "./tools/policy";
 import { matchSkillForInput, type ResolvedSkillMatch } from "./skills";
+import type { ToolApprovalRequest } from "./runtime/ToolExecutor";
 import {
   createAndRunTask,
   listTasks,
@@ -112,6 +122,24 @@ type ChatRequestState = {
 
 const chatRequests = new Map<string, ChatRequestState>();
 
+type PendingToolApproval = {
+  resolve: (approved: boolean) => void;
+  conversationId: string;
+};
+
+const pendingToolApprovals = new Map<string, PendingToolApproval>();
+
+function resolvePendingApprovalsForConversation(
+  conversationId: string,
+  approved: boolean,
+): void {
+  for (const [requestId, pending] of pendingToolApprovals.entries()) {
+    if (pending.conversationId !== conversationId) continue;
+    pendingToolApprovals.delete(requestId);
+    pending.resolve(approved);
+  }
+}
+
 type WechatBotStatus = {
   status: "idle" | "waiting_scan" | "bound" | "error" | "unbound";
   message: string;
@@ -168,10 +196,9 @@ let wechatBotStatus: WechatBotStatus = {
 const wechatBotMessages: WechatBotMessage[] = loadWechatBotMessages();
 let activeWechatLogin: WechatLoginSession | null = null;
 
-const runtimeImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as (specifier: string) => Promise<any>;
+const runtimeImport = new Function("specifier", "return import(specifier)") as (
+  specifier: string,
+) => Promise<any>;
 
 function emitWechatBotUpdate(): void {
   const payload = {
@@ -185,7 +212,9 @@ function emitWechatBotUpdate(): void {
   });
 }
 
-function updateWechatBotStatus(patch: Partial<WechatBotStatus>): WechatBotStatus {
+function updateWechatBotStatus(
+  patch: Partial<WechatBotStatus>,
+): WechatBotStatus {
   wechatBotStatus = {
     ...wechatBotStatus,
     ...patch,
@@ -311,7 +340,8 @@ async function refreshWechatBotQr(): Promise<WechatBotStatus> {
   try {
     writeOpenClawConfig();
     void ensureOpenClawRuntimeInstalled().catch((error) => {
-      const message = error instanceof Error ? error.message : "OpenClaw 运行时安装失败";
+      const message =
+        error instanceof Error ? error.message : "OpenClaw 运行时安装失败";
       appendWechatBotMessage({
         role: "system",
         text: `OpenClaw 运行时安装失败：${message}`,
@@ -334,10 +364,21 @@ async function refreshWechatBotQr(): Promise<WechatBotStatus> {
     );
     const payload = (await response.json()) as ClawBotQrResponse;
 
-    if (!response.ok || payload.ret !== 0 || !payload.qrcode || !payload.qrcode_img_content) {
-      const message = payload.msg || `ClawBot 二维码获取失败：HTTP ${response.status}`;
+    if (
+      !response.ok ||
+      payload.ret !== 0 ||
+      !payload.qrcode ||
+      !payload.qrcode_img_content
+    ) {
+      const message =
+        payload.msg || `ClawBot 二维码获取失败：HTTP ${response.status}`;
       saveWechatBotSettings({ status: "error", lastError: message });
-      appendWechatBotMessage({ role: "system", text: message, status: "error", source: "system" });
+      appendWechatBotMessage({
+        role: "system",
+        text: message,
+        status: "error",
+        source: "system",
+      });
       return updateWechatBotStatus({ status: "error", message });
     }
 
@@ -381,9 +422,15 @@ async function refreshWechatBotQr(): Promise<WechatBotStatus> {
       nickname: undefined,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "ClawBot 二维码获取失败";
+    const message =
+      error instanceof Error ? error.message : "ClawBot 二维码获取失败";
     saveWechatBotSettings({ status: "error", lastError: message });
-    appendWechatBotMessage({ role: "system", text: message, status: "error", source: "system" });
+    appendWechatBotMessage({
+      role: "system",
+      text: message,
+      status: "error",
+      source: "system",
+    });
     return updateWechatBotStatus({ status: "error", message });
   }
 }
@@ -404,8 +451,14 @@ async function checkWechatBotBinding(): Promise<WechatBotStatus> {
       lastError: "",
     });
     void startOpenClawGateway().catch((error) => {
-      const message = error instanceof Error ? error.message : "OpenClaw Gateway 启动失败";
-      appendWechatBotMessage({ role: "system", text: message, status: "error", source: "system" });
+      const message =
+        error instanceof Error ? error.message : "OpenClaw Gateway 启动失败";
+      appendWechatBotMessage({
+        role: "system",
+        text: message,
+        status: "error",
+        source: "system",
+      });
       updateWechatBotStatus({ status: "error", message });
     });
 
@@ -417,7 +470,8 @@ async function checkWechatBotBinding(): Promise<WechatBotStatus> {
     });
   }
 
-  const qrcode = activeWechatLogin?.qrcode || wechatBotStatus.qrcode || savedSettings.qrcode;
+  const qrcode =
+    activeWechatLogin?.qrcode || wechatBotStatus.qrcode || savedSettings.qrcode;
   if (!qrcode || !activeWechatLogin) {
     const status = savedSettings.status ?? wechatBotStatus.status ?? "idle";
     return updateWechatBotStatus({
@@ -444,7 +498,8 @@ async function checkWechatBotBinding(): Promise<WechatBotStatus> {
     const remoteStatus = String(payload.status ?? "").toLowerCase();
 
     if (!response.ok || payload.ret !== 0) {
-      const message = payload.msg || `ClawBot 状态查询失败：HTTP ${response.status}`;
+      const message =
+        payload.msg || `ClawBot 状态查询失败：HTTP ${response.status}`;
       saveWechatBotSettings({ status: "error", lastError: message });
       return updateWechatBotStatus({ status: "error", message });
     }
@@ -456,9 +511,15 @@ async function checkWechatBotBinding(): Promise<WechatBotStatus> {
     if (remoteStatus === "confirmed" || remoteStatus === "binded_redirect") {
       const token = payload.bot_token ?? payload.token ?? savedSettings.token;
       const botId =
-        payload.ilink_bot_id ?? payload.bot_id ?? payload.botId ?? savedSettings.botId;
+        payload.ilink_bot_id ??
+        payload.bot_id ??
+        payload.botId ??
+        savedSettings.botId;
       const userId =
-        payload.ilink_user_id ?? payload.user_id ?? payload.userId ?? savedSettings.userId;
+        payload.ilink_user_id ??
+        payload.user_id ??
+        payload.userId ??
+        savedSettings.userId;
       const nickname = savedSettings.nickname;
 
       if (!botId) {
@@ -521,7 +582,8 @@ async function checkWechatBotBinding(): Promise<WechatBotStatus> {
       nickname: undefined,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "ClawBot 状态查询失败";
+    const message =
+      error instanceof Error ? error.message : "ClawBot 状态查询失败";
     saveWechatBotSettings({ status: "error", lastError: message });
     return updateWechatBotStatus({ status: "error", message });
   }
@@ -589,7 +651,9 @@ function shouldUseAgentTools(message: string): boolean {
     "running apps",
     "running programs",
   ];
-  const hasLocalSystemIntent = localSystemHints.some((hint) => message.includes(hint));
+  const hasLocalSystemIntent = localSystemHints.some((hint) =>
+    message.includes(hint),
+  );
 
   return toolIntentRegex.test(text) || hasLocalSystemIntent;
 }
@@ -687,7 +751,8 @@ function resolveRouteDecision(
   const toolChecksEnabled = !suppressToolsForRag;
   const useRealtimeTool = toolChecksEnabled && shouldUseRealtimeTool(message);
   const useWebSearchTool = toolChecksEnabled && shouldUseWebSearchTool(message);
-  const useCalculatorTool = toolChecksEnabled && shouldUseCalculatorTool(message);
+  const useCalculatorTool =
+    toolChecksEnabled && shouldUseCalculatorTool(message);
 
   let useTools =
     toolChecksEnabled &&
@@ -698,7 +763,9 @@ function resolveRouteDecision(
       shouldUseAgentTools(message));
   let useAdvancedModel =
     !useRag &&
-    (useTools || Boolean(options?.forceAgent) || shouldUseAdvancedModel(message));
+    (useTools ||
+      Boolean(options?.forceAgent) ||
+      shouldUseAdvancedModel(message));
 
   if (
     !useRag &&
@@ -870,7 +937,10 @@ ipcMain.handle(
     chatRequests.set(requestConversationId, { controller, webContents });
     const { signal } = controller;
     const emitToken = (token: string) => {
-      webContents.send("chat:token", { conversationId: requestConversationId, token });
+      webContents.send("chat:token", {
+        conversationId: requestConversationId,
+        token,
+      });
     };
     const emitToolCall = (toolName: string, input: unknown) => {
       webContents.send("chat:tool-call", {
@@ -886,7 +956,11 @@ ipcMain.handle(
         result,
       });
     };
-    const emitModelInfo = (modelInfo: { model: string; scene: string; skill?: string }) => {
+    const emitModelInfo = (modelInfo: {
+      model: string;
+      scene: string;
+      skill?: string;
+    }) => {
       webContents.send("chat:model-info", {
         conversationId: requestConversationId,
         modelInfo,
@@ -904,6 +978,23 @@ ipcMain.handle(
         error: message,
       });
     };
+    const requestToolApproval = (
+      request: ToolApprovalRequest,
+    ): Promise<boolean> =>
+      new Promise<boolean>((resolve) => {
+        const requestId = randomUUID();
+        pendingToolApprovals.set(requestId, {
+          resolve,
+          conversationId: requestConversationId,
+        });
+        webContents.send("chat:tool-approval-request", {
+          requestId,
+          conversationId: requestConversationId,
+          toolName: request.toolName,
+          input: request.args,
+          policy: request.policy,
+        });
+      });
 
     try {
       const activeAgent = getEffectiveAgentProfile(requestConversationId);
@@ -980,6 +1071,7 @@ ipcMain.handle(
             emitToolResult,
             signal,
             matchedSkill?.skill,
+            requestToolApproval,
           );
           return;
         }
@@ -1007,23 +1099,23 @@ ipcMain.handle(
               scene: "Skill 资料增强",
               skill: matchedSkill?.skill.name,
             }
-        : useTools
-          ? {
-              model: describeRouteModel("agent"),
-              scene: "Agent/工具",
-              skill: matchedSkill?.skill.name,
-            }
-          : useAdvancedModel
+          : useTools
             ? {
                 model: describeRouteModel("agent"),
-                scene: "复杂任务",
+                scene: "Agent/工具",
                 skill: matchedSkill?.skill.name,
               }
-            : {
-                model: describeRouteModel("chat"),
-                scene: "通用",
-                skill: matchedSkill?.skill.name,
-              };
+            : useAdvancedModel
+              ? {
+                  model: describeRouteModel("agent"),
+                  scene: "复杂任务",
+                  skill: matchedSkill?.skill.name,
+                }
+              : {
+                  model: describeRouteModel("chat"),
+                  scene: "通用",
+                  skill: matchedSkill?.skill.name,
+                };
 
       emitModelInfo(modelInfo);
 
@@ -1164,6 +1256,7 @@ ${context}
               },
               signal,
               matchedSkill?.skill,
+              requestToolApproval,
             );
           } else {
             await chatStream(
@@ -1224,6 +1317,7 @@ ${context}
           },
           signal,
           matchedSkill?.skill,
+          requestToolApproval,
         );
       } else {
         await chatStream(
@@ -1247,6 +1341,7 @@ ${context}
         emitError(err.message || "未知错误");
       }
     } finally {
+      resolvePendingApprovalsForConversation(requestConversationId, false);
       const currentRequest = chatRequests.get(requestConversationId);
       if (currentRequest?.controller === controller) {
         chatRequests.delete(requestConversationId);
@@ -1261,6 +1356,7 @@ ipcMain.on("chat:abort", (_event, conversationId?: string | null) => {
   if (!conversationId) return;
   const request = chatRequests.get(conversationId);
   if (!request) return;
+  resolvePendingApprovalsForConversation(conversationId, false);
   if (!request.webContents.isDestroyed()) {
     request.webContents.send("chat:done", {
       conversationId,
@@ -1272,6 +1368,17 @@ ipcMain.on("chat:abort", (_event, conversationId?: string | null) => {
 });
 
 // IPC: 获取模型列表
+ipcMain.handle(
+  "chat:tool-approval-response",
+  (_event, payload: { requestId: string; approved: boolean }) => {
+    const pending = pendingToolApprovals.get(payload.requestId);
+    if (!pending) return false;
+    pendingToolApprovals.delete(payload.requestId);
+    pending.resolve(Boolean(payload.approved));
+    return true;
+  },
+);
+
 ipcMain.handle("models:list", async () => {
   return fetchOllamaModels();
 });
@@ -1349,12 +1456,9 @@ ipcMain.handle("settings:unbind-wechat-bot", async () => {
   return unbindWechatBot();
 });
 
-ipcMain.handle(
-  "wechat-bot:send-message",
-  async () => {
-    throw new Error("微信机器人页面为只读同步视图，请在微信 ClawBot 中发消息。");
-  },
-);
+ipcMain.handle("wechat-bot:send-message", async () => {
+  throw new Error("微信机器人页面为只读同步视图，请在微信 ClawBot 中发消息。");
+});
 
 ipcMain.handle("wechat-bot:list-messages", async () => {
   return wechatBotMessages;
@@ -1404,11 +1508,27 @@ ipcMain.handle("skills:pick-files", async () => {
 
 ipcMain.handle("tools:list-policies", () => listToolPolicies());
 
+ipcMain.handle(
+  "tools:update-policy",
+  (_event, name: string, requiresConfirmation: boolean) =>
+    updateToolPolicy(name, requiresConfirmation),
+);
+
 ipcMain.handle("diagnostics:list-traces", () => listTraces());
 
 ipcMain.handle("diagnostics:get-trace", (_event, traceId: string) =>
   getTrace(traceId),
 );
+
+ipcMain.handle("diagnostics:get-log-info", () => ({
+  directory: getLogDirectory(),
+  currentFile: getCurrentLogFilePath(),
+}));
+
+ipcMain.handle("diagnostics:open-log-directory", async () => {
+  const result = await shell.openPath(getLogDirectory());
+  return { ok: result.length === 0, message: result };
+});
 
 ipcMain.handle("kb:get-ui-state", async () => {
   return getKbUiState();
@@ -1796,7 +1916,11 @@ function readRequestBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
+function sendJson(
+  res: ServerResponse,
+  statusCode: number,
+  payload: unknown,
+): void {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
@@ -1819,14 +1943,20 @@ async function handleCentibotAgentRequest(
     return;
   }
 
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+  const url = new URL(
+    req.url ?? "/",
+    `http://${req.headers.host ?? "127.0.0.1"}`,
+  );
 
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, { ok: true, name: "centibot-agent" });
     return;
   }
 
-  if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/openclaw/agent.json")) {
+  if (
+    req.method === "GET" &&
+    (url.pathname === "/" || url.pathname === "/openclaw/agent.json")
+  ) {
     sendJson(res, 200, {
       name: "Centibot Agent",
       id: "centibot-current",
@@ -1878,7 +2008,9 @@ async function handleCentibotAgentRequest(
       role: message.role,
       content: normalizeOpenAIContent(message.content),
     }));
-    const lastUser = [...allMessages].reverse().find((message) => message.role === "user");
+    const lastUser = [...allMessages]
+      .reverse()
+      .find((message) => message.role === "user");
 
     if (!lastUser?.content?.trim()) {
       sendJson(res, 400, { error: { message: "Missing user message" } });
@@ -1887,7 +2019,9 @@ async function handleCentibotAgentRequest(
 
     const history = allMessages
       .slice(0, allMessages.lastIndexOf(lastUser))
-      .filter((message) => message.role === "user" || message.role === "assistant")
+      .filter(
+        (message) => message.role === "user" || message.role === "assistant",
+      )
       .map((message) => ({
         role: message.role,
         content: message.content,
@@ -2044,7 +2178,8 @@ async function handleCentibotAgentRequest(
 
         finalizeWechatAssistant(replyText);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Centibot Agent failed";
+        const message =
+          error instanceof Error ? error.message : "Centibot Agent failed";
         finalizeWechatAssistant(message, "error");
         sendSseChunk(res, {
           id,
@@ -2097,7 +2232,8 @@ async function handleCentibotAgentRequest(
 
       finalizeWechatAssistant(content);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Centibot Agent failed";
+      const message =
+        error instanceof Error ? error.message : "Centibot Agent failed";
       finalizeWechatAssistant(message, "error");
       throw error;
     }
@@ -2123,7 +2259,8 @@ async function handleCentibotAgentRequest(
 
     sendJson(res, 500, {
       error: {
-        message: error instanceof Error ? error.message : "Centibot Agent failed",
+        message:
+          error instanceof Error ? error.message : "Centibot Agent failed",
       },
     });
   }
@@ -2137,17 +2274,42 @@ function startCentibotAgentServer(): void {
   });
 
   centibotAgentServer.listen(CENTIBOT_AGENT_PORT, "127.0.0.1", () => {
+    writeAppLog(
+      "info",
+      "server",
+      `Centibot Agent listening at http://127.0.0.1:${CENTIBOT_AGENT_PORT}/v1/chat/completions`,
+    );
     console.log(
       `Centibot Agent listening at http://127.0.0.1:${CENTIBOT_AGENT_PORT}/v1/chat/completions`,
     );
   });
 
   centibotAgentServer.on("error", (error) => {
+    writeAppLog("error", "server", "Centibot Agent server failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     console.error("Centibot Agent server failed", error);
   });
 }
 
+process.on("uncaughtException", (error) => {
+  writeAppLog("error", "process", "Uncaught exception", {
+    error: error.message,
+    stack: error.stack,
+  });
+});
+
+process.on("unhandledRejection", (reason) => {
+  writeAppLog("error", "process", "Unhandled rejection", {
+    reason:
+      reason instanceof Error
+        ? { message: reason.message, stack: reason.stack }
+        : reason,
+  });
+});
+
 app.whenReady().then(async () => {
+  writeAppLog("info", "app", "Application ready");
   const savedSettings = getModelSettings();
   applyModelSettings(savedSettings);
 

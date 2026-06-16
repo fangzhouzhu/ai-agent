@@ -3,9 +3,16 @@ import { toolPolicies, type ToolPolicy } from "../tools/policy";
 import { toAppError } from "./errors";
 import { createTraceId, previewTraceValue, recordTrace } from "./trace";
 
+export type ToolApprovalRequest = {
+  toolName: string;
+  args: unknown;
+  policy?: ToolPolicy;
+};
+
 export type ToolExecutionOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  confirm?: (request: ToolApprovalRequest) => Promise<boolean>;
 };
 
 export type ToolExecutionResult = {
@@ -51,6 +58,25 @@ export async function executeTool(
     const tool = allTools.find((item) => item.name === toolName);
     if (!tool) {
       throw new Error(`工具 ${toolName} 不存在`);
+    }
+
+    if (policy?.requiresConfirmation && options.confirm) {
+      const approved = await options.confirm({ toolName, args, policy });
+      if (!approved) {
+        const result = `已取消${policy.displayName || toolName}`;
+        const durationMs = Date.now() - startedAt;
+
+        recordTrace({
+          type: "tool_end",
+          traceId,
+          tool: toolName,
+          durationMs,
+          resultPreview: previewTraceValue(result),
+          at: Date.now(),
+        });
+
+        return { toolName, args, result, durationMs, policy };
+      }
     }
 
     const rawResult = await withTimeout(

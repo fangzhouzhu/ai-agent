@@ -293,9 +293,18 @@ type BotBindState = {
 
 type ToolPolicy = {
   name: string
+  displayName: string
   risk: Array<'read' | 'write' | 'delete' | 'network' | 'system'>
   requiresConfirmation: boolean
   description: string
+}
+
+const riskLabelZh: Record<string, string> = {
+  read: '读取',
+  write: '写入',
+  delete: '删除',
+  network: '网络',
+  system: '系统',
 }
 
 type TraceSummary = {
@@ -304,6 +313,11 @@ type TraceSummary = {
   updatedAt: number
   eventCount: number
   lastEventType: string
+}
+
+type DiagnosticLogInfo = {
+  directory: string
+  currentFile: string
 }
 
 const defaultModelConfig: ModelRouteConfig = {
@@ -548,7 +562,13 @@ const App: React.FC = () => {
   const [skillEditorMode, setSkillEditorMode] = useState<'new' | 'edit' | null>(null)
   const [skillEditorSessionId, setSkillEditorSessionId] = useState(() => uuidv4())
   const [toolPolicies, setToolPolicies] = useState<ToolPolicy[]>([])
+  const [draftToolPolicies, setDraftToolPolicies] = useState<Record<string, boolean>>({})
+  const [isSavingToolPolicies, setIsSavingToolPolicies] = useState(false)
   const [traceSummaries, setTraceSummaries] = useState<TraceSummary[]>([])
+  const [diagnosticLogInfo, setDiagnosticLogInfo] = useState<DiagnosticLogInfo>({
+    directory: '',
+    currentFile: '',
+  })
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null)
   const [apiTestState, setApiTestState] = useState<ApiTestState>({
     status: 'idle',
@@ -573,13 +593,14 @@ const App: React.FC = () => {
   const agentModeInfoButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const refreshModelConfig = useCallback(async () => {
-    const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces, savedAgents, savedKnowledgeBases] = await Promise.all([
+    const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces, logInfo, savedAgents, savedKnowledgeBases] = await Promise.all([
       window.electronAPI.listModels(),
       window.electronAPI.getModelConfig(),
       window.electronAPI.listSkills(),
       window.electronAPI.getWechatBotSettings(),
       window.electronAPI.listToolPolicies(),
       window.electronAPI.diagnostics.listTraces(),
+      window.electronAPI.diagnostics.getLogInfo(),
       window.electronAPI.agents.list(),
       window.electronAPI.kb.list(),
     ])
@@ -604,7 +625,9 @@ const App: React.FC = () => {
     setSkillEditorMode(nextSkills[0] ? 'edit' : null)
     setSkillEditorSessionId(uuidv4())
     setToolPolicies(policies)
+    setDraftToolPolicies(Object.fromEntries(policies.map((p) => [p.name, p.requiresConfirmation])))
     setTraceSummaries(traces)
+    setDiagnosticLogInfo(logInfo)
     setActiveSkillId(nextSkills[0]?.id ?? null)
     setApiTestState({ status: 'idle', message: '', models: [] })
     setBotBindState({
@@ -620,6 +643,13 @@ const App: React.FC = () => {
       nickname: nextWechatBotConfig.nickname,
       updatedAt: nextWechatBotConfig.updatedAt,
     })
+  }, [])
+
+  const handleOpenLogDirectory = useCallback(async () => {
+    const result = await window.electronAPI.diagnostics.openLogDirectory()
+    if (!result.ok) {
+      window.alert(result.message || '打开日志目录失败')
+    }
   }, [])
   // 初始化：从文件加载索引
   useEffect(() => {
@@ -653,6 +683,37 @@ const App: React.FC = () => {
     }
     init()
   }, [refreshModelConfig])
+
+  useEffect(() => {
+    const remove = window.electronAPI.onToolApprovalRequest(async ({ requestId, toolName, input, policy }) => {
+      const filePath =
+        input && typeof input === 'object' && 'filePath' in input
+          ? String((input as { filePath?: unknown }).filePath ?? '')
+          : ''
+
+      const approved = toolName === 'delete_file'
+        ? await confirm({
+            title: '确认删除文件',
+            message: '即将把文件移入系统回收站，是否继续？',
+            description: filePath,
+            confirmText: '删除',
+            cancelText: '取消',
+            tone: 'danger',
+          })
+        : await confirm({
+            title: `确认执行${policy?.displayName ?? toolName}`,
+            message: '该操作需要你的确认后才能继续执行。',
+            description: filePath || policy?.description || JSON.stringify(input, null, 2),
+            confirmText: '确定',
+            cancelText: '取消',
+            tone: 'default',
+          })
+
+      await window.electronAPI.respondToolApproval(requestId, approved)
+    })
+
+    return () => remove()
+  }, [confirm])
 
   useEffect(() => {
     const remove = window.electronAPI.task.onUpdate((task) => {
@@ -1355,6 +1416,26 @@ const App: React.FC = () => {
       await window.electronAPI.saveModelConfig(toSettingsPayload(nextConfig))
     },
     [modelConfig]
+  )
+
+  const handleSaveToolPolicies = useCallback(async () => {
+    setIsSavingToolPolicies(true)
+    try {
+      await Promise.all(
+        Object.entries(draftToolPolicies).map(([name, requiresConfirmation]) =>
+          window.electronAPI.updateToolPolicy(name, requiresConfirmation)
+        )
+      )
+      const updated = await window.electronAPI.listToolPolicies()
+      setToolPolicies(updated)
+      setDraftToolPolicies(Object.fromEntries(updated.map((p) => [p.name, p.requiresConfirmation])))
+    } finally {
+      setIsSavingToolPolicies(false)
+    }
+  }, [draftToolPolicies])
+
+  const isToolPolicyDirty = toolPolicies.some(
+    (policy) => (draftToolPolicies[policy.name] ?? policy.requiresConfirmation) !== policy.requiresConfirmation
   )
 
   const handleSaveModelConfig = useCallback(async () => {
@@ -3314,19 +3395,43 @@ const App: React.FC = () => {
                 <div className={styles.modalLabel}>工具权限</div>
                 <div className={styles.policyGrid}>
                   {toolPolicies.map((policy) => (
-                    <div key={policy.name} className={styles.policyCard}>
+                    <div
+                      key={policy.name}
+                      className={`${styles.policyCard} ${
+                        (draftToolPolicies[policy.name] ?? policy.requiresConfirmation) !== policy.requiresConfirmation
+                          ? styles.policyCardDirty
+                          : ''
+                      }`}
+                    >
                       <div className={styles.policyHeader}>
                         <div>
-                          <div className={styles.policyName}>{policy.name}</div>
+                          <div className={styles.policyName}>{policy.displayName || policy.name}</div>
                           <div className={styles.policyDesc}>{policy.description}</div>
                         </div>
-                        <span className={`${styles.policyConfirm} ${policy.requiresConfirmation ? styles.policyConfirmOn : styles.policyConfirmOff}`}>
-                          {policy.requiresConfirmation ? '需确认' : '自动执行'}
-                        </span>
+                        <button
+                          type="button"
+                          className={styles.policySwitchWrap}
+                          onClick={() => setDraftToolPolicies((prev) => ({ ...prev, [policy.name]: !(prev[policy.name] ?? policy.requiresConfirmation) }))}
+                          title="点击切换确认状态"
+                          aria-pressed={draftToolPolicies[policy.name] ?? policy.requiresConfirmation}
+                        >
+                          <span className={styles.policySwitchText}>
+                            {(draftToolPolicies[policy.name] ?? policy.requiresConfirmation) ? '需确认' : '自动执行'}
+                          </span>
+                          <span
+                            className={`${styles.policySwitch} ${
+                              (draftToolPolicies[policy.name] ?? policy.requiresConfirmation)
+                                ? styles.policySwitchOn
+                                : styles.policySwitchOff
+                            }`}
+                          >
+                            <span className={styles.policySwitchThumb} />
+                          </span>
+                        </button>
                       </div>
                       <div className={styles.policyRiskRow}>
                         {policy.risk.map((risk) => (
-                          <span key={risk} className={styles.policyRisk}>{risk}</span>
+                          <span key={risk} className={styles.policyRisk}>{riskLabelZh[risk] ?? risk}</span>
                         ))}
                       </div>
                     </div>
@@ -3341,6 +3446,20 @@ const App: React.FC = () => {
             {settingsTab === 'diagnostics' && (
               <div className={styles.modalSection}>
                 <div className={styles.modalLabel}>日志与诊断</div>
+                <div className={styles.traceCard}>
+                  <div className={styles.traceHeader}>
+                    <code>{diagnosticLogInfo.currentFile || '尚未生成日志文件'}</code>
+                    <span>本地日志</span>
+                  </div>
+                  <div className={styles.traceMeta}>
+                    <span>目录：{diagnosticLogInfo.directory || '待初始化'}</span>
+                  </div>
+                  <div className={styles.diagnosticsActions}>
+                    <button className={styles.secondaryBtn} onClick={() => void handleOpenLogDirectory()}>
+                      打开日志目录
+                    </button>
+                  </div>
+                </div>
                 <div className={styles.traceList}>
                   {traceSummaries.map((trace) => (
                     <div key={trace.traceId} className={styles.traceCard}>
@@ -3369,9 +3488,19 @@ const App: React.FC = () => {
                   <button className={styles.secondaryBtn} onClick={() => setShowModelConfig(false)}>
                     取消
                   </button>
-                  <button className={styles.primaryBtn} onClick={() => void handleSaveModelConfig()}>
-                    保存设置
-                  </button>
+                  {settingsTab === 'tools' ? (
+                    <button
+                      className={styles.primaryBtn}
+                      disabled={!isToolPolicyDirty || isSavingToolPolicies}
+                      onClick={() => void handleSaveToolPolicies()}
+                    >
+                      {isSavingToolPolicies ? '保存中...' : isToolPolicyDirty ? '保存设置' : '已保存'}
+                    </button>
+                  ) : (
+                    <button className={styles.primaryBtn} onClick={() => void handleSaveModelConfig()}>
+                      保存设置
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

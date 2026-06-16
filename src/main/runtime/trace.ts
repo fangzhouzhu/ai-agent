@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AppError } from "./errors";
+import { writeAppLog } from "./logger";
 
 export type AgentTraceEvent =
   | { type: "model_start"; traceId: string; model: string; messages: number; at: number }
@@ -34,6 +35,7 @@ export function recordTrace(event: AgentTraceEvent): void {
   const events = traces.get(event.traceId) ?? [];
   events.push(event);
   traces.set(event.traceId, events);
+  writeAppLog("info", "trace", `Recorded trace event: ${event.type}`, event);
 }
 
 export function getTrace(traceId: string): AgentTraceEvent[] {
