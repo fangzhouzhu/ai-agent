@@ -370,6 +370,65 @@ function getPlanPrompt(userPrompt: string): string {
 5. 生成PDF/PPT报告`;
 }
 
+function buildTaskSystemPrompt(taskPrompt: string): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  });
+  const yearMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
+  const allowFileOutput = taskNeedsFileOutput(taskPrompt);
+  const artifactTools = allowFileOutput
+    ? `- generate_pdf: generate a PDF report only when the user explicitly asks for PDF/report output
+- generate_pptx: generate a PPTX deck only when the user explicitly asks for PPT/slides/presentation output`
+    : `- Do not generate PDF or PPT files for this task unless the user explicitly asks for them.`;
+  const artifactRule = allowFileOutput
+    ? "3. Generate PDF/PPT/Markdown style deliverables only when the user explicitly requests them."
+    : "3. This task should stay in plain text. Do not call generate_pdf or generate_pptx.";
+
+  return `You are a disciplined task execution assistant.
+Current date: ${dateStr}. Any time-sensitive reasoning must use this as the reference date, and search queries should include a concrete year/month such as ${yearMonth}.
+
+Available tools:
+- web_search: search the web only when needed, and avoid redundant queries.
+- fetch_url: fetch the detailed content of the most relevant URLs.
+- write_file: write a local file only when necessary.
+- read_file: read a local file when needed.
+${artifactTools}
+
+Execution rules:
+1. After searching, fetch the most relevant 1-2 URLs instead of looping on search.
+2. Avoid repeated tool calls for the same purpose. Move on once enough evidence is collected.
+${artifactRule}
+4. If the task is a normal conversational request, answer directly in text instead of manufacturing files.
+5. For research tasks, keep conclusions grounded in collected evidence.
+6. For recent phone-launch tasks, prefer official vendor sites and major tech media, and verify launch date, specs, and source references before summarizing.`;
+}
+
+function buildTaskPlanPrompt(userPrompt: string): string {
+  const needsFileOutput = taskNeedsFileOutput(userPrompt);
+  const finalStep = needsFileOutput
+    ? "5. Organize the result and generate the requested file only if the user explicitly asked for one"
+    : "5. Output the final answer directly in plain text";
+
+  return `Create a concise execution plan for the task below. Output only a numbered list with at most 6 steps, one step per line. Do not explain. Do not call tools.
+
+For research or organization tasks:
+- break the request into clear information dimensions
+- keep search queries short and specific
+- prefer the rhythm: search -> fetch -> verify -> summarize
+
+Task: ${userPrompt}
+
+Example format:
+1. Search key information
+2. Fetch the most relevant pages
+3. Verify the main facts
+4. Summarize the findings
+${finalStep}`;
+}
 function isPhoneLaunchTask(prompt: string): boolean {
   return /(手机|新机|发布会|发布的新手机|机型|参数|配置|图片|真机图|渲染图|厂商)/i.test(
     prompt,
@@ -436,7 +495,10 @@ function splitSearchResultEntries(result: string): Array<{
     .map((block) => block.trim())
     .filter((block) => /^\d+\./.test(block))
     .map((block) => {
-      const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const lines = block
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
       const title = lines[0]?.replace(/^\d+\.\s*/, "") || "";
       const url = lines.find((line) => /^https?:\/\//.test(line)) || "";
       return {
@@ -448,23 +510,40 @@ function splitSearchResultEntries(result: string): Array<{
     .filter((entry) => Boolean(entry.url));
 }
 
-function scorePhoneSearchEntry(entry: { title: string; url: string; body: string }, query: string): number {
+function scorePhoneSearchEntry(
+  entry: { title: string; url: string; body: string },
+  query: string,
+): number {
   const haystack = `${entry.title} ${entry.body} ${entry.url}`.toLowerCase();
   let score = 0;
 
-  if (/(gov\.cn|mwr\.gov\.cn|holiday|日历|节假日|政策|国务院|农历|放假)/i.test(haystack)) {
+  if (
+    /(gov\.cn|mwr\.gov\.cn|holiday|日历|节假日|政策|国务院|农历|放假)/i.test(
+      haystack,
+    )
+  ) {
     return -100;
   }
 
-  if (/(ithome|mydrivers|zol|pconline|cnmo|techweb|gsmarena|91mobiles|sina\.com\.cn|163\.com|sohu\.com|oppo\.com|vivo\.com|huawei\.com|honor\.com|mi\.com|xiaomi\.com|iqoo\.com|oneplus\.com|realme\.com)/i.test(haystack)) {
+  if (
+    /(ithome|mydrivers|zol|pconline|cnmo|techweb|gsmarena|91mobiles|sina\.com\.cn|163\.com|sohu\.com|oppo\.com|vivo\.com|huawei\.com|honor\.com|mi\.com|xiaomi\.com|iqoo\.com|oneplus\.com|realme\.com)/i.test(
+      haystack,
+    )
+  ) {
     score += 6;
   }
 
-  if (/(手机|新机|发布|发布会|参数|配置|影像|图片|真机图|渲染图|售价|开售)/i.test(haystack)) {
+  if (
+    /(手机|新机|发布|发布会|参数|配置|影像|图片|真机图|渲染图|售价|开售)/i.test(
+      haystack,
+    )
+  ) {
     score += 4;
   }
 
-  for (const brand of extractMatchedPhoneBrands(`${query} ${entry.title} ${entry.body}`)) {
+  for (const brand of extractMatchedPhoneBrands(
+    `${query} ${entry.title} ${entry.body}`,
+  )) {
     if (haystack.includes(brand.toLowerCase()) || entry.body.includes(brand)) {
       score += 3;
     }
@@ -501,6 +580,25 @@ function taskNeedsMarkdown(prompt: string): boolean {
   return /(markdown|\.md|(^|\s)md(\s|$))/i.test(prompt);
 }
 
+function taskNeedsFileOutput(prompt: string): boolean {
+  return (
+    taskNeedsPpt(prompt) ||
+    taskNeedsDocument(prompt) ||
+    taskNeedsMarkdown(prompt)
+  );
+}
+
+function getTaskToolDefinitions(
+  prompt: string,
+): typeof OPENAI_COMPATIBLE_TOOLS {
+  const allowArtifactTools = taskNeedsFileOutput(prompt);
+  if (allowArtifactTools) return OPENAI_COMPATIBLE_TOOLS;
+
+  return OPENAI_COMPATIBLE_TOOLS.filter((tool) => {
+    const name = tool.function.name;
+    return name !== "generate_pdf" && name !== "generate_pptx";
+  });
+}
 function sanitizeArtifactBaseName(input: string): string {
   const safe = input
     .replace(/[\\/:*?"<>|]/g, " ")
@@ -526,7 +624,9 @@ function extractUrlFromFetchResult(result: string): string {
   return matched?.[1]?.trim() || "";
 }
 
-function collectPhoneEvidenceFromFetchResult(result: string): PhoneEvidenceItem[] {
+function collectPhoneEvidenceFromFetchResult(
+  result: string,
+): PhoneEvidenceItem[] {
   const title = extractTitleFromFetchResult(result);
   const url = extractUrlFromFetchResult(result);
   const excerpt = extractExcerptFromFetchResult(result);
@@ -618,7 +718,9 @@ function buildPhoneSlides(
     title: "任务摘要",
     content:
       summaryLines.length > 0
-        ? summaryLines.map((line) => `- ${line.replace(/^[-*]\s*/, "")}`).join("\n")
+        ? summaryLines
+            .map((line) => `- ${line.replace(/^[-*]\s*/, "")}`)
+            .join("\n")
         : "- 汇总最近三个月中国手机厂商发布的新机\n- 重点保留发布时间、参数、图片来源\n- 结果基于公开网页抓取整理",
   });
 
@@ -659,8 +761,13 @@ async function ensureTaskArtifacts(
   if (task.outputFiles.length > 0) return;
   if (!taskNeedsPpt(task.prompt) && !taskNeedsMarkdown(task.prompt)) return;
 
-  if (isPhoneLaunchTask(task.prompt) && !hasUsablePhoneEvidence(evidenceItems)) {
-    throw new Error("手机新品数据不足，未生成 PPT。请继续补充有效品牌、参数和图片来源后再生成。");
+  if (
+    isPhoneLaunchTask(task.prompt) &&
+    !hasUsablePhoneEvidence(evidenceItems)
+  ) {
+    throw new Error(
+      "手机新品数据不足，未生成 PPT。请继续补充有效品牌、参数和图片来源后再生成。",
+    );
   }
 
   const baseDir = getDefaultArtifactDir();
@@ -811,7 +918,8 @@ function buildPhoneTaskMediaQueries(prompt: string): string[] {
   const monthText = getRecentMonthRangeText();
   const wantsImages = /(图片|配图|真机图|渲染图|海报)/i.test(prompt);
   const suffix = wantsImages ? "发布 参数 图片" : "发布 参数 配置";
-  const preferredSites = "(site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)";
+  const preferredSites =
+    "(site:ithome.com OR site:zol.com.cn OR site:pconline.com.cn)";
 
   return PHONE_TASK_BRAND_SEARCH_CONFIGS.map(
     ({ brand, aliases }) =>
@@ -903,8 +1011,8 @@ async function runTaskWithOpenAI(
     settings,
     model,
     messages: [
-      { role: "system", content: getTaskSystemPrompt() },
-      { role: "user", content: getPlanPrompt(task.prompt) },
+      { role: "system", content: buildTaskSystemPrompt(task.prompt) },
+      { role: "user", content: buildTaskPlanPrompt(task.prompt) },
     ],
     // 不传 tools，强制输出纯文本计划
   });
@@ -924,8 +1032,10 @@ async function runTaskWithOpenAI(
   });
 
   // ── 阶段二：带工具执行，携带计划上下文 ──────────────────────────────────
+  const availableTools = getTaskToolDefinitions(task.prompt);
+
   const messages: CompatibleMessage[] = [
-    { role: "system", content: getTaskSystemPrompt() },
+    { role: "system", content: buildTaskSystemPrompt(task.prompt) },
     {
       role: "user",
       content: `任务：${task.prompt}\n\n已制定的执行计划：\n${plan}\n\n请严格按照上述计划，依次调用工具执行每个步骤。每个步骤完成后立即进入下一步，不要重复已完成的步骤。`,
@@ -1016,7 +1126,10 @@ async function runTaskWithOpenAI(
     }
 
     for (const query of queries) {
-      if (searchCallCount >= MAX_SEARCH_CALLS || toolCallCount >= MAX_TOOL_CALLS) {
+      if (
+        searchCallCount >= MAX_SEARCH_CALLS ||
+        toolCallCount >= MAX_TOOL_CALLS
+      ) {
         break;
       }
 
@@ -1128,7 +1241,10 @@ async function runTaskWithOpenAI(
 
   if (isPhoneTask) {
     await collectPhoneTaskEvidence();
-    if (!hasUsablePhoneEvidence(phoneEvidenceItems) && searchCallCount >= MAX_SEARCH_CALLS) {
+    if (
+      !hasUsablePhoneEvidence(phoneEvidenceItems) &&
+      searchCallCount >= MAX_SEARCH_CALLS
+    ) {
       throw new Error(
         `手机新品信息采集失败：未抓取到足够有效页面。当前有效页面 ${fetchSuccessCount} 个，品牌覆盖 ${matchedPhoneBrands.size} 个。请检查搜索源或缩小任务范围后重试。`,
       );
@@ -1147,14 +1263,14 @@ async function runTaskWithOpenAI(
     if (toolCallCount >= MAX_TOOL_CALLS) {
       addStep(task, {
         type: "thinking",
-        label: "已达工具调用上限，整理输出结果",
-        content: `已执行 ${toolCallCount} 次工具调用，开始整理最终结果。`,
+        label: "Tool limit reached, preparing final output",
+        content: `Executed ${toolCallCount} tool calls, preparing the final response.`,
       });
-      // 让模型总结已有内容
       messages.push({
         role: "user",
-        content:
-          "已收集足够信息，请立即整理并生成最终报告（调用generate_pdf或generate_pptx），或直接输出总结文本。",
+        content: taskNeedsFileOutput(task.prompt)
+          ? "Enough information has been collected. Organize the result, and only generate a file if the user explicitly requested one."
+          : "Enough information has been collected. Output the final answer directly in plain text and do not generate PDF or PPT.",
       });
     }
 
@@ -1163,8 +1279,7 @@ async function runTaskWithOpenAI(
         settings,
         model,
         messages,
-        tools:
-          toolCallCount < MAX_TOOL_CALLS ? OPENAI_COMPATIBLE_TOOLS : undefined,
+        tools: toolCallCount < MAX_TOOL_CALLS ? availableTools : undefined,
       }),
       120_000,
       "模型响应",
@@ -1182,8 +1297,7 @@ async function runTaskWithOpenAI(
         addStep(task, {
           type: "thinking",
           label: "证据不足，继续补充手机新品信息",
-          content:
-            `当前仅抓取 ${fetchSuccessCount} 个有效页面，覆盖 ${matchedPhoneBrands.size} 个品牌，且输出仍包含占位内容。继续搜索并抓取更具体的机型发布时间、参数和图片来源。`,
+          content: `当前仅抓取 ${fetchSuccessCount} 个有效页面，覆盖 ${matchedPhoneBrands.size} 个品牌，且输出仍包含占位内容。继续搜索并抓取更具体的机型发布时间、参数和图片来源。`,
         });
         messages.push({
           role: "user",
@@ -1277,9 +1391,8 @@ async function runTaskWithOpenAI(
 
         let resultStr: string;
         try {
-          resultStr = (
-            await executeTool(toolName, args, { timeoutMs: 45_000 })
-          ).result;
+          resultStr = (await executeTool(toolName, args, { timeoutMs: 45_000 }))
+            .result;
         } catch (e: any) {
           resultStr = `工具执行失败: ${e?.message || e}`;
         }
@@ -1288,9 +1401,7 @@ async function runTaskWithOpenAI(
           const candidateUrls = extractRelevantPhoneUrls(
             resultStr,
             String(args.query || ""),
-          ).filter(
-            (url) => !autoFetchedUrls.has(url),
-          );
+          ).filter((url) => !autoFetchedUrls.has(url));
 
           for (const url of candidateUrls.slice(0, 2)) {
             autoFetchedUrls.add(url);
@@ -1467,7 +1578,7 @@ async function runTaskWithOllama(task: Task): Promise<void> {
       name: "任务执行",
       description: "端到端任务执行",
       keywords: [],
-      systemPrompt: getTaskSystemPrompt(),
+      systemPrompt: buildTaskSystemPrompt(task.prompt),
       enabled: true,
       preferredScene: "agent",
       priority: 100,

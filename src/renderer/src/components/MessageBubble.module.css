@@ -489,6 +489,10 @@
   cursor: pointer;
 }
 
+.taskSectionToggle[aria-expanded='false'] {
+  margin-bottom: 14px;
+}
+
 .taskSectionToggleIcon {
   color: #7085b1;
   font-size: 11px;
@@ -498,7 +502,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 15px 14px;
+  padding: 12px 15px 22px;
 }
 
 .taskStepItem {
