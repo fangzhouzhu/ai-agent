@@ -1,0 +1,76 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.trigger {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+}
+
+.label,
+.optionLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  width: 10px;
+  height: 6px;
+  flex-shrink: 0;
+  color: #49639b;
+  transition: transform 0.18s ease;
+}
+
+.rootOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  z-index: 30;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(188, 204, 244, 0.82);
+  background: rgba(250, 252, 255, 0.98);
+  box-shadow: 0 18px 42px rgba(43, 70, 142, 0.14);
+  backdrop-filter: blur(14px);
+}
+
+.menuAbove {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+.option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #244173;
+  cursor: pointer;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.option:hover,
+.optionSelected {
+  background: rgba(235, 241, 255, 0.92);
+}
+
+.option:disabled,
+.trigger:disabled {
+  cursor: not-allowed;
+}

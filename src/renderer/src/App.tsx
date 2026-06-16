@@ -6,6 +6,7 @@ import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
 import SkillsPanel from './components/SkillsPanel'
 import WechatBotPanel from './components/WechatBotPanel'
+import CustomSelect from './components/CustomSelect'
 import { useAppDialog } from './components/AppDialogProvider'
 import type { Task } from '../../preload/index'
 
@@ -2508,15 +2509,20 @@ const App: React.FC = () => {
                       </button>
                     </div>
                   </span>
-                  <select
-                    className={styles.fieldSelect}
+                  <CustomSelect
+                    rootClassName={styles.fieldSelectWrap}
+                    triggerClassName={styles.fieldSelect}
+                    menuClassName={styles.fieldSelectMenu}
+                    optionClassName={styles.fieldSelectOption}
+                    optionSelectedClassName={styles.fieldSelectOptionSelected}
                     value={agentEditorDraft.mode}
-                    onChange={(e) => setAgentEditorDraft((prev) => prev ? { ...prev, mode: e.target.value as AgentMode } : prev)}
-                  >
-                    <option value="domain">专业助手</option>
-                    <option value="workflow">流程助手</option>
-                    <option value="general">通用助手</option>
-                  </select>
+                    onChange={(value) => setAgentEditorDraft((prev) => prev ? { ...prev, mode: value as AgentMode } : prev)}
+                    options={[
+                      { value: 'domain', label: '专业助手' },
+                      { value: 'workflow', label: '流程助手' },
+                      { value: 'general', label: '通用助手' },
+                    ]}
+                  />
                   <div className={styles.fieldHint}>
                     当前模式：{currentAgentModeDescription.title}。{currentAgentModeDescription.description}
                     {currentAgentModeDescription.example}
@@ -2835,24 +2841,28 @@ const App: React.FC = () => {
               <div className={styles.modalLabel}>在线 API / 第三方模型</div>
 
               <div className={styles.profileToolbar}>
-                <select
-                  className={styles.fieldSelect}
+                <CustomSelect
+                  rootClassName={styles.fieldSelectWrap}
+                  triggerClassName={styles.fieldSelect}
+                  menuClassName={styles.fieldSelectMenu}
+                  optionClassName={styles.fieldSelectOption}
+                  optionSelectedClassName={styles.fieldSelectOptionSelected}
                   value={draftModelConfig.activeOnlineProfileId ?? ''}
-                  onChange={(e) => {
-                    if (!e.target.value) {
+                  onChange={(value) => {
+                    if (!value) {
                       handleResetOnlineDraft()
                       return
                     }
-                    applyOnlineProfile(e.target.value)
+                    applyOnlineProfile(value)
                   }}
-                >
-                  <option value="">一键切换已保存预设...</option>
-                  {draftModelConfig.onlineProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name} · {profile.provider}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: '一键切换已保存预设...' },
+                    ...draftModelConfig.onlineProfiles.map((profile) => ({
+                      value: profile.id,
+                      label: `${profile.name} · ${profile.provider}`,
+                    })),
+                  ]}
+                />
 
                 <button className={styles.secondaryBtn} onClick={() => handleResetOnlineDraft()}>
                   新建预设
@@ -2875,11 +2885,15 @@ const App: React.FC = () => {
 
                 <label className={styles.fieldItem}>
                   <span>服务商预设</span>
-                  <select
-                    className={styles.fieldSelect}
+                  <CustomSelect
+                    rootClassName={styles.fieldSelectWrap}
+                    triggerClassName={styles.fieldSelect}
+                    menuClassName={styles.fieldSelectMenu}
+                    optionClassName={styles.fieldSelectOption}
+                    optionSelectedClassName={styles.fieldSelectOptionSelected}
                     value={draftModelConfig.online.provider}
-                    onChange={(e) => {
-                      const provider = e.target.value
+                    onChange={(value) => {
+                      const provider = value
                       updateOnlineConfig({
                         provider,
                         baseUrl:
@@ -2888,13 +2902,11 @@ const App: React.FC = () => {
                             : (onlineProviderPresets[provider] ?? draftModelConfig.online.baseUrl),
                       })
                     }}
-                  >
-                    {Object.keys(onlineProviderPresets).map((provider) => (
-                      <option key={provider} value={provider}>
-                        {provider}
-                      </option>
-                    ))}
-                  </select>
+                    options={Object.keys(onlineProviderPresets).map((provider) => ({
+                      value: provider,
+                      label: provider,
+                    }))}
+                  />
                 </label>
 
                 <label className={styles.fieldItem}>

@@ -108,6 +108,10 @@ function parseDetailLines(text: string): DetailItem[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
+      if (/^[a-z]+:\/\//i.test(line)) {
+        return null
+      }
+
       const match = line.match(/^([^:：]+)[:：]\s*(.+)$/)
       return match ? { label: match[1].trim(), value: match[2].trim() } : null
     })
@@ -453,7 +457,7 @@ function renderResultPreview(toolName: string, result: string) {
         return {
           type: itemMatch[1] === '目录' ? 'dir' : 'file',
           name: itemMatch[2],
-          extra: itemMatch[3],
+          ...(itemMatch[3] ? { extra: itemMatch[3] } : {}),
         }
       })
       .filter((item): item is { type: string; name: string; extra?: string } => item !== null)
@@ -501,8 +505,8 @@ function renderResultPreview(toolName: string, result: string) {
           <div className={styles.weatherLocation}>{weather['位置'] || '未知地点'}</div>
         </div>
         <div className={styles.toolResultGrid}>
-          {summaryItems.map((item) => (
-            <div key={item.label} className={styles.toolResultRow}>
+          {summaryItems.map((item, index) => (
+            <div key={`${item.label}-${index}`} className={styles.toolResultRow}>
               <span className={styles.toolResultKey}>{item.label}</span>
               <span className={styles.toolResultValue}>{item.value}</span>
             </div>
@@ -515,8 +519,8 @@ function renderResultPreview(toolName: string, result: string) {
   if (detailItems.length >= 2) {
     return (
       <div className={styles.toolResultGrid}>
-        {detailItems.map((item) => (
-          <div key={item.label} className={styles.toolResultRow}>
+        {detailItems.map((item, index) => (
+          <div key={`${item.label}-${index}`} className={styles.toolResultRow}>
             <span className={styles.toolResultKey}>{item.label}</span>
             <span className={styles.toolResultValue}>{item.value}</span>
           </div>

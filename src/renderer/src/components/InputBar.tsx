@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react'
+import CustomSelect from './CustomSelect'
 import styles from './InputBar.module.css'
 
 interface RagFileMeta {
@@ -454,6 +455,27 @@ const InputBar: React.FC<Props> = ({
         <div className={styles.composer}>
           <div className={styles.inputStage}>
             <div className={styles.inputShell} onClick={() => textareaRef.current?.focus()}>
+              <div className={styles.inputTopRow}>
+                <div className={styles.modeSwitch}>
+                  <button
+                    type="button"
+                    className={`${styles.modeBtn} ${sendMode === 'chat' ? styles.modeBtnActive : ''}`}
+                    onClick={() => setSendMode('chat')}
+                    disabled={isBusy}
+                  >
+                    对话
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.modeBtn} ${sendMode === 'task' ? styles.modeBtnActive : ''}`}
+                    onClick={() => setSendMode('task')}
+                    disabled={isBusy}
+                  >
+                    任务
+                  </button>
+                </div>
+              </div>
+
               {selectedSkills.length > 0 && (
                 <div className={styles.selectedSkillRow}>
                   {selectedSkills.map((skill) => (
@@ -516,24 +538,6 @@ const InputBar: React.FC<Props> = ({
 
           <div className={styles.composerFooter}>
             <div className={styles.footerControls}>
-              <div className={styles.modeSwitch}>
-                <button
-                  type="button"
-                  className={`${styles.modeBtn} ${sendMode === 'chat' ? styles.modeBtnActive : ''}`}
-                  onClick={() => setSendMode('chat')}
-                  disabled={isBusy}
-                >
-                  对话
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.modeBtn} ${sendMode === 'task' ? styles.modeBtnActive : ''}`}
-                  onClick={() => setSendMode('task')}
-                  disabled={isBusy}
-                >
-                  任务
-                </button>
-              </div>
               <button
                 className={styles.uploadBtn}
                 onClick={() => void onPickFiles()}
@@ -543,38 +547,38 @@ const InputBar: React.FC<Props> = ({
                 上传文档
               </button>
 
-              <select
-                className={styles.agentSelect}
+              <CustomSelect
+                rootClassName={styles.agentSelectWrap}
+                triggerClassName={styles.agentSelect}
+                menuClassName={styles.selectMenu}
+                optionClassName={styles.selectOption}
+                optionSelectedClassName={styles.selectOptionSelected}
                 value={selectedAgentId}
-                onChange={(e) => void onSelectAgent(e.target.value)}
+                onChange={(value) => onSelectAgent(value)}
                 disabled={!canSelectAgent}
                 title={canSelectAgent ? '选择当前新对话使用的智能体' : '对话开始后不可再次切换智能体'}
-              >
-                <option value="">通用</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: '通用' },
+                  ...agents.map((agent) => ({ value: agent.id, label: agent.name })),
+                ]}
+              />
 
-              <select
-                className={styles.modelSelect}
+              <CustomSelect
+                rootClassName={styles.modelSelectWrap}
+                triggerClassName={styles.modelSelect}
+                menuClassName={styles.selectMenu}
+                optionClassName={styles.selectOption}
+                optionSelectedClassName={styles.selectOptionSelected}
                 value={currentValue}
-                onChange={(e) => void handleModelChange(e.target.value)}
+                onChange={handleModelChange}
                 disabled={normalizedOptions.length === 0}
                 title="发送消息时所有场景统一生效"
-              >
-                {normalizedOptions.length === 0 ? (
-                  <option value="">未检测到可用模型</option>
-                ) : (
-                  normalizedOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))
-                )}
-              </select>
+                options={
+                  normalizedOptions.length === 0
+                    ? [{ value: '', label: '未检测到可用模型' }]
+                    : normalizedOptions.map((option) => ({ value: option.value, label: option.label }))
+                }
+              />
             </div>
 
             <div className={styles.footerActions}>

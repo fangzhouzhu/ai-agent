@@ -60,6 +60,13 @@ const MessageBubbleIcon: React.FC = () => (
   </svg>
 )
 
+const NewChatIcon: React.FC = () => (
+  <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M8 3.25V12.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <path d="M3.25 8H12.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+)
+
 const Sidebar: React.FC<Props> = ({
   conversations,
   agents,
@@ -112,7 +119,9 @@ const Sidebar: React.FC<Props> = ({
       <div className={styles.scrollArea}>
         <nav className={styles.primaryNav}>
           <button className={`${styles.navItem} ${styles.newChatBtn}`} onClick={handleNewChat}>
-            <span className={styles.navIcon}>+</span>
+            <span className={styles.navIcon}>
+              <NewChatIcon />
+            </span>
             <span>新对话</span>
           </button>
           <button
