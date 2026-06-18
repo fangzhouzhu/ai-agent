@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import CustomSelect from './CustomSelect'
 import styles from './InputBar.module.css'
 
@@ -59,6 +59,14 @@ type SkillConfig = {
 type AgentOption = {
   id: string
   name: string
+}
+
+type InputContextMenuState = {
+  x: number
+  y: number
+  canCopy: boolean
+  canCut: boolean
+  canPaste: boolean
 }
 
 interface Props {
@@ -142,6 +150,10 @@ function getCaret(textarea: HTMLTextAreaElement | null, fallback: number) {
   return textarea?.selectionStart ?? fallback
 }
 
+function hasSelection(textarea: HTMLTextAreaElement) {
+  return textarea.selectionStart !== textarea.selectionEnd
+}
+
 function insertSkillTag(input: string, start: number, end: number, skillName: string) {
   const prefix = input.slice(0, start)
   const suffix = input.slice(end)
@@ -202,7 +214,9 @@ const InputBar: React.FC<Props> = ({
   const [sendMode, setSendMode] = useState<'chat' | 'task'>('chat')
   const [selectedSkills, setSelectedSkills] = useState<SkillConfig[]>([])
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
+  const [contextMenu, setContextMenu] = useState<InputContextMenuState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const inputStageRef = useRef<HTMLDivElement>(null)
   const isBusy = isLoading || isRagProcessing
   const unifiedRoute = modelConfig.chat
   const activeOnlineProfile =
@@ -216,6 +230,29 @@ const InputBar: React.FC<Props> = ({
     () => filterSuggestedSkills(skills, skillQueryContext?.query ?? '', selectedSkillIds),
     [skills, skillQueryContext?.query, selectedSkillIds]
   )
+  const contextMenuItems = useMemo(
+    () => [
+      { action: 'copy' as const, label: '复制', shortcut: 'Ctrl+C', disabled: !contextMenu?.canCopy },
+      { action: 'paste' as const, label: '粘贴', shortcut: 'Ctrl+V', disabled: !contextMenu?.canPaste },
+      { action: 'cut' as const, label: '剪切', shortcut: 'Ctrl+X', disabled: !contextMenu?.canCut },
+    ],
+    [contextMenu]
+  )
+
+  useEffect(() => {
+    if (!contextMenu) return
+
+    const closeMenu = () => setContextMenu(null)
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+    }
+  }, [contextMenu])
 
   const modelOptions: ModelOption[] = [
     ...(localModels.length > 0 || unifiedRoute.provider === 'ollama'
@@ -367,6 +404,12 @@ const InputBar: React.FC<Props> = ({
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (contextMenu && e.key === 'Escape') {
+      e.preventDefault()
+      setContextMenu(null)
+      return
+    }
+
     if (skillQueryContext && suggestedSkills.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -380,7 +423,7 @@ const InputBar: React.FC<Props> = ({
         return
       }
 
-      if ((e.key === 'Enter' || e.key === 'Tab') && activeSuggestionIndex >= 0) {
+      if ((e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) && activeSuggestionIndex >= 0) {
         e.preventDefault()
         applySuggestion(suggestedSkills[activeSuggestionIndex])
         return
@@ -414,6 +457,54 @@ const InputBar: React.FC<Props> = ({
     setActiveSuggestionIndex(0)
     requestAnimationFrame(() => resizeTextarea(textareaRef.current))
   }
+
+  const handleTextareaContextMenu = (e: React.MouseEvent<HTMLTextAreaElement>) => {
+    e.preventDefault()
+
+    const textarea = e.currentTarget
+    textarea.focus()
+    const stageRect = inputStageRef.current?.getBoundingClientRect()
+    const canCopy = hasSelection(textarea)
+    const canCut = hasSelection(textarea) && !textarea.readOnly && !textarea.disabled
+    const canPaste = !textarea.readOnly && !textarea.disabled
+    const estimatedMenuWidth = 136
+    const estimatedMenuHeight = 86
+    const fallbackX = 8
+    const fallbackY = 8
+    const rawX = stageRect ? e.clientX - stageRect.left : fallbackX
+    const rawY = stageRect ? e.clientY - stageRect.top : fallbackY
+    const viewportSpaceBelow = window.innerHeight - e.clientY
+    const nextX = stageRect
+      ? Math.min(Math.max(8, rawX), Math.max(8, stageRect.width - estimatedMenuWidth))
+      : Math.max(8, rawX)
+    const nextY =
+      stageRect && viewportSpaceBelow < estimatedMenuHeight + 12
+        ? Math.max(8, rawY - estimatedMenuHeight)
+        : Math.max(8, rawY)
+
+    setContextMenu({
+      x: nextX,
+      y: nextY,
+      canCopy,
+      canCut,
+      canPaste,
+    })
+  }
+
+  const handleContextMenuAction = (action: 'copy' | 'cut' | 'paste', disabled: boolean) => {
+    if (disabled) return
+    textareaRef.current?.focus()
+    void window.electronAPI.performInputEditAction(action)
+    setContextMenu(null)
+  }
+
+  const contextMenuStyle =
+    contextMenu && inputStageRef.current
+      ? {
+          left: `${Math.min(contextMenu.x, Math.max(8, inputStageRef.current.clientWidth - 144))}px`,
+          top: `${contextMenu.y}px`,
+        }
+      : undefined
 
   const placeholder =
     sendMode === 'task'
@@ -453,7 +544,7 @@ const InputBar: React.FC<Props> = ({
         )}
 
         <div className={styles.composer}>
-          <div className={styles.inputStage}>
+          <div className={styles.inputStage} ref={inputStageRef}>
             <div className={styles.inputShell} onClick={() => textareaRef.current?.focus()}>
               <div className={styles.inputTopRow}>
                 <div className={styles.modeSwitch}>
@@ -506,11 +597,34 @@ const InputBar: React.FC<Props> = ({
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
                 onClick={() => setActiveSuggestionIndex(0)}
+                onContextMenu={handleTextareaContextMenu}
                 placeholder={placeholder}
                 spellCheck={false}
                 rows={1}
               />
             </div>
+
+            {contextMenu && (
+              <div
+                className={styles.contextMenu}
+                style={contextMenuStyle}
+                onClick={(e) => e.stopPropagation()}
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                {contextMenuItems.map((item) => (
+                  <button
+                    key={item.action}
+                    type="button"
+                    className={styles.contextMenuItem}
+                    disabled={item.disabled}
+                    onClick={() => handleContextMenuAction(item.action, item.disabled)}
+                  >
+                    <span>{item.label}</span>
+                    <span className={styles.contextMenuShortcut}>{item.shortcut}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {skillQueryContext && suggestedSkills.length > 0 && (
               <div className={styles.suggestionDropdown}>

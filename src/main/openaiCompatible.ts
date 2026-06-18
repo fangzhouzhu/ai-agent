@@ -871,6 +871,7 @@ export async function invokeOpenAICompatibleChat(options: {
       messages: trimmedMessages,
       tools,
       tool_choice: hasTools ? "auto" : undefined,
+      thinking: isZhipu && !hasTools ? { type: "disabled" } : undefined,
       stream: false,
       temperature: 0.2,
       max_tokens: maxTokens,
@@ -929,6 +930,7 @@ export async function streamOpenAICompatibleChat(options: {
     body: JSON.stringify({
       model: resolved.model,
       messages: trimmedMessages,
+      thinking: isZhipu ? { type: "disabled" } : undefined,
       stream: true,
       temperature: 0.3,
       max_tokens: isZhipu ? 1200 : 1800,
@@ -1009,11 +1011,14 @@ export async function streamOpenAICompatibleChat(options: {
               delta?: {
                 content?: string;
                 reasoning_content?: string;
+                reasoning?: string;
               };
+              finish_reason?: string | null;
             }>;
           };
-          const delta = data.choices?.[0]?.delta;
-          const reasoning = delta?.reasoning_content || "";
+          const choice = data.choices?.[0];
+          const delta = choice?.delta;
+          const reasoning = delta?.reasoning_content || delta?.reasoning || "";
           const token = delta?.content || "";
           if (reasoning) {
             if (!reasoningOpen) {
@@ -1031,6 +1036,14 @@ export async function streamOpenAICompatibleChat(options: {
           }
           if (reasoning || token) {
             emitAvailableContent();
+          }
+          if (choice?.finish_reason) {
+            if (reasoningOpen) {
+              rawResponse += "\n</think>\n";
+              reasoningOpen = false;
+              emitAvailableContent();
+            }
+            return emittedSanitizedContent;
           }
         } catch {
           // 忽略非 JSON 心跳包

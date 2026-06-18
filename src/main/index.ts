@@ -49,7 +49,7 @@ import {
 import { retrieveFromKbs } from "./ragRetriever";
 import { deleteKbVectors } from "./ragStore";
 import { RAG_CITATION_PROMPT } from "./prompts/agentPrompts";
-import { listTraces, getTrace } from "./runtime/trace";
+import { listTraces, getTrace, recordTrace } from "./runtime/trace";
 import {
   getCurrentLogFilePath,
   getLogDirectory,
@@ -930,6 +930,8 @@ ipcMain.handle(
     },
   ) => {
     const webContents = event.sender;
+    const requestStartedAt = Date.now();
+    const routeTraceId = randomUUID();
 
     // 中止上一次未完成的请求
     const requestConversationId = conversationId ?? randomUUID();
@@ -939,10 +941,43 @@ ipcMain.handle(
     const controller = new AbortController();
     chatRequests.set(requestConversationId, { controller, webContents });
     const { signal } = controller;
+    let latestModelInfo: {
+      model: string;
+      scene: string;
+      skill?: string;
+      routeMs?: number;
+    } | null = null;
+    let firstTokenSent = false;
     const emitToken = (token: string) => {
+      const isFirstToken = !firstTokenSent && token.length > 0;
+      const elapsedMs = isFirstToken
+        ? Math.max(0, Date.now() - requestStartedAt)
+        : undefined;
+      if (isFirstToken) {
+        firstTokenSent = true;
+        if (latestModelInfo) {
+          const nextModelInfo = {
+            ...latestModelInfo,
+            scene: `${latestModelInfo.scene} · 首字 ${elapsedMs} ms`,
+          };
+          latestModelInfo = nextModelInfo;
+          webContents.send("chat:model-info", {
+            conversationId: requestConversationId,
+            modelInfo: nextModelInfo,
+          });
+          recordTrace({
+            type: "first_token",
+            traceId: routeTraceId,
+            model: nextModelInfo.model,
+            latencyMs: elapsedMs ?? 0,
+            at: Date.now(),
+          });
+        }
+      }
       webContents.send("chat:token", {
         conversationId: requestConversationId,
         token,
+        ...(isFirstToken ? { isFirstToken: true, elapsedMs } : {}),
       });
     };
     const emitToolCall = (toolName: string, input: unknown) => {
@@ -963,7 +998,9 @@ ipcMain.handle(
       model: string;
       scene: string;
       skill?: string;
+      routeMs?: number;
     }) => {
+      latestModelInfo = modelInfo;
       webContents.send("chat:model-info", {
         conversationId: requestConversationId,
         modelInfo,
@@ -1032,6 +1069,7 @@ ipcMain.handle(
         useRag,
         forceAgent,
       });
+      const routeMs = Math.max(0, Date.now() - requestStartedAt);
       const {
         matchedSkill,
         skillAttachmentPaths,
@@ -1063,7 +1101,11 @@ ipcMain.handle(
               : `通用（${reason}）`,
           skill: matchedSkill?.skill.name,
         };
-        emitModelInfo(fallbackModelInfo);
+        emitModelInfo({
+          ...fallbackModelInfo,
+          scene: `${fallbackModelInfo.scene} · 路由 ${routeMs} ms`,
+          routeMs,
+        });
 
         if (fallbackUseTools) {
           await chatWithAgent(
@@ -1120,7 +1162,20 @@ ipcMain.handle(
                   skill: matchedSkill?.skill.name,
                 };
 
-      emitModelInfo(modelInfo);
+      const decoratedModelInfo = {
+        ...modelInfo,
+        scene: `${modelInfo.scene} · 路由 ${routeMs} ms`,
+        routeMs,
+      };
+      recordTrace({
+        type: "route_decision",
+        traceId: routeTraceId,
+        route: decoratedModelInfo.scene,
+        routeMs,
+        forcedAgent: forceAgent,
+        at: Date.now(),
+      });
+      emitModelInfo(decoratedModelInfo);
 
       // 自动路由：文档问答 -> RAG 模型；工具/复杂任务 -> Agent 模型；其余 -> 普通对话模型
       if (useRag) {
@@ -1426,6 +1481,8 @@ ipcMain.handle(
     const normalized: WechatBotSettings = {
       enabled: Boolean(settings.enabled),
       token: settings.token?.trim() ?? "",
+      chatModel: settings.chatModel?.trim() ?? "",
+      chatProvider: settings.chatProvider,
       qrcode: settings.qrcode?.trim() ?? "",
       qrContent: settings.qrContent?.trim() ?? "",
       botId: settings.botId?.trim() ?? "",
@@ -1861,6 +1918,22 @@ ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
   return error || null;
 });
 
+ipcMain.handle(
+  "ui:perform-input-edit-action",
+  (event, action: "copy" | "cut" | "paste") => {
+    const webContents = event.sender;
+    if (action === "copy") {
+      webContents.copy();
+      return;
+    }
+    if (action === "cut") {
+      webContents.cut();
+      return;
+    }
+    webContents.paste();
+  },
+);
+
 const CENTIBOT_AGENT_PORT = 18790;
 let centibotAgentServer: ReturnType<typeof createServer> | null = null;
 
@@ -2034,7 +2107,25 @@ async function handleCentibotAgentRequest(
     const effectiveHistory = route.useRealtimeTool ? [] : history;
     const assistantMessageId = randomUUID();
     const responseStartedAt = Date.now();
-    const modelInfo = buildRouteModelInfo(route);
+    const wechatSettings = getWechatBotSettings();
+    const wechatRouteOverride =
+      wechatSettings.chatModel && wechatSettings.chatProvider
+        ? {
+            model: wechatSettings.chatModel,
+            provider: wechatSettings.chatProvider,
+          }
+        : null;
+    const modelInfo = wechatRouteOverride
+      ? {
+          model: `${wechatRouteOverride.model}（微信 Claw）`,
+          scene: route.useTools
+            ? "Agent/工具"
+            : route.useAdvancedModel
+              ? "复杂任务"
+              : "通用",
+          skill: route.matchedSkill?.skill.name,
+        }
+      : buildRouteModelInfo(route);
 
     appendWechatBotMessage({
       role: "user",
@@ -2150,6 +2241,8 @@ async function handleCentibotAgentRequest(
             appendWechatToolResult,
             undefined,
             route.matchedSkill?.skill,
+            undefined,
+            wechatRouteOverride ?? undefined,
           );
         } else {
           await chatStream(
@@ -2173,8 +2266,10 @@ async function handleCentibotAgentRequest(
               });
             },
             undefined,
-            route.useAdvancedModel ? getAgentModel() : getChatModel(),
-            route.useAdvancedModel ? getAgentProvider() : getChatProvider(),
+            wechatRouteOverride?.model ??
+              (route.useAdvancedModel ? getAgentModel() : getChatModel()),
+            wechatRouteOverride?.provider ??
+              (route.useAdvancedModel ? getAgentProvider() : getChatProvider()),
             route.matchedSkill?.skill,
           );
         }
@@ -2219,6 +2314,8 @@ async function handleCentibotAgentRequest(
           appendWechatToolResult,
           undefined,
           route.matchedSkill?.skill,
+          undefined,
+          wechatRouteOverride ?? undefined,
         );
       } else {
         content = await chatStream(
@@ -2226,8 +2323,10 @@ async function handleCentibotAgentRequest(
           userText,
           () => {},
           undefined,
-          route.useAdvancedModel ? getAgentModel() : getChatModel(),
-          route.useAdvancedModel ? getAgentProvider() : getChatProvider(),
+          wechatRouteOverride?.model ??
+            (route.useAdvancedModel ? getAgentModel() : getChatModel()),
+          wechatRouteOverride?.provider ??
+            (route.useAdvancedModel ? getAgentProvider() : getChatProvider()),
           route.matchedSkill?.skill,
         );
         updateWechatBotMessage(assistantMessageId, { text: content });

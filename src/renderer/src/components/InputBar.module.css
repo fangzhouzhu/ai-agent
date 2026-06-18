@@ -104,7 +104,7 @@
 }
 
 .modeBtn::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 0;
   right: 0;
@@ -367,6 +367,54 @@
 
 .textarea:disabled {
   opacity: 0.6;
+}
+
+.contextMenu {
+  position: absolute;
+  z-index: 6;
+  min-width: 100px;
+  padding: 3px;
+  border: 1px solid rgba(188, 204, 244, 0.82);
+  border-radius: 9px;
+  background: rgba(252, 253, 255, 0.98);
+  box-shadow: 0 10px 22px rgba(43, 70, 142, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.contextMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #244173;
+  cursor: pointer;
+  padding: 6px 7px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.contextMenuItem:hover:not(:disabled) {
+  background: rgba(235, 241, 255, 0.94);
+}
+
+.contextMenuItem:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.contextMenuShortcut {
+  color: #7a89a8;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .suggestionDropdown {

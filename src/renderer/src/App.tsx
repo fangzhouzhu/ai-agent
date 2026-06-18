@@ -159,11 +159,20 @@ type OnlineProviderConfig = {
   apiKey: string
 }
 
+type WechatModelOption = {
+  value: string
+  label: string
+  model: string
+  provider: ModelProvider
+}
+
 type WechatBotConfig = {
   enabled: boolean
   qrcode: string
   qrContent: string
   token: string
+  chatModel?: string
+  chatProvider?: ModelProvider
   botId?: string
   userId?: string
   nickname?: string
@@ -334,6 +343,8 @@ type DiagnosticLogInfo = {
 type TraceEvent =
   | { type: 'model_start'; traceId: string; model: string; messages: number; at: number }
   | { type: 'model_end'; traceId: string; model: string; durationMs: number; at: number }
+  | { type: 'route_decision'; traceId: string; route: string; routeMs: number; forcedAgent: boolean; at: number }
+  | { type: 'first_token'; traceId: string; model: string; latencyMs: number; at: number }
   | { type: 'tool_start'; traceId: string; tool: string; args: unknown; at: number }
   | { type: 'tool_end'; traceId: string; tool: string; durationMs: number; resultPreview: string; at: number }
   | { type: 'error'; traceId: string; error: { message?: string; code?: string; details?: unknown }; at: number }
@@ -354,6 +365,8 @@ type TraceInsight = {
 function formatTraceEventTitle(event: TraceEvent): string {
   if (event.type === 'model_start') return `模型开始：${event.model}`
   if (event.type === 'model_end') return `模型结束：${event.model}`
+  if (event.type === 'route_decision') return `路由决策：${event.route}`
+  if (event.type === 'first_token') return `首字到达：${event.model}`
   if (event.type === 'tool_start') return `工具开始：${event.tool}`
   if (event.type === 'tool_end') return `工具结束：${event.tool}`
   return `异常：${event.error?.code || event.error?.message || '未知错误'}`
@@ -362,6 +375,8 @@ function formatTraceEventTitle(event: TraceEvent): string {
 function formatTraceEventDetail(event: TraceEvent): string {
   if (event.type === 'model_start') return `消息数：${event.messages}`
   if (event.type === 'model_end') return `耗时：${event.durationMs} ms`
+  if (event.type === 'route_decision') return `路由耗时：${event.routeMs} ms\n强制 Agent：${event.forcedAgent ? '是' : '否'}`
+  if (event.type === 'first_token') return `首字耗时：${event.latencyMs} ms`
   if (event.type === 'tool_start') {
     return `参数：${typeof event.args === 'string' ? event.args : JSON.stringify(event.args, null, 2) || '-'}`
   }
@@ -454,6 +469,8 @@ const defaultWechatBotConfig: WechatBotConfig = {
   qrcode: '',
   qrContent: '',
   token: '',
+  chatModel: undefined,
+  chatProvider: undefined,
   status: 'idle',
 }
 
@@ -508,6 +525,8 @@ function normalizeWechatBotConfig(config?: Partial<WechatBotConfig> | null): Wec
     qrcode: config?.qrcode ?? '',
     qrContent: config?.qrContent ?? '',
     token: config?.token ?? '',
+    chatModel: config?.chatModel,
+    chatProvider: config?.chatProvider,
     botId: config?.botId,
     userId: config?.userId,
     nickname: config?.nickname,
@@ -553,7 +572,7 @@ const providerModelPresets: Record<string, string[]> = {
   DeepSeek: ['deepseek-chat', 'deepseek-reasoner'],
   Moonshot: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
   SiliconFlow: ['Qwen/Qwen2.5-72B-Instruct', 'deepseek-ai/DeepSeek-V3'],
-  '智谱 AI': ['glm-4-flash', 'glm-4-plus', 'glm-4-air', 'glm-4-airx', 'glm-4v-flash'],
+  '智谱 AI': ['glm-4-flash', 'glm-4-plus', 'glm-4-air', 'glm-4-airx', 'glm-4v-flash', 'glm-4.7-flash'],
   OpenRouter: ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet', 'google/gemini-2.0-flash-001'],
   Custom: [],
 }
@@ -1865,6 +1884,32 @@ const App: React.FC = () => {
       ].filter((model): model is string => Boolean(model))
     )
   )
+  const wechatModelOptions = useMemo<WechatModelOption[]>(
+    () => [
+      ...selectableModels.map((model) => ({
+        value: JSON.stringify({ provider: 'ollama' as const, model }),
+        label: `本地 Ollama · ${model}`,
+        model,
+        provider: 'ollama' as const,
+      })),
+      ...onlineModelCandidates.map((model) => ({
+        value: JSON.stringify({ provider: 'openai-compatible' as const, model }),
+        label: `在线模型 · ${model}`,
+        model,
+        provider: 'openai-compatible' as const,
+      })),
+    ],
+    [onlineModelCandidates, selectableModels]
+  )
+  const selectedWechatModelValue = useMemo(() => {
+    const provider = draftWechatBotConfig.chatProvider
+    const model = draftWechatBotConfig.chatModel
+    if (!provider || !model) return ''
+    const matched = wechatModelOptions.find(
+      (option) => option.provider === provider && option.model === model
+    )
+    return matched?.value ?? JSON.stringify({ provider, model })
+  }, [draftWechatBotConfig.chatModel, draftWechatBotConfig.chatProvider, wechatModelOptions])
   const sortedDraftSkills = [...draftSkills].sort(
     (a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt
   )
@@ -2131,10 +2176,24 @@ const App: React.FC = () => {
 
       markConversationLoading(convId)
 
-      const removeToken = window.electronAPI.onToken(({ conversationId, token }) => {
+      const removeToken = window.electronAPI.onToken(({ conversationId, token, isFirstToken, elapsedMs }) => {
         if (conversationId !== convId) return
         if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         enqueueToken(convId, aiMsgId, token)
+        if (isFirstToken && elapsedMs !== undefined) {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === convId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === aiMsgId ? { ...m, firstTokenMs: elapsedMs } : m
+                    ),
+                  }
+                : c
+            )
+          )
+        }
       })
 
       const removeToolCall = window.electronAPI.onToolCall(({ conversationId, toolName, input }) => {
@@ -2244,7 +2303,8 @@ const App: React.FC = () => {
           history,
           userMsg.content,
           convId,
-          Boolean(activeConversationAgent?.models.forceAgent || activeConversationAgent?.mode !== 'general'),
+          // 仅在显式开启 forceAgent 时强制走 Agent，避免简单问答因智能体类型被误送入工具链路。
+          Boolean(activeConversationAgent?.models.forceAgent),
           ragFilesRef.current.map((file) => file.id),
           buildKnowledgeOptions(activeConversationAgent),
         )
@@ -2373,10 +2433,24 @@ const App: React.FC = () => {
           content: m.content,
         }))
 
-      const removeToken = window.electronAPI.onToken(({ conversationId, token }) => {
+      const removeToken = window.electronAPI.onToken(({ conversationId, token, isFirstToken, elapsedMs }) => {
         if (conversationId !== convId) return
         if (streamingMsgIdRef.current[convId] !== aiMsgId) return
         enqueueToken(convId, aiMsgId, token)
+        if (isFirstToken && elapsedMs !== undefined) {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === convId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === aiMsgId ? { ...m, firstTokenMs: elapsedMs } : m
+                    ),
+                  }
+                : c
+            )
+          )
+        }
       })
 
       const removeToolCall = window.electronAPI.onToolCall(({ conversationId, toolName, input }) => {
@@ -2490,10 +2564,7 @@ const App: React.FC = () => {
           Boolean(
             (targetConv?.agentProfileId
               ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
-              : pendingAgent)?.models.forceAgent ||
-            (targetConv?.agentProfileId
-              ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
-              : pendingAgent)?.mode !== 'general'
+              : pendingAgent)?.models.forceAgent
           ),
           currentRagFiles.map((file) => file.id),
           buildKnowledgeOptions(
@@ -3107,7 +3178,7 @@ const App: React.FC = () => {
                   />
                 </label>
 
-                <label className={styles.fieldItem}>
+                <div className={styles.fieldItem}>
                   <span>服务商预设</span>
                   <CustomSelect
                     rootClassName={styles.fieldSelectWrap}
@@ -3131,7 +3202,7 @@ const App: React.FC = () => {
                       label: provider,
                     }))}
                   />
-                </label>
+                </div>
 
                 <label className={styles.fieldItem}>
                   <span>Base URL</span>
@@ -3463,6 +3534,47 @@ const App: React.FC = () => {
                   <div className={styles.hintCard}>
                     使用微信「设置 - 插件 - ClawBot」扫描下方二维码完成绑定。这里不是个人微信登录页，二维码来自微信 ClawBot 绑定服务。
                     绑定后请从左侧“微信ClawBot”入口调试对话和复制 OpenClaw Gateway 配置。
+                  </div>
+                </div>
+
+                <div className={styles.modalSection}>
+                  <div className={styles.modalLabel}>微信 ClawBot 模型</div>
+                  <div className={styles.fieldGrid}>
+                    <div className={styles.fieldItem}>
+                      <span>回复模型</span>
+                      <CustomSelect
+                        rootClassName={styles.fieldSelectWrap}
+                        triggerClassName={styles.fieldSelect}
+                        menuClassName={styles.fieldSelectMenu}
+                        optionClassName={styles.fieldSelectOption}
+                        optionSelectedClassName={styles.fieldSelectOptionSelected}
+                        value={selectedWechatModelValue}
+                        onChange={(value) => {
+                          if (!value) {
+                            updateWechatBotConfig({ chatModel: undefined, chatProvider: undefined })
+                            return
+                          }
+                          const selected = JSON.parse(value) as {
+                            provider: ModelProvider
+                            model: string
+                          }
+                          updateWechatBotConfig({
+                            chatModel: selected.model,
+                            chatProvider: selected.provider,
+                          })
+                        }}
+                        options={[
+                          { value: '', label: '跟随当前全局聊天模型' },
+                          ...wechatModelOptions.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          })),
+                        ]}
+                      />
+                      <div className={styles.fieldHint}>
+                        可为微信 ClawBot 单独指定回复模型；留空时默认跟随当前全局聊天模型。
+                      </div>
+                    </div>
                   </div>
                 </div>
 

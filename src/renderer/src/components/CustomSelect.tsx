@@ -45,8 +45,25 @@ const CustomSelect: React.FC<Props> = ({
   useEffect(() => {
     if (!isOpen) return
 
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+    const isEventInsideRoot = (eventTarget: EventTarget | null, event?: Event) => {
+      const root = rootRef.current
+      if (!root) return false
+
+      if (event && typeof (event as Event & { composedPath?: () => EventTarget[] }).composedPath === 'function') {
+        return (event as Event & { composedPath: () => EventTarget[] }).composedPath().includes(root)
+      }
+
+      return eventTarget instanceof Node ? root.contains(eventTarget) : false
+    }
+
+    const handlePointerDown = (event: MouseEvent | PointerEvent | TouchEvent) => {
+      if (!isEventInsideRoot(event.target, event)) {
+        setIsOpen(false)
+      }
+    }
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (!isEventInsideRoot(event.target, event)) {
         setIsOpen(false)
       }
     }
@@ -57,12 +74,18 @@ const CustomSelect: React.FC<Props> = ({
       }
     }
 
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('pointerdown', handlePointerDown, true)
+    window.addEventListener('mousedown', handlePointerDown, true)
+    window.addEventListener('touchstart', handlePointerDown, true)
+    document.addEventListener('focusin', handleFocusIn, true)
+    document.addEventListener('keydown', handleKeyDown, true)
 
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('pointerdown', handlePointerDown, true)
+      window.removeEventListener('mousedown', handlePointerDown, true)
+      window.removeEventListener('touchstart', handlePointerDown, true)
+      document.removeEventListener('focusin', handleFocusIn, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
     }
   }, [isOpen])
 

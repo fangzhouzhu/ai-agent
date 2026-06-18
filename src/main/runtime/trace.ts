@@ -5,6 +5,15 @@ import { writeAppLog } from "./logger";
 export type AgentTraceEvent =
   | { type: "model_start"; traceId: string; model: string; messages: number; at: number }
   | { type: "model_end"; traceId: string; model: string; durationMs: number; at: number }
+  | {
+      type: "route_decision";
+      traceId: string;
+      route: string;
+      routeMs: number;
+      forcedAgent: boolean;
+      at: number;
+    }
+  | { type: "first_token"; traceId: string; model: string; latencyMs: number; at: number }
   | { type: "tool_start"; traceId: string; tool: string; args: unknown; at: number }
   | {
       type: "tool_end";

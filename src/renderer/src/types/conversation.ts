@@ -5,6 +5,7 @@ export interface MessageModelInfo {
   model: string;
   scene: string;
   skill?: string;
+  routeMs?: number;
 }
 
 export interface Message {
@@ -17,6 +18,7 @@ export interface Message {
   modelInfo?: MessageModelInfo;
   ragContextId?: string;
   durationMs?: number;
+  firstTokenMs?: number;
   isStreaming?: boolean;
   isError?: boolean;
   isStopped?: boolean;
@@ -77,6 +79,7 @@ export function toStoredMessage(m: Message) {
     modelInfo: m.modelInfo,
     ragContextId: m.ragContextId,
     durationMs: m.durationMs,
+    firstTokenMs: m.firstTokenMs,
     isError: m.isError,
     isStopped: m.isStopped,
   };

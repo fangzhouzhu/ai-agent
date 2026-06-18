@@ -2,6 +2,7 @@
   position: relative;
   display: inline-flex;
   min-width: 0;
+  z-index: 1;
 }
 
 .trigger {
@@ -33,12 +34,16 @@
   transform: rotate(180deg);
 }
 
+.rootOpen {
+  z-index: 2500;
+}
+
 .menu {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
   width: 100%;
-  z-index: 30;
+  z-index: 2600;
   padding: 6px;
   border-radius: 14px;
   border: 1px solid rgba(188, 204, 244, 0.82);

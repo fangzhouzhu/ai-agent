@@ -370,6 +370,14 @@ function formatThoughtDuration(durationMs?: number): string {
   return `${Math.round(seconds)} 秒`
 }
 
+function formatLatency(durationMs?: number): string {
+  if (durationMs === undefined) return ''
+  if (durationMs < 1000) return `${durationMs} ms`
+
+  const seconds = durationMs / 1000
+  return `${seconds.toFixed(seconds < 10 ? 1 : 0).replace(/\.0$/, '')} s`
+}
+
 function renderResultPreview(toolName: string, result: string) {
   const trimmed = result.trim()
   const detailItems = parseDetailLines(trimmed)
@@ -1123,6 +1131,18 @@ const MessageBubble: React.FC<Props> = ({
               </span>
             </div>
             {renderResultPreview(promotedToolResult.toolName, promotedToolResult.result)}
+            {message.modelInfo.routeMs !== undefined && (
+              <span className={styles.metaChip}>
+                <span className={styles.metaLabel}>路由</span>
+                <span>{formatLatency(message.modelInfo.routeMs)}</span>
+              </span>
+            )}
+            {message.firstTokenMs !== undefined && (
+              <span className={styles.metaChip}>
+                <span className={styles.metaLabel}>首字</span>
+                <span>{formatLatency(message.firstTokenMs)}</span>
+              </span>
+            )}
           </div>
         )}
 

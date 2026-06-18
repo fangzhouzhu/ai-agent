@@ -124,6 +124,8 @@ export interface WechatBotSettings {
   qrcode?: string;
   qrContent?: string;
   token?: string;
+  chatModel?: string;
+  chatProvider?: ModelProvider;
   botId?: string;
   userId?: string;
   nickname?: string;

@@ -23,6 +23,7 @@ export type StoredMessage = {
   modelInfo?: { model: string; scene: string };
   ragContextId?: string;
   durationMs?: number;
+  firstTokenMs?: number;
   isError?: boolean;
   isStopped?: boolean;
 };
@@ -31,11 +32,14 @@ export type ModelRouteInfo = {
   model: string;
   scene: string;
   skill?: string;
+  routeMs?: number;
 };
 
 export type ChatTokenEvent = {
   conversationId: string;
   token: string;
+  isFirstToken?: boolean;
+  elapsedMs?: number;
 };
 
 export type ChatToolCallEvent = {
@@ -262,6 +266,8 @@ export type WechatBotSettings = {
   qrcode?: string;
   qrContent?: string;
   token?: string;
+  chatModel?: string;
+  chatProvider?: ModelProvider;
   botId?: string;
   userId?: string;
   nickname?: string;
@@ -349,6 +355,8 @@ export type DiagnosticLogInfo = {
   directory: string;
   currentFile: string;
 };
+
+export type InputEditAction = "copy" | "cut" | "paste";
 
 const api = {
   sendMessage: (
@@ -630,6 +638,8 @@ const api = {
 
   openPath: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke("shell:openPath", filePath),
+  performInputEditAction: (action: InputEditAction): Promise<void> =>
+    ipcRenderer.invoke("ui:perform-input-edit-action", action),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", api);

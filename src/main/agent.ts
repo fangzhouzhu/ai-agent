@@ -57,6 +57,9 @@ type ModelConfig = {
   activeOnlineProfileId: string | null;
 };
 
+const LIGHTWEIGHT_CHAT_SYSTEM_PROMPT =
+  "你是 Centibot。对于寒暄、确认、简短闲聊，直接用自然、简洁的中文回答，不要展开成长篇说明。";
+
 function normalizeWeatherLocation(raw: string): string {
   return raw
     .trim()
@@ -700,6 +703,21 @@ function buildSystemPrompt(
     .join("\n\n");
 }
 
+function shouldUseLightweightChatPrompt(
+  history: ChatMessage[],
+  userMessage: string,
+  skill?: SkillConfig | null,
+): boolean {
+  if (history.length > 0 || skill) return false;
+
+  const compact = userMessage.trim().toLowerCase();
+  if (!compact || compact.length > 24) return false;
+
+  return /^(你好|您好|嗨|hi|hello|在吗|早上好|下午好|晚上好|谢谢|好的|ok|嗯|哈喽)$/.test(
+    compact,
+  );
+}
+
 // 带工具的流式聊天（Agent 模式）
 export async function chatWithAgent(
   history: ChatMessage[],
@@ -710,8 +728,12 @@ export async function chatWithAgent(
   signal?: AbortSignal,
   skill?: SkillConfig | null,
   confirmTool?: (request: ToolApprovalRequest) => Promise<boolean>,
+  routeOverride?: Partial<RouteConfig>,
 ): Promise<string> {
-  const route = modelConfig.agent;
+  const route: RouteConfig = {
+    provider: routeOverride?.provider ?? modelConfig.agent.provider,
+    model: routeOverride?.model || modelConfig.agent.model,
+  };
   const preResults = await preCallTools(
     history,
     userMessage,
@@ -984,13 +1006,20 @@ export async function chatStream(
   };
 
   if (route.provider === "openai-compatible") {
+    const systemPrompt = shouldUseLightweightChatPrompt(
+      history,
+      userMessage,
+      skill,
+    )
+      ? LIGHTWEIGHT_CHAT_SYSTEM_PROMPT
+      : buildSystemPrompt(skill, { enableTools: false });
     return streamOpenAICompatibleChat({
       settings: modelConfig.online,
       model: route.model,
       messages: [
         {
           role: "system",
-          content: buildSystemPrompt(skill, { enableTools: false }),
+          content: systemPrompt,
         },
         ...history.map(toCompatibleMessage),
         { role: "user", content: userMessage },
@@ -1000,8 +1029,11 @@ export async function chatStream(
     });
   }
 
+  const systemPrompt = shouldUseLightweightChatPrompt(history, userMessage, skill)
+    ? LIGHTWEIGHT_CHAT_SYSTEM_PROMPT
+    : buildSystemPrompt(skill, { enableTools: false });
   const messages = [
-    new SystemMessage(buildSystemPrompt(skill, { enableTools: false })),
+    new SystemMessage(systemPrompt),
     ...history.map(toLC),
     new HumanMessage(userMessage),
   ];
