@@ -92,57 +92,34 @@
 .scrollArea {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 10px 12px 14px;
-  scrollbar-gutter: stable;
-}
-
-.scrollArea::-webkit-scrollbar {
-  width: 12px;
-}
-
-.scrollArea::-webkit-scrollbar-track {
-  background: transparent;
-  margin: 8px 0;
-}
-
-.scrollArea::-webkit-scrollbar-thumb {
-  background: transparent;
-  background-clip: content-box;
-  border: 2px solid transparent;
-  border-right-width: 3px;
-  border-radius: 999px;
-}
-
-.scrollArea:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(119, 145, 205, 0.4);
-}
-
-.scrollArea::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(91, 124, 190, 0.62);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .primaryNav {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  margin-bottom: 10px;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 12px 14px 14px;
 }
 
 .navItem,
 .listItem,
 .emptyAction {
   width: 100%;
-  min-height: 32px;
+  min-height: 36px;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   background: transparent;
   color: #26375f;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 11px;
+  gap: 12px;
+  padding: 6px 12px;
   text-align: left;
   transition:
     background 0.16s ease,
@@ -154,15 +131,22 @@
 .emptyAction:hover {
   background: rgba(235, 241, 255, 0.86);
   color: #102052;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 8px 18px rgba(63, 92, 170, 0.08);
 }
 
 .navItemActive {
-  background: rgba(220, 230, 255, 0.98);
+  background: linear-gradient(
+    180deg,
+    rgba(223, 232, 255, 0.98),
+    rgba(214, 226, 255, 0.92)
+  );
   color: #0e214f;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    inset 0 0 0 1px rgba(130, 157, 240, 0.24);
+    inset 0 0 0 1px rgba(130, 157, 240, 0.24),
+    0 10px 22px rgba(70, 99, 180, 0.1);
 }
 
 .listItem:hover {
@@ -183,8 +167,8 @@
   display: flex;
   align-items: center;
   min-height: 40px;
-  padding: 6px 11px;
-  border-radius: 13px;
+  padding: 7px 13px;
+  border-radius: 15px;
   color: #ffffff;
   background: linear-gradient(135deg, #4d6bff 0%, #8c7aff 72%, #a9a3ff 100%);
   box-shadow: 0 16px 34px rgba(82, 106, 244, 0.24);
@@ -199,33 +183,48 @@
 
 .newChatBtn:hover {
   color: #ffffff;
-  background: linear-gradient(135deg, #4162ff 0%, #7e6fff 72%, #9b95ff 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 20px 38px rgba(82, 106, 244, 0.28);
+  background: #7280ff;
+  box-shadow: 0 16px 34px rgba(82, 106, 244, 0.24);
 }
 
 .navIcon {
-  width: 17px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #506391;
   flex-shrink: 0;
   text-align: center;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
+  border-radius: 9px;
+  background: rgba(238, 243, 255, 0.94);
+  border: 1px solid rgba(199, 212, 245, 0.84);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .newChatBtn .navIcon {
-  width: 17px;
-  height: 17px;
+  width: 24px;
+  height: 24px;
   color: #ffffff;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 .newChatBtn .navIcon svg {
   width: 15px;
   height: 15px;
   display: block;
+}
+
+.navItemActive .navIcon {
+  color: #315ff1;
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(177, 195, 246, 0.86);
+  box-shadow:
+    0 6px 14px rgba(71, 105, 201, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .countBadge {
@@ -244,27 +243,67 @@
 }
 
 .section {
-  margin-top: 4px;
+  margin-top: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 2px 16px 14px;
 }
 
 .sectionTitle {
-  padding: 0 11px 8px;
+  padding: 0 4px 10px 0;
   color: #7281a2;
   font-size: 12px;
   font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.sectionBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0;
+}
+
+.sectionBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sectionBody::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.sectionBody::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.sectionBody:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(119, 145, 205, 0.4);
+}
+
+.sectionBody::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(91, 124, 190, 0.62);
+}
+
+.sectionContent {
+  padding: 0 2px 0 0;
 }
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .listItem {
   position: relative;
-  min-height: 34px;
-  padding: 8px 10px;
+  min-height: 40px;
+  padding: 9px 12px;
   font-size: 13px;
+  box-sizing: border-box;
 }
 
 .itemBadge {
@@ -415,7 +454,7 @@
 }
 
 .emptyText {
-  padding: 8px 11px;
+  padding: 8px 12px;
 }
 
 .footer {
