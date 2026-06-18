@@ -122,6 +122,7 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
       })),
     [displayMessages]
   )
+
   const gatewayStatus = useMemo(() => {
     if (!gatewayState) {
       return {
@@ -165,77 +166,78 @@ const WechatBotPanel: React.FC<Props> = ({ onOpenSettings }) => {
         : '完成微信 ClawBot 绑定后会自动启动 OpenClaw gateway。',
     }
   }, [gatewayErrorText, gatewayState, isBound])
+
   const lastUserIdx = useMemo(
-    () => renderedMessages.reduce((acc, item, itemIndex) => (item.chat?.role === 'user' ? itemIndex : acc), -1),
+    () => renderedMessages.reduce((acc, item, index) => (item.chat?.role === 'user' ? index : acc), -1),
     [renderedMessages]
   )
   const lastAiIdx = useMemo(
-    () =>
-      renderedMessages.reduce(
-        (acc, item, itemIndex) => (item.chat?.role === 'assistant' ? itemIndex : acc),
-        -1
-      ),
+    () => renderedMessages.reduce((acc, item, index) => (item.chat?.role === 'assistant' ? index : acc), -1),
     [renderedMessages]
   )
 
   return (
     <div className={styles.container}>
       <header className={styles.topbar}>
-        <div className={styles.headerInfo}>
-          <h2>微信 ClawBot</h2>
-          <p>这里会同步展示微信 ClawBot 的消息，以及 Centibot 按同一套聊天界面呈现的处理结果。</p>
-        </div>
-        <div className={styles.headerActions}>
-          <div
-            className={`${styles.gatewayInline} ${
-              gatewayStatus.tone === 'ok'
-                ? styles.gatewayInlineOk
-                : gatewayStatus.tone === 'error'
-                  ? styles.gatewayInlineError
-                  : gatewayStatus.tone === 'warn'
-                    ? styles.gatewayInlineWarn
-                    : styles.gatewayInlineNeutral
-            }`}
-            title={gatewayStatus.text}
-          >
-            <div className={styles.gatewayInlineMain}>
-              <span className={styles.gatewayInlineLabel}>网关</span>
-              <span className={styles.gatewayInlineTitle}>{gatewayStatus.title}</span>
-              <span className={styles.gatewayInlineText}>{gatewayStatus.text}</span>
-            </div>
-            {showRestartGateway && (
-              <button
-                className={`${styles.sendBtn} ${styles.restartBtn} ${styles.gatewayInlineBtn}`}
-                disabled={isRestartingGateway}
-                onClick={async () => {
-                  try {
-                    setIsRestartingGateway(true)
-                    const nextGatewayState = await window.electronAPI.restartOpenClawGateway()
-                    setGatewayState(nextGatewayState)
-                  } catch (error) {
-                    setGatewayState((current) => ({
-                      running: false,
-                      installing: current?.installing ?? false,
-                      runtimeReady: current?.runtimeReady ?? false,
-                      logs: current?.logs ?? [],
-                      lastError: error instanceof Error ? error.message : '重启 OpenClaw gateway 失败',
-                    }))
-                  } finally {
-                    setIsRestartingGateway(false)
-                  }
-                }}
-              >
-                {isRestartingGateway ? '重启中...' : '重启'}
-              </button>
-            )}
+        <div className={styles.headerMain}>
+          <div className={styles.headerInfo}>
+            <h2>微信 ClawBot</h2>
           </div>
-          <span className={`${styles.badge} ${isBound ? styles.badgeOn : ''}`}>
-            {status ? statusLabel[status.status] : '加载中'}
-          </span>
-          <button className={styles.settingsBtn} onClick={onOpenSettings}>
-            绑定设置
-          </button>
+          <div className={styles.headerActions}>
+            <div
+              className={`${styles.gatewayInline} ${
+                gatewayStatus.tone === 'ok'
+                  ? styles.gatewayInlineOk
+                  : gatewayStatus.tone === 'error'
+                    ? styles.gatewayInlineError
+                    : gatewayStatus.tone === 'warn'
+                      ? styles.gatewayInlineWarn
+                      : styles.gatewayInlineNeutral
+              }`}
+              title={gatewayStatus.text}
+            >
+              <div className={styles.gatewayInlineMain}>
+                <span className={styles.gatewayInlineLabel}>网关</span>
+                <span className={styles.gatewayInlineTitle}>{gatewayStatus.title}</span>
+                <span className={styles.gatewayInlineText}>{gatewayStatus.text}</span>
+              </div>
+              {showRestartGateway && (
+                <button
+                  className={`${styles.sendBtn} ${styles.restartBtn} ${styles.gatewayInlineBtn}`}
+                  disabled={isRestartingGateway}
+                  onClick={async () => {
+                    try {
+                      setIsRestartingGateway(true)
+                      const nextGatewayState = await window.electronAPI.restartOpenClawGateway()
+                      setGatewayState(nextGatewayState)
+                    } catch (error) {
+                      setGatewayState((current) => ({
+                        running: false,
+                        installing: current?.installing ?? false,
+                        runtimeReady: current?.runtimeReady ?? false,
+                        logs: current?.logs ?? [],
+                        lastError: error instanceof Error ? error.message : '重启 OpenClaw gateway 失败',
+                      }))
+                    } finally {
+                      setIsRestartingGateway(false)
+                    }
+                  }}
+                >
+                  {isRestartingGateway ? '重启中...' : '重启'}
+                </button>
+              )}
+            </div>
+            <span className={`${styles.badge} ${isBound ? styles.badgeOn : ''}`}>
+              {status ? statusLabel[status.status] : '加载中'}
+            </span>
+            <button className={styles.settingsBtn} onClick={onOpenSettings}>
+              绑定设置
+            </button>
+          </div>
         </div>
+        <p className={styles.headerDesc}>
+          这里会同步展示微信 ClawBot 的消息，以及 Centibot 按同一套聊天界面呈现的处理结果。
+        </p>
       </header>
 
       <main className={styles.chatArea}>

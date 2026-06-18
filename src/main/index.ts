@@ -859,15 +859,18 @@ function getEffectiveAgentProfile(
 }
 
 function createWindow(): void {
+  const titleBarBackground = "#f4f8ff";
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    minWidth: 900,
+    minWidth: 1000,
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: "hidden",
     titleBarOverlay: {
+      color: titleBarBackground,
+      symbolColor: "#27406f",
       height: 40,
     },
     backgroundColor: "#f0f4ff",

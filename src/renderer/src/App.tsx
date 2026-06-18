@@ -10,26 +10,6 @@ import CustomSelect from './components/CustomSelect'
 import { useAppDialog } from './components/AppDialogProvider'
 import type { Task } from '../../preload/index'
 
-const TitleBar: React.FC = () => (
-  <div style={{
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '38px',
-    background: 'linear-gradient(180deg, rgba(244, 248, 255, 0.96), rgba(238, 244, 255, 0.84))',
-    display: 'flex',
-    alignItems: 'center',
-    zIndex: 9999,
-    borderBottom: '1px solid rgba(207, 218, 247, 0.72)',
-    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.9)',
-    WebkitAppRegion: 'drag' as any,
-    userSelect: 'none',
-  }}>
-   
-  </div>
-)
-
 import {
   type Conversation,
   type ConvMeta,
@@ -41,6 +21,37 @@ import {
 } from './types/conversation'
 import { v4 as uuidv4 } from 'uuid'
 import styles from './App.module.css'
+
+const TITLE_BAR_BACKGROUND = '#f4f8ff'
+
+const TitleBar: React.FC = () => (
+  <>
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: '40px',
+      background: TITLE_BAR_BACKGROUND,
+      display: 'flex',
+      alignItems: 'center',
+      zIndex: 9999,
+      boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.9)',
+      WebkitAppRegion: 'drag' as any,
+      userSelect: 'none',
+    }} />
+    <div style={{
+      position: 'fixed',
+      top: '40px',
+      left: 0,
+      right: 0,
+      height: '1px',
+      background: 'rgba(207, 218, 247, 0.9)',
+      zIndex: 9998,
+      pointerEvents: 'none',
+    }} />
+  </>
+)
 
 const TASK_MODEL_INFO = {
   model: 'Task Runner',
@@ -320,6 +331,110 @@ type DiagnosticLogInfo = {
   currentFile: string
 }
 
+type TraceEvent =
+  | { type: 'model_start'; traceId: string; model: string; messages: number; at: number }
+  | { type: 'model_end'; traceId: string; model: string; durationMs: number; at: number }
+  | { type: 'tool_start'; traceId: string; tool: string; args: unknown; at: number }
+  | { type: 'tool_end'; traceId: string; tool: string; durationMs: number; resultPreview: string; at: number }
+  | { type: 'error'; traceId: string; error: { message?: string; code?: string; details?: unknown }; at: number }
+
+type TraceInsight = {
+  status: 'success' | 'error' | 'running' | 'idle'
+  statusText: string
+  startedAt: number | null
+  finishedAt: number | null
+  totalDurationMs: number | null
+  models: string[]
+  tools: string[]
+  toolCount: number
+  messageCount: number | null
+  lastError: string | null
+}
+
+function formatTraceEventTitle(event: TraceEvent): string {
+  if (event.type === 'model_start') return `模型开始：${event.model}`
+  if (event.type === 'model_end') return `模型结束：${event.model}`
+  if (event.type === 'tool_start') return `工具开始：${event.tool}`
+  if (event.type === 'tool_end') return `工具结束：${event.tool}`
+  return `异常：${event.error?.code || event.error?.message || '未知错误'}`
+}
+
+function formatTraceEventDetail(event: TraceEvent): string {
+  if (event.type === 'model_start') return `消息数：${event.messages}`
+  if (event.type === 'model_end') return `耗时：${event.durationMs} ms`
+  if (event.type === 'tool_start') {
+    return `参数：${typeof event.args === 'string' ? event.args : JSON.stringify(event.args, null, 2) || '-'}`
+  }
+  if (event.type === 'tool_end') return `耗时：${event.durationMs} ms\n结果预览：${event.resultPreview || '-'}`
+  return `错误信息：${event.error?.message || '未知错误'}${
+    event.error?.details ? `\n详细信息：${JSON.stringify(event.error.details, null, 2)}` : ''
+  }`
+}
+
+function buildTraceInsight(events: TraceEvent[]): TraceInsight {
+  if (events.length === 0) {
+    return {
+      status: 'idle',
+      statusText: '暂无数据',
+      startedAt: null,
+      finishedAt: null,
+      totalDurationMs: null,
+      models: [],
+      tools: [],
+      toolCount: 0,
+      messageCount: null,
+      lastError: null,
+    }
+  }
+
+  const firstAt = events[0]?.at ?? null
+  const lastAt = events[events.length - 1]?.at ?? null
+  const models = Array.from(
+    new Set(
+      events
+        .filter((event): event is Extract<TraceEvent, { model: string }> => 'model' in event)
+        .map((event) => event.model)
+        .filter(Boolean)
+    )
+  )
+  const tools = Array.from(
+    new Set(
+      events
+        .filter((event): event is Extract<TraceEvent, { tool: string }> => 'tool' in event)
+        .map((event) => event.tool)
+        .filter(Boolean)
+    )
+  )
+  const modelStart = events.find((event): event is Extract<TraceEvent, { type: 'model_start' }> => event.type === 'model_start')
+  const lastErrorEvent = [...events]
+    .reverse()
+    .find((event): event is Extract<TraceEvent, { type: 'error' }> => event.type === 'error')
+  const lastEvent = events[events.length - 1]
+
+  let status: TraceInsight['status'] = 'running'
+  let statusText = '执行中'
+  if (lastErrorEvent) {
+    status = 'error'
+    statusText = '执行失败'
+  } else if (lastEvent?.type === 'model_end' || lastEvent?.type === 'tool_end') {
+    status = 'success'
+    statusText = '执行完成'
+  }
+
+  return {
+    status,
+    statusText,
+    startedAt: firstAt,
+    finishedAt: lastAt,
+    totalDurationMs: firstAt !== null && lastAt !== null ? Math.max(lastAt - firstAt, 0) : null,
+    models,
+    tools,
+    toolCount: tools.length,
+    messageCount: modelStart?.messages ?? null,
+    lastError: lastErrorEvent?.error?.message || lastErrorEvent?.error?.code || null,
+  }
+}
+
 const defaultModelConfig: ModelRouteConfig = {
   chat: { provider: 'ollama', model: 'qwen2.5:3b' },
   agent: { provider: 'ollama', model: 'qwen2.5:3b' },
@@ -565,6 +680,9 @@ const App: React.FC = () => {
   const [draftToolPolicies, setDraftToolPolicies] = useState<Record<string, boolean>>({})
   const [isSavingToolPolicies, setIsSavingToolPolicies] = useState(false)
   const [traceSummaries, setTraceSummaries] = useState<TraceSummary[]>([])
+  const [activeTraceId, setActiveTraceId] = useState<string | null>(null)
+  const [activeTraceEvents, setActiveTraceEvents] = useState<TraceEvent[]>([])
+  const [isTraceDetailLoading, setIsTraceDetailLoading] = useState(false)
   const [diagnosticLogInfo, setDiagnosticLogInfo] = useState<DiagnosticLogInfo>({
     directory: '',
     currentFile: '',
@@ -591,6 +709,7 @@ const App: React.FC = () => {
   const agentKbPickerRef = useRef<HTMLDivElement | null>(null)
   const agentModeInfoRef = useRef<HTMLDivElement | null>(null)
   const agentModeInfoButtonRef = useRef<HTMLButtonElement | null>(null)
+  const activeTraceInsight = useMemo(() => buildTraceInsight(activeTraceEvents), [activeTraceEvents])
 
   const refreshModelConfig = useCallback(async () => {
     const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces, logInfo, savedAgents, savedKnowledgeBases] = await Promise.all([
@@ -627,6 +746,7 @@ const App: React.FC = () => {
     setToolPolicies(policies)
     setDraftToolPolicies(Object.fromEntries(policies.map((p) => [p.name, p.requiresConfirmation])))
     setTraceSummaries(traces)
+    setActiveTraceId((current) => traces.some((trace) => trace.traceId === current) ? current : traces[0]?.traceId ?? null)
     setDiagnosticLogInfo(logInfo)
     setActiveSkillId(nextSkills[0]?.id ?? null)
     setApiTestState({ status: 'idle', message: '', models: [] })
@@ -651,6 +771,29 @@ const App: React.FC = () => {
       window.alert(result.message || '打开日志目录失败')
     }
   }, [])
+
+  const handleSelectTrace = useCallback(async (traceId: string) => {
+    setActiveTraceId(traceId)
+    setIsTraceDetailLoading(true)
+    try {
+      const events = await window.electronAPI.diagnostics.getTrace(traceId)
+      setActiveTraceEvents(Array.isArray(events) ? (events as TraceEvent[]) : [])
+    } catch (error) {
+      console.error('加载 Trace 详情失败', error)
+      setActiveTraceEvents([])
+    } finally {
+      setIsTraceDetailLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (settingsTab !== 'diagnostics') return
+    if (!activeTraceId) {
+      setActiveTraceEvents([])
+      return
+    }
+    void handleSelectTrace(activeTraceId)
+  }, [activeTraceId, handleSelectTrace, settingsTab])
   // 初始化：从文件加载索引
   useEffect(() => {
     const init = async () => {
@@ -3462,7 +3605,14 @@ const App: React.FC = () => {
                 </div>
                 <div className={styles.traceList}>
                   {traceSummaries.map((trace) => (
-                    <div key={trace.traceId} className={styles.traceCard}>
+                    <button
+                      key={trace.traceId}
+                      type="button"
+                      className={`${styles.traceCard} ${styles.traceListItem} ${
+                        activeTraceId === trace.traceId ? styles.traceCardActive : ''
+                      }`}
+                      onClick={() => setActiveTraceId(trace.traceId)}
+                    >
                       <div className={styles.traceHeader}>
                         <code>{trace.traceId}</code>
                         <span>{trace.lastEventType}</span>
@@ -3471,12 +3621,123 @@ const App: React.FC = () => {
                         <span>{trace.eventCount} 个事件</span>
                         <span>更新于 {new Date(trace.updatedAt).toLocaleString('zh-CN')}</span>
                       </div>
-                    </div>
+                    </button>
                   ))}
                   {traceSummaries.length === 0 && (
                     <div className={styles.emptyHint}>暂无 Trace。执行一次聊天、RAG 或任务后会出现在这里。</div>
                   )}
                 </div>
+                {traceSummaries.length > 0 && (
+                  <div className={styles.traceDetailCard}>
+                    <div className={styles.traceDetailHeader}>
+                      <div className={styles.routeTitle}>Trace 详情</div>
+                      <div className={styles.routeHint}>
+                        {activeTraceId ? `当前 Trace：${activeTraceId}` : '请选择一条 Trace'}
+                      </div>
+                    </div>
+                    {isTraceDetailLoading ? (
+                      <div className={styles.emptyHint}>正在加载 Trace 详情...</div>
+                    ) : activeTraceEvents.length > 0 ? (
+                      <>
+                        <div className={styles.traceInsightGrid}>
+                          <div className={styles.metricCard}>
+                            <div className={styles.metricLabel}>执行状态</div>
+                            <div
+                              className={`${styles.metricValue} ${
+                                activeTraceInsight.status === 'error'
+                                  ? styles.traceStatusError
+                                  : activeTraceInsight.status === 'success'
+                                    ? styles.traceStatusSuccess
+                                    : styles.traceStatusRunning
+                              }`}
+                            >
+                              {activeTraceInsight.statusText}
+                            </div>
+                          </div>
+                          <div className={styles.metricCard}>
+                            <div className={styles.metricLabel}>总耗时</div>
+                            <div className={styles.metricValue}>
+                              {activeTraceInsight.totalDurationMs !== null
+                                ? `${activeTraceInsight.totalDurationMs} ms`
+                                : '—'}
+                            </div>
+                          </div>
+                          <div className={styles.metricCard}>
+                            <div className={styles.metricLabel}>涉及模型</div>
+                            <div className={styles.metricValue}>
+                              {activeTraceInsight.models.join('、') || '无'}
+                            </div>
+                          </div>
+                          <div className={styles.metricCard}>
+                            <div className={styles.metricLabel}>涉及工具</div>
+                            <div className={styles.metricValue}>
+                              {activeTraceInsight.tools.join('、') || '无'}
+                            </div>
+                          </div>
+                        </div>
+                        <div className={styles.traceSummaryCard}>
+                          <div className={styles.traceSummaryRow}>
+                            <span className={styles.metricLabel}>开始时间</span>
+                            <span className={styles.metricValue}>
+                              {activeTraceInsight.startedAt
+                                ? new Date(activeTraceInsight.startedAt).toLocaleString('zh-CN')
+                                : '—'}
+                            </span>
+                          </div>
+                          <div className={styles.traceSummaryRow}>
+                            <span className={styles.metricLabel}>结束时间</span>
+                            <span className={styles.metricValue}>
+                              {activeTraceInsight.finishedAt
+                                ? new Date(activeTraceInsight.finishedAt).toLocaleString('zh-CN')
+                                : '—'}
+                            </span>
+                          </div>
+                          <div className={styles.traceSummaryRow}>
+                            <span className={styles.metricLabel}>消息数</span>
+                            <span className={styles.metricValue}>
+                              {activeTraceInsight.messageCount ?? '—'}
+                            </span>
+                          </div>
+                          <div className={styles.traceSummaryRow}>
+                            <span className={styles.metricLabel}>工具数</span>
+                            <span className={styles.metricValue}>
+                              {activeTraceInsight.toolCount}
+                            </span>
+                          </div>
+                          {activeTraceInsight.lastError && (
+                            <div className={styles.traceErrorBanner}>
+                              最近错误：{activeTraceInsight.lastError}
+                            </div>
+                          )}
+                        </div>
+                        <div className={styles.traceEventSectionTitle}>原始事件</div>
+                        <div className={styles.traceEventList}>
+                          {activeTraceEvents.map((event, index) => (
+                            <div
+                              key={`${event.traceId}-${event.type}-${event.at}-${index}`}
+                              className={styles.traceEventItem}
+                            >
+                              <div className={styles.traceEventTop}>
+                                <span className={styles.traceEventType}>{event.type}</span>
+                                <span className={styles.traceEventTime}>
+                                  {new Date(event.at).toLocaleString('zh-CN')}
+                                </span>
+                              </div>
+                              <div className={styles.traceEventTitle}>
+                                {formatTraceEventTitle(event)}
+                              </div>
+                              <pre className={styles.traceEventDetail}>
+                                {formatTraceEventDetail(event)}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className={styles.emptyHint}>当前 Trace 暂无可展示的事件详情。</div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
                 </div>

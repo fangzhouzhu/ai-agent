@@ -128,7 +128,7 @@ const Sidebar: React.FC<Props> = ({
             className={`${styles.navItem} ${currentView === 'agents' ? styles.navItemActive : ''}`}
             onClick={() => onViewChange('agents')}
           >
-            <span className={styles.navIcon}>◉</span>
+            <span className={styles.navIcon}>◎</span>
             <span>智能体</span>
           </button>
           <button
@@ -159,101 +159,107 @@ const Sidebar: React.FC<Props> = ({
 
         <section className={styles.section}>
           <div className={styles.sectionTitle}>最近</div>
-          {sortedConversations.length === 0 ? (
-            <div className={styles.emptyText}>暂无对话记录</div>
-          ) : (
-            <div className={styles.list}>
-              {sortedConversations.map((conv) => {
-                const agent = conv.agentProfileId ? agentMap.get(conv.agentProfileId) : null
-                const agentLogo = agent ? (agent.avatar?.trim() || getAgentTextLogo(agent.name)) : null
+          <div className={styles.sectionBody}>
+            <div className={styles.sectionContent}>
+              {sortedConversations.length === 0 ? (
+                <div className={styles.emptyText}>暂无对话记录</div>
+              ) : (
+                <div className={styles.list}>
+                  {sortedConversations.map((conv) => {
+                    const agent = conv.agentProfileId ? agentMap.get(conv.agentProfileId) : null
+                    const agentLogo = agent ? (agent.avatar?.trim() || getAgentTextLogo(agent.name)) : null
 
-                return (
-                  <div
-                    key={conv.id}
-                    className={`${styles.listItem} ${
-                      currentView === 'chat' && conv.id === activeId ? styles.active : ''
-                    }`}
-                    onClick={() => onSelect(conv.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        onSelect(conv.id)
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    title={agent ? `${agent.name} · ${conv.title}` : conv.title}
-                  >
-                    <span
-                      className={`${styles.itemBadge} ${
-                        agent ? styles.itemBadgeAgent : styles.itemBadgeDefault
-                      }`}
-                      aria-hidden="true"
-                    >
-                      {agent ? (
-                        <span className={styles.itemBadgeText}>{agentLogo}</span>
-                      ) : (
-                        <MessageBubbleIcon />
-                      )}
-                    </span>
-                    <span className={styles.itemTitle}>{conv.title}</span>
-                    <div className={styles.itemMenuWrap} ref={menuOpenId === conv.id ? menuRef : null}>
-                      <button
-                        type="button"
-                        className={`${styles.itemMenuBtn} ${menuOpenId === conv.id ? styles.itemMenuBtnVisible : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setMenuOpenId((prev) => prev === conv.id ? null : conv.id)
+                    return (
+                      <div
+                        key={conv.id}
+                        className={`${styles.listItem} ${
+                          currentView === 'chat' && conv.id === activeId ? styles.active : ''
+                        }`}
+                        onClick={() => onSelect(conv.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            onSelect(conv.id)
+                          }
                         }}
-                        title="更多操作"
-                        aria-label="更多操作"
+                        role="button"
+                        tabIndex={0}
+                        title={agent ? `${agent.name} · ${conv.title}` : conv.title}
                       >
-                        ...
-                      </button>
-                      {menuOpenId === conv.id && (
-                        <div className={styles.itemMenuDropdown} onClick={(e) => e.stopPropagation()}>
+                        <span
+                          className={`${styles.itemBadge} ${
+                            agent ? styles.itemBadgeAgent : styles.itemBadgeDefault
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {agent ? (
+                            <span className={styles.itemBadgeText}>{agentLogo}</span>
+                          ) : (
+                            <MessageBubbleIcon />
+                          )}
+                        </span>
+                        <span className={styles.itemTitle}>{conv.title}</span>
+                        <div className={styles.itemMenuWrap} ref={menuOpenId === conv.id ? menuRef : null}>
                           <button
                             type="button"
-                            className={styles.itemMenuAction}
-                            onClick={async () => {
-                              const nextTitle = await prompt({
-                                title: '编辑对话名称',
-                                initialValue: conv.title,
-                                placeholder: '请输入新的会话名称',
-                              })
-                              if (nextTitle && nextTitle.trim()) {
-                                await onRename(conv.id, nextTitle)
-                              }
-                              setMenuOpenId(null)
+                            className={`${styles.itemMenuBtn} ${menuOpenId === conv.id ? styles.itemMenuBtnVisible : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setMenuOpenId((prev) => (prev === conv.id ? null : conv.id))
                             }}
+                            title="更多操作"
+                            aria-label="更多操作"
                           >
-                            重命名
+                            ...
                           </button>
-                          <button
-                            type="button"
-                            className={`${styles.itemMenuAction} ${styles.itemMenuActionDanger}`}
-                            onClick={async () => {
-                              if (await confirm({
-                                title: '确认删除对话？',
-                                message: `删除后，“${conv.title}”聊天记录将不可恢复。`,
-                                confirmText: '删除',
-                                tone: 'danger',
-                              })) {
-                                onDelete(conv.id)
-                              }
-                              setMenuOpenId(null)
-                            }}
-                          >
-                            删除
-                          </button>
+                          {menuOpenId === conv.id && (
+                            <div className={styles.itemMenuDropdown} onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                className={styles.itemMenuAction}
+                                onClick={async () => {
+                                  const nextTitle = await prompt({
+                                    title: '编辑对话名称',
+                                    initialValue: conv.title,
+                                    placeholder: '请输入新的对话名称',
+                                  })
+                                  if (nextTitle && nextTitle.trim()) {
+                                    await onRename(conv.id, nextTitle)
+                                  }
+                                  setMenuOpenId(null)
+                                }}
+                              >
+                                重命名
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.itemMenuAction} ${styles.itemMenuActionDanger}`}
+                                onClick={async () => {
+                                  if (
+                                    await confirm({
+                                      title: '确认删除对话？',
+                                      message: `删除后，“${conv.title}”聊天记录将不可恢复。`,
+                                      confirmText: '删除',
+                                      tone: 'danger',
+                                    })
+                                  ) {
+                                    onDelete(conv.id)
+                                  }
+                                  setMenuOpenId(null)
+                                }}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </section>
       </div>
 
