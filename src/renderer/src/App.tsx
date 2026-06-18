@@ -670,6 +670,7 @@ const App: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loadingConversationIds, setLoadingConversationIds] = useState<string[]>([])
+  const loadingConversationIdsRef = useRef<Set<string>>(new Set())
   const [ragFiles, setRagFiles] = useState<RagFileMeta[]>([])
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [isRagProcessing, setIsRagProcessing] = useState(false)
@@ -975,17 +976,19 @@ const App: React.FC = () => {
 
   const isConversationLoading = useCallback(
     (conversationId: string | null | undefined) =>
-      Boolean(conversationId && loadingConversationIds.includes(conversationId)),
-    [loadingConversationIds]
+      Boolean(conversationId && loadingConversationIdsRef.current.has(conversationId)),
+    []
   )
 
   const markConversationLoading = useCallback((conversationId: string) => {
+    loadingConversationIdsRef.current.add(conversationId)
     setLoadingConversationIds((prev) =>
       prev.includes(conversationId) ? prev : [...prev, conversationId]
     )
   }, [])
 
   const clearConversationLoading = useCallback((conversationId: string) => {
+    loadingConversationIdsRef.current.delete(conversationId)
     setLoadingConversationIds((prev) => prev.filter((id) => id !== conversationId))
   }, [])
 
