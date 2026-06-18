@@ -314,50 +314,14 @@ function splitPlainThoughtContent(text: string): AssistantContentParts | null {
 }
 
 function splitAssistantDisplayContent(text: string): AssistantContentParts {
-  const thoughts: string[] = []
-  const withoutTaggedThought = text.replace(/<think>([\s\S]*?)(?:<\/think>|$)/gi, (_, thought) => {
-    const cleanThought = String(thought ?? '').trim()
-    if (cleanThought) thoughts.push(cleanThought)
-    return ' '
-  })
+  const plainContent = stripToolMarkup(text)
+    .replace(/<think>([\s\S]*?)(?:<\/think>|$)/gi, (_, thought) => String(thought ?? ''))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 
-  const plainContent = stripToolMarkup(withoutTaggedThought)
-  const structuredAnswer = splitStructuredKnowledgeAnswer(plainContent)
-  if (structuredAnswer) {
-    return {
-      thought: thoughts.join('\n\n'),
-      answer: structuredAnswer.answer,
-    }
-  }
-
-  const likelyAnswerStart = findLikelyAnswerStart(plainContent)
-  if (likelyAnswerStart !== null && likelyAnswerStart > 0) {
-    const leakedThought = plainContent.slice(0, likelyAnswerStart).trim()
-    if (leakedThought) thoughts.push(leakedThought)
-    const answerParts = splitTrailingThoughtContent(plainContent.slice(likelyAnswerStart))
-    if (answerParts.thought) thoughts.push(answerParts.thought)
-    return {
-      thought: thoughts.join('\n\n'),
-      answer: answerParts.answer,
-    }
-  }
-
-  const plainThought = splitPlainThoughtContent(plainContent)
-  if (plainThought) {
-    if (plainThought.thought) thoughts.push(plainThought.thought)
-    const answerParts = splitTrailingThoughtContent(plainThought.answer)
-    if (answerParts.thought) thoughts.push(answerParts.thought)
-    return {
-      thought: thoughts.join('\n\n'),
-      answer: answerParts.answer,
-    }
-  }
-
-  const answerParts = splitTrailingThoughtContent(plainContent)
-  if (answerParts.thought) thoughts.push(answerParts.thought)
   return {
-    thought: thoughts.join('\n\n'),
-    answer: answerParts.answer,
+    thought: '',
+    answer: plainContent,
   }
 }
 
@@ -552,6 +516,24 @@ function getPromotedToolResult(
   return weatherResult?.result
     ? { toolName: weatherResult.toolName, result: weatherResult.result }
     : null
+}
+
+function shouldSuppressAssistantBody(
+  content: string,
+  promotedToolResult: { toolName: string; result: string } | null,
+): boolean {
+  if (!promotedToolResult || promotedToolResult.toolName !== 'get_weather_current') {
+    return false
+  }
+
+  const result = promotedToolResult.result.trim()
+  if (!result || /^\[/.test(result)) {
+    return false
+  }
+
+  return /未能直接查询到|未查询到|建议您查看权威气象网站|建议查看权威气象网站|以获得最准确的天气预报/.test(
+    content,
+  )
 }
 
 const ToolCallBadge: React.FC<{ toolName: string; input: unknown; result?: string }> = ({
@@ -1083,12 +1065,13 @@ const MessageBubble: React.FC<Props> = ({
   const assistantContentParts = splitAssistantDisplayContent(message.content)
   const displayContent = isUser ? message.content : linkifyLocalFilePaths(assistantContentParts.answer)
   const thoughtContent = isUser ? '' : assistantContentParts.thought
-  const shouldShowThoughtPanel =
-    !message.task && !isUser && (Boolean(thoughtContent) || Boolean(message.isStreaming) || message.durationMs !== undefined)
+  const shouldShowThoughtPanel = false
   const promotedToolResult =
     !message.task && !isUser && !message.isStreaming
       ? getPromotedToolResult(message.toolResults)
       : null
+  const shouldHideAssistantBody =
+    !isUser && shouldSuppressAssistantBody(displayContent, promotedToolResult)
 
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
@@ -1107,7 +1090,7 @@ const MessageBubble: React.FC<Props> = ({
         )}
 
         {/* 工具执行过程 */}
-        {shouldShowProcessPanel && (
+        {shouldShowProcessPanel && (message.toolCalls?.length ?? 0) > 0 && (
           <ToolProcessPanel
             toolCalls={message.toolCalls ?? []}
             toolResults={message.toolResults ?? []}
@@ -1131,13 +1114,13 @@ const MessageBubble: React.FC<Props> = ({
               </span>
             </div>
             {renderResultPreview(promotedToolResult.toolName, promotedToolResult.result)}
-            {message.modelInfo.routeMs !== undefined && (
+            {false && message.modelInfo.routeMs !== undefined && (
               <span className={styles.metaChip}>
                 <span className={styles.metaLabel}>路由</span>
                 <span>{formatLatency(message.modelInfo.routeMs)}</span>
               </span>
             )}
-            {message.firstTokenMs !== undefined && (
+            {false && message.firstTokenMs !== undefined && (
               <span className={styles.metaChip}>
                 <span className={styles.metaLabel}>首字</span>
                 <span>{formatLatency(message.firstTokenMs)}</span>
@@ -1147,6 +1130,7 @@ const MessageBubble: React.FC<Props> = ({
         )}
 
         {/* 消息内容 */}
+        {!shouldHideAssistantBody && (
         <div className={`${styles.bubble} ${isUser ? styles.userBubble : styles.aiBubble} ${message.isError ? styles.errorBubble : ''}`}>
           {isUser ? (
             <pre className={styles.userText}>{message.content}</pre>
@@ -1205,6 +1189,7 @@ const MessageBubble: React.FC<Props> = ({
             </div>
           )}
         </div>
+        )}
 
         {!isUser && message.isStopped && !message.isStreaming && (
           <div className={styles.stoppedNotice}>已停止生成</div>

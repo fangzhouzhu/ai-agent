@@ -476,7 +476,6 @@ const defaultWechatBotConfig: WechatBotConfig = {
 
 function sanitizeAssistantContent(text: string): string {
   return text
-    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, ' ')
     .replace(/<tool_call>[\s\S]*?(?:<\/tool_call>|$)/gi, ' ')
     .replace(/<arg_key>[\s\S]*?(?:<\/arg_key>|$)/gi, ' ')
     .replace(/<arg_value>[\s\S]*?(?:<\/arg_value>|$)/gi, ' ')
@@ -1981,54 +1980,15 @@ const App: React.FC = () => {
     )
   }, [])
 
-  const flushTypingStep = useCallback(
-    (convId: string, msgId: string) => {
-      const pending = tokenQueueRef.current[convId] ?? ''
-      if (!pending) {
-        const timer = typingTimerRef.current[convId]
-        if (timer) {
-          clearInterval(timer)
-          typingTimerRef.current[convId] = null
-        }
-        return
-      }
-
-      // 队列积压时自动提速，避免看起来“卡在后面慢慢打”。
-      const charsPerStep =
-        pending.length > 240 ? 48 : pending.length > 120 ? 24 : pending.length > 60 ? 12 : 4
-      const chunk = pending.slice(0, charsPerStep)
-      tokenQueueRef.current[convId] = pending.slice(charsPerStep)
-      appendToStreamingMessage(convId, msgId, chunk)
+  const enqueueToken = useCallback(
+    (convId: string, msgId: string, token: string) => {
+      if (!token) return
+      appendToStreamingMessage(convId, msgId, token)
     },
     [appendToStreamingMessage]
   )
 
-  const ensureTypingLoop = useCallback(
-    (convId: string, msgId: string) => {
-      if (typingTimerRef.current[convId]) return
-
-      typingTimerRef.current[convId] = setInterval(() => {
-        flushTypingStep(convId, msgId)
-      }, 12)
-    },
-    [flushTypingStep]
-  )
-
-  const enqueueToken = useCallback(
-    (convId: string, msgId: string, token: string) => {
-      if (!token) return
-      tokenQueueRef.current[convId] = (tokenQueueRef.current[convId] ?? '') + token
-      ensureTypingLoop(convId, msgId)
-    },
-    [ensureTypingLoop]
-  )
-
-  const flushAllQueuedTokens = useCallback((convId: string, msgId: string) => {
-    const rest = tokenQueueRef.current[convId] ?? ''
-    if (!rest) return
-    tokenQueueRef.current[convId] = ''
-    appendToStreamingMessage(convId, msgId, rest)
-  }, [appendToStreamingMessage])
+  const flushAllQueuedTokens = useCallback((_convId: string, _msgId: string) => {}, [])
 
   const resetTokenBuffer = useCallback((convId: string) => {
     tokenQueueRef.current[convId] = ''

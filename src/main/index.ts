@@ -2430,12 +2430,18 @@ app.whenReady().then(async () => {
     nickname: savedWechatBot.nickname,
   });
 
-  await fetchOllamaModels();
-  saveModelSettings(getModelSettingsSnapshot());
-
   createWindow();
   startCentibotAgentServer();
   void checkWechatBotBinding();
+  void fetchOllamaModels()
+    .then(() => {
+      saveModelSettings(getModelSettingsSnapshot());
+    })
+    .catch((error) => {
+      writeAppLog("warn", "startup", "Fetch Ollama models after window creation failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
   app.on("activate", function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

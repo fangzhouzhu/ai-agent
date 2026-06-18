@@ -609,6 +609,29 @@ async function preCallTools(
     return results;
   }
 
+  const compactExpression = userMessage.trim().replace(/[=?\s]/g, "");
+  if (
+    compactExpression &&
+    /^[0-9+\-*/%^().,]+$/.test(compactExpression) &&
+    /[+\-*/%^]/.test(compactExpression)
+  ) {
+    const args = { expression: compactExpression };
+    onToolCall("calculator", args);
+    try {
+      const { result } = await executeTool("calculator", args, {
+        signal,
+        confirm: confirmTool,
+      });
+      onToolResult("calculator", result);
+      results.push({ toolName: "calculator", args, result });
+    } catch (e: any) {
+      const result = `calculator 失败: ${e?.message || e}`;
+      onToolResult("calculator", result);
+      results.push({ toolName: "calculator", args, result });
+    }
+    return results;
+  }
+
   // 天气关键词 → get_weather_current
   const weatherPattern = /天气|气温|温度|下雨|下雪|阴晴|风力|weather/i;
   if (weatherPattern.test(userMessage)) {
@@ -708,14 +731,28 @@ function shouldUseLightweightChatPrompt(
   userMessage: string,
   skill?: SkillConfig | null,
 ): boolean {
-  if (history.length > 0 || skill) return false;
+  if (skill) return false;
 
   const compact = userMessage.trim().toLowerCase();
-  if (!compact || compact.length > 24) return false;
+  if (!compact || compact.length > 80 || /\n/.test(compact)) return false;
+  if (history.length > 2) return false;
 
-  return /^(你好|您好|嗨|hi|hello|在吗|早上好|下午好|晚上好|谢谢|好的|ok|嗯|哈喽)$/.test(
-    compact,
-  );
+  const explicitHeavyIntent =
+    /(文件|文档|天气|联网|搜索|汇率|时间|日期|股票|报告|代码|报错|bug|debug|pdf|ppt|知识库|read file|write file|weather|search|fetch|code|debug)/i;
+
+  if (explicitHeavyIntent.test(compact)) return false;
+
+  return true;
+}
+
+function trimChatHistory(
+  history: ChatMessage[],
+  maxMessages = 6,
+): ChatMessage[] {
+  if (history.length <= maxMessages) return history;
+
+  const trimmed = history.slice(-maxMessages);
+  return trimmed[0]?.role === "assistant" ? trimmed.slice(1) : trimmed;
 }
 
 // 带工具的流式聊天（Agent 模式）
@@ -752,6 +789,7 @@ export async function chatWithAgent(
         "write_file",
         "delete_file",
         "read_file",
+        "calculator",
       ].includes(result.toolName),
     );
 
@@ -1004,13 +1042,17 @@ export async function chatStream(
     provider,
     model: modelName || modelConfig.chat.model,
   };
+  const useLightweightPrompt = shouldUseLightweightChatPrompt(
+    history,
+    userMessage,
+    skill,
+  );
+  const scopedHistory = useLightweightPrompt
+    ? history.slice(-2)
+    : trimChatHistory(history, 6);
 
   if (route.provider === "openai-compatible") {
-    const systemPrompt = shouldUseLightweightChatPrompt(
-      history,
-      userMessage,
-      skill,
-    )
+    const systemPrompt = useLightweightPrompt
       ? LIGHTWEIGHT_CHAT_SYSTEM_PROMPT
       : buildSystemPrompt(skill, { enableTools: false });
     return streamOpenAICompatibleChat({
@@ -1021,7 +1063,7 @@ export async function chatStream(
           role: "system",
           content: systemPrompt,
         },
-        ...history.map(toCompatibleMessage),
+        ...scopedHistory.map(toCompatibleMessage),
         { role: "user", content: userMessage },
       ],
       onToken,
@@ -1029,12 +1071,12 @@ export async function chatStream(
     });
   }
 
-  const systemPrompt = shouldUseLightweightChatPrompt(history, userMessage, skill)
+  const systemPrompt = useLightweightPrompt
     ? LIGHTWEIGHT_CHAT_SYSTEM_PROMPT
     : buildSystemPrompt(skill, { enableTools: false });
   const messages = [
     new SystemMessage(systemPrompt),
-    ...history.map(toLC),
+    ...scopedHistory.map(toLC),
     new HumanMessage(userMessage),
   ];
 
