@@ -8,11 +8,22 @@ files:
   - node_modules/**
   - "!node_modules/.cache/**"
   - "!**/*.md"
-asar: false
+  - "!**/*.map"
+  - "!**/*.d.ts"
+  - "!**/tsconfig.json"
+  - "!**/jsconfig.json"
+  - "!**/test/**"
+  - "!**/tests/**"
+  - "!**/__tests__/**"
+  - "!**/.github/**"
+  - "!**/.yarn/**"
+  - "!node_modules/@types/**"
+asar: true
+asarUnpack:
+  - node_modules/@lancedb/**/*.node
 win:
   target:
     - nsis
-    - zip
   icon: build/icon.ico
 nsis:
   oneClick: false
