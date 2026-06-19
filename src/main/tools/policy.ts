@@ -229,7 +229,7 @@ function getProtectedRoots(): string[] {
 
 export function resolveToolPath(inputPath: string): string {
   if (!inputPath || !inputPath.trim()) {
-    throw new Error("Path is required.");
+    throw new Error("路径不能为空。");
   }
   return path.resolve(inputPath);
 }
@@ -243,7 +243,7 @@ export function assertNotProtectedPath(resolvedPath: string): void {
 
   if (protectedRoot) {
     throw new Error(
-      `Refusing to access protected system path: ${resolvedPath}`,
+      `拒绝访问受保护的系统路径：${resolvedPath}`,
     );
   }
 }
@@ -253,11 +253,11 @@ export function assertReadableFile(resolvedPath: string): void {
 
   const stat = fs.statSync(resolvedPath);
   if (!stat.isFile()) {
-    throw new Error(`Not a file: ${resolvedPath}`);
+    throw new Error(`不是文件：${resolvedPath}`);
   }
   if (stat.size > MAX_READ_BYTES) {
     throw new Error(
-      `File is too large to read directly (${stat.size} bytes). Limit is ${MAX_READ_BYTES} bytes.`,
+      `文件过大，无法直接读取（${stat.size} 字节），限制为 ${MAX_READ_BYTES} 字节。`,
     );
   }
 }

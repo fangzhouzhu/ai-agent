@@ -20,6 +20,13 @@
     "notes": "明确算式应走计算器工具。"
   },
   {
+    "id": "tool-file-create-001",
+    "input": "新建一个333.txt 在电脑桌面上，内容是9999",
+    "expectedRoute": "agent",
+    "expectedTools": ["write_file"],
+    "notes": "明确的本地文件创建请求应进入 Agent 工具链路。"
+  },
+  {
     "id": "rag-kb-001",
     "input": "根据选中的知识库总结这份文档的结论",
     "expectedRoute": "rag",

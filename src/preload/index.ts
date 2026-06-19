@@ -638,6 +638,8 @@ const api = {
 
   openPath: (filePath: string): Promise<string | null> =>
     ipcRenderer.invoke("shell:openPath", filePath),
+  revealInFolder: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke("shell:revealInFolder", filePath),
   performInputEditAction: (action: InputEditAction): Promise<void> =>
     ipcRenderer.invoke("ui:perform-input-edit-action", action),
 };

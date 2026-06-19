@@ -21,6 +21,11 @@ files:
 asar: true
 asarUnpack:
   - node_modules/@lancedb/**/*.node
+extraResources:
+  - from: build/icon.ico
+    to: icon.ico
+  - from: build/icon.png
+    to: icon.png
 win:
   target:
     - nsis

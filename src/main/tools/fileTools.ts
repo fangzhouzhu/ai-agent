@@ -13,7 +13,7 @@ import {
 
 function toToolError(action: string, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return `${action} failed: ${message}`;
+  return `${action}失败：${message}`;
 }
 
 function execFileUtf8(file: string, args: string[]): Promise<string> {
@@ -44,9 +44,9 @@ export const readFileTool = tool(
       assertReadableFile(resolvedPath);
       const content = fs.readFileSync(resolvedPath, "utf-8");
       const lines = content.split("\n").length;
-      return `File read successfully (${lines} lines):\n\`\`\`\n${content}\n\`\`\``;
+      return `文件读取成功（${lines} 行）：\n\`\`\`\n${content}\n\`\`\``;
     } catch (error) {
-      return toToolError("Read file", error);
+      return toToolError("读取文件", error);
     }
   },
   {
@@ -65,9 +65,9 @@ export const writeFileTool = tool(
       const resolvedPath = resolveToolPath(filePath);
       ensureWritableTarget(resolvedPath);
       fs.writeFileSync(resolvedPath, content, "utf-8");
-      return `File written successfully: ${resolvedPath}`;
+      return `文件写入成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Write file", error);
+      return toToolError("写入文件", error);
     }
   },
   {
@@ -87,9 +87,9 @@ export const appendFileTool = tool(
       const resolvedPath = resolveToolPath(filePath);
       ensureWritableTarget(resolvedPath);
       fs.appendFileSync(resolvedPath, content, "utf-8");
-      return `Content appended successfully: ${resolvedPath}`;
+      return `文件追加成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Append file", error);
+      return toToolError("追加文件", error);
     }
   },
   {
@@ -109,9 +109,9 @@ export const createDirectoryTool = tool(
       const resolvedPath = resolveToolPath(dirPath);
       ensureWritableTarget(path.join(resolvedPath, ".keep"));
       fs.mkdirSync(resolvedPath, { recursive: true });
-      return `Directory created successfully: ${resolvedPath}`;
+      return `目录创建成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Create directory", error);
+      return toToolError("创建目录", error);
     }
   },
   {
@@ -133,16 +133,16 @@ export const copyFileTool = tool(
       ensureWritableTarget(resolvedDestinationPath);
 
       if (!fs.existsSync(resolvedSourcePath)) {
-        return `Source path does not exist: ${resolvedSourcePath}`;
+        return `源路径不存在：${resolvedSourcePath}`;
       }
 
       const stat = fs.statSync(resolvedSourcePath);
       if (!stat.isFile()) {
-        return `Refusing to copy non-file path: ${resolvedSourcePath}`;
+        return `拒绝复制非文件路径：${resolvedSourcePath}`;
       }
 
       if (fs.existsSync(resolvedDestinationPath) && !overwrite) {
-        return `Destination already exists: ${resolvedDestinationPath}`;
+        return `目标路径已存在：${resolvedDestinationPath}`;
       }
 
       fs.copyFileSync(
@@ -150,9 +150,9 @@ export const copyFileTool = tool(
         resolvedDestinationPath,
         overwrite ? 0 : fs.constants.COPYFILE_EXCL,
       );
-      return `File copied successfully: ${resolvedSourcePath} -> ${resolvedDestinationPath}`;
+      return `文件复制成功：${resolvedSourcePath} -> ${resolvedDestinationPath}`;
     } catch (error) {
-      return toToolError("Copy file", error);
+      return toToolError("复制文件", error);
     }
   },
   {
@@ -200,10 +200,10 @@ export const listDirectoryTool = tool(
         return `${type} ${entry.name}${size}`;
       });
       const truncated =
-        entries.length > result.length ? `\n... ${entries.length - result.length} more entries omitted` : "";
-      return `Directory "${resolvedPath}" contents:\n${result.join("\n")}${truncated}`;
+        entries.length > result.length ? `\n... 已省略 ${entries.length - result.length} 个条目` : "";
+      return `目录“${resolvedPath}”内容如下：\n${result.join("\n")}${truncated}`;
     } catch (error) {
-      return toToolError("List directory", error);
+      return toToolError("列出目录", error);
     }
   },
   {
@@ -225,25 +225,25 @@ export const copyDirectoryTool = tool(
       ensureWritableTarget(path.join(resolvedDestinationPath, ".keep"));
 
       if (!fs.existsSync(resolvedSourcePath)) {
-        return `Source path does not exist: ${resolvedSourcePath}`;
+        return `源路径不存在：${resolvedSourcePath}`;
       }
 
       const stat = fs.statSync(resolvedSourcePath);
       if (!stat.isDirectory()) {
-        return `Refusing to copy non-directory path: ${resolvedSourcePath}`;
+        return `拒绝复制非目录路径：${resolvedSourcePath}`;
       }
 
       if (fs.existsSync(resolvedDestinationPath)) {
         if (!overwrite) {
-          return `Destination already exists: ${resolvedDestinationPath}`;
+          return `目标路径已存在：${resolvedDestinationPath}`;
         }
         fs.rmSync(resolvedDestinationPath, { recursive: true, force: true });
       }
 
       copyDirectoryRecursive(resolvedSourcePath, resolvedDestinationPath);
-      return `Directory copied successfully: ${resolvedSourcePath} -> ${resolvedDestinationPath}`;
+      return `目录复制成功：${resolvedSourcePath} -> ${resolvedDestinationPath}`;
     } catch (error) {
-      return toToolError("Copy directory", error);
+      return toToolError("复制目录", error);
     }
   },
   {
@@ -267,18 +267,18 @@ export const moveFileTool = tool(
       ensureWritableTarget(resolvedDestinationPath);
 
       if (!fs.existsSync(resolvedSourcePath)) {
-        return `Source path does not exist: ${resolvedSourcePath}`;
+        return `源路径不存在：${resolvedSourcePath}`;
       }
 
       const stat = fs.statSync(resolvedSourcePath);
       if (!stat.isFile()) {
-        return `Refusing to move non-file path: ${resolvedSourcePath}`;
+        return `拒绝移动非文件路径：${resolvedSourcePath}`;
       }
 
       fs.renameSync(resolvedSourcePath, resolvedDestinationPath);
-      return `File moved successfully: ${resolvedSourcePath} -> ${resolvedDestinationPath}`;
+      return `文件移动成功：${resolvedSourcePath} -> ${resolvedDestinationPath}`;
     } catch (error) {
-      return toToolError("Move file", error);
+      return toToolError("移动文件", error);
     }
   },
   {
@@ -301,25 +301,25 @@ export const moveDirectoryTool = tool(
       ensureWritableTarget(path.join(resolvedDestinationPath, ".keep"));
 
       if (!fs.existsSync(resolvedSourcePath)) {
-        return `Source path does not exist: ${resolvedSourcePath}`;
+        return `源路径不存在：${resolvedSourcePath}`;
       }
 
       const stat = fs.statSync(resolvedSourcePath);
       if (!stat.isDirectory()) {
-        return `Refusing to move non-directory path: ${resolvedSourcePath}`;
+        return `拒绝移动非目录路径：${resolvedSourcePath}`;
       }
 
       if (fs.existsSync(resolvedDestinationPath)) {
         if (!overwrite) {
-          return `Destination already exists: ${resolvedDestinationPath}`;
+          return `目标路径已存在：${resolvedDestinationPath}`;
         }
         fs.rmSync(resolvedDestinationPath, { recursive: true, force: true });
       }
 
       fs.renameSync(resolvedSourcePath, resolvedDestinationPath);
-      return `Directory moved successfully: ${resolvedSourcePath} -> ${resolvedDestinationPath}`;
+      return `目录移动成功：${resolvedSourcePath} -> ${resolvedDestinationPath}`;
     } catch (error) {
-      return toToolError("Move directory", error);
+      return toToolError("移动目录", error);
     }
   },
   {
@@ -350,7 +350,7 @@ export const deleteFileTool = tool(
       await shell.trashItem(resolvedPath);
       return `文件删除成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Delete file", error);
+      return toToolError("删除文件", error);
     }
   },
   {
@@ -393,11 +393,11 @@ export const searchFilesTool = tool(
 
       searchDir(resolvedPath, 0);
       if (results.length === 0) {
-        return `No files containing "${keyword}" were found in "${resolvedPath}".`;
+        return `在“${resolvedPath}”中未找到包含“${keyword}”的文件。`;
       }
-      return `Found ${results.length} files:\n${results.join("\n")}`;
+      return `共找到 ${results.length} 个文件：\n${results.join("\n")}`;
     } catch (error) {
-      return toToolError("Search files", error);
+      return toToolError("搜索文件", error);
     }
   },
   {
@@ -481,12 +481,12 @@ export const searchFileContentTool = tool(
       walk(resolvedPath, 0);
 
       if (matches.length === 0) {
-        return `No file content containing "${keyword}" was found in "${resolvedPath}".`;
+        return `在“${resolvedPath}”中未找到包含“${keyword}”的文件内容。`;
       }
 
-      return `Found ${matches.length} content matches:\n${matches.join("\n")}`;
+      return `共找到 ${matches.length} 处内容匹配：\n${matches.join("\n")}`;
     } catch (error) {
-      return toToolError("Search file content", error);
+      return toToolError("搜索文件内容", error);
     }
   },
   {
@@ -507,9 +507,9 @@ export const readJsonTool = tool(
       assertReadableFile(resolvedPath);
       const raw = fs.readFileSync(resolvedPath, "utf-8");
       const parsed = JSON.parse(raw) as unknown;
-      return `JSON read successfully:\n\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``;
+      return `JSON 读取成功：\n\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``;
     } catch (error) {
-      return toToolError("Read JSON", error);
+      return toToolError("读取 JSON", error);
     }
   },
   {
@@ -529,9 +529,9 @@ export const writeJsonTool = tool(
       ensureWritableTarget(resolvedPath);
       const spaces = pretty === false ? 0 : 2;
       fs.writeFileSync(resolvedPath, JSON.stringify(data, null, spaces), "utf-8");
-      return `JSON written successfully: ${resolvedPath}`;
+      return `JSON 写入成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Write JSON", error);
+      return toToolError("写入 JSON", error);
     }
   },
   {
@@ -552,10 +552,10 @@ export const fileExistsTool = tool(
       const resolvedPath = resolveToolPath(targetPath);
       assertNotProtectedPath(resolvedPath);
       return fs.existsSync(resolvedPath)
-        ? `Path exists: ${resolvedPath}`
-        : `Path does not exist: ${resolvedPath}`;
+        ? `路径存在：${resolvedPath}`
+        : `路径不存在：${resolvedPath}`;
     } catch (error) {
-      return toToolError("File exists", error);
+      return toToolError("检查路径", error);
     }
   },
   {
@@ -575,19 +575,19 @@ export const pathStatTool = tool(
       assertNotProtectedPath(resolvedPath);
 
       if (!fs.existsSync(resolvedPath)) {
-        return `Path does not exist: ${resolvedPath}`;
+        return `路径不存在：${resolvedPath}`;
       }
 
       const stat = fs.statSync(resolvedPath);
       return [
-        `Path: ${resolvedPath}`,
-        `Type: ${stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other"}`,
-        `Size: ${stat.size} bytes`,
-        `Created: ${stat.birthtime.toISOString()}`,
-        `Modified: ${stat.mtime.toISOString()}`,
+        `路径：${resolvedPath}`,
+        `类型：${stat.isDirectory() ? "目录" : stat.isFile() ? "文件" : "其他"}`,
+        `大小：${stat.size} 字节`,
+        `创建时间：${stat.birthtime.toISOString()}`,
+        `修改时间：${stat.mtime.toISOString()}`,
       ].join("\n");
     } catch (error) {
-      return toToolError("Path stat", error);
+      return toToolError("读取路径信息", error);
     }
   },
   {
@@ -611,9 +611,9 @@ export const readCsvTool = tool(
         .filter((line) => line.trim().length > 0)
         .slice(0, Math.max(1, Math.min(maxRows ?? 20, 100)));
 
-      return `CSV preview (${rows.length} rows):\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
+      return `CSV 预览（${rows.length} 行）：\n\`\`\`\n${rows.join("\n")}\n\`\`\``;
     } catch (error) {
-      return toToolError("Read CSV", error);
+      return toToolError("读取 CSV", error);
     }
   },
   {
@@ -646,9 +646,9 @@ export const insertIntoFileTool = tool(
       }
 
       fs.writeFileSync(resolvedPath, lines.join("\n"), "utf-8");
-      return `Text inserted successfully: ${resolvedPath} (line ${safeLineNumber}, ${position})`;
+      return `文本插入成功：${resolvedPath}（第 ${safeLineNumber} 行，${position === "before" ? "之前" : "之后"}）`;
     } catch (error) {
-      return toToolError("Insert into file", error);
+      return toToolError("插入文件内容", error);
     }
   },
   {
@@ -673,7 +673,7 @@ export const replaceInFileTool = tool(
 
       const content = fs.readFileSync(resolvedPath, "utf-8");
       if (!content.includes(searchText)) {
-        return `Search text not found in file: ${resolvedPath}`;
+        return `文件中未找到要替换的文本：${resolvedPath}`;
       }
 
       const nextContent = replaceAll
@@ -681,9 +681,9 @@ export const replaceInFileTool = tool(
         : content.replace(searchText, replaceText);
 
       fs.writeFileSync(resolvedPath, nextContent, "utf-8");
-      return `File content replaced successfully: ${resolvedPath}`;
+      return `文件内容替换成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Replace in file", error);
+      return toToolError("替换文件内容", error);
     }
   },
   {
@@ -709,14 +709,14 @@ export const replaceRegexInFileTool = tool(
       const regex = new RegExp(pattern, flags || "");
       const content = fs.readFileSync(resolvedPath, "utf-8");
       if (!regex.test(content)) {
-        return `Regex pattern not found in file: ${resolvedPath}`;
+        return `文件中未找到匹配的正则表达式：${resolvedPath}`;
       }
 
       const nextContent = content.replace(new RegExp(pattern, flags || ""), replaceText);
       fs.writeFileSync(resolvedPath, nextContent, "utf-8");
-      return `Regex replacement completed successfully: ${resolvedPath}`;
+      return `正则替换成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Replace regex in file", error);
+      return toToolError("正则替换文件内容", error);
     }
   },
   {
@@ -741,12 +741,12 @@ export const makeZipTool = tool(
       ensureWritableTarget(resolvedZipPath);
 
       if (!fs.existsSync(resolvedSourcePath)) {
-        return `Source path does not exist: ${resolvedSourcePath}`;
+        return `源路径不存在：${resolvedSourcePath}`;
       }
 
       if (fs.existsSync(resolvedZipPath)) {
         if (!overwrite) {
-          return `Zip file already exists: ${resolvedZipPath}`;
+          return `ZIP 文件已存在：${resolvedZipPath}`;
         }
         fs.unlinkSync(resolvedZipPath);
       }
@@ -758,9 +758,9 @@ export const makeZipTool = tool(
       ].join(" ");
 
       await execFileUtf8("powershell.exe", ["-NoProfile", "-Command", script]);
-      return `Zip created successfully: ${resolvedZipPath}`;
+      return `ZIP 创建成功：${resolvedZipPath}`;
     } catch (error) {
-      return toToolError("Make zip", error);
+      return toToolError("创建 ZIP", error);
     }
   },
   {
@@ -780,13 +780,13 @@ export const openUrlTool = tool(
     try {
       const parsed = new URL(url);
       if (!["http:", "https:"].includes(parsed.protocol)) {
-        return `Unsupported URL protocol: ${parsed.protocol}`;
+        return `不支持的 URL 协议：${parsed.protocol}`;
       }
 
       await shell.openExternal(parsed.toString());
-      return `URL opened successfully: ${parsed.toString()}`;
+      return `URL 打开成功：${parsed.toString()}`;
     } catch (error) {
-      return toToolError("Open URL", error);
+      return toToolError("打开 URL", error);
     }
   },
   {
@@ -807,17 +807,17 @@ export const extractZipTool = tool(
       ensureWritableTarget(path.join(resolvedDestinationPath, ".keep"));
 
       if (!fs.existsSync(resolvedZipPath)) {
-        return `Zip file does not exist: ${resolvedZipPath}`;
+        return `ZIP 文件不存在：${resolvedZipPath}`;
       }
 
       const stat = fs.statSync(resolvedZipPath);
       if (!stat.isFile()) {
-        return `Refusing to extract non-file path: ${resolvedZipPath}`;
+        return `拒绝解压非文件路径：${resolvedZipPath}`;
       }
 
       if (fs.existsSync(resolvedDestinationPath)) {
         if (!overwrite) {
-          return `Destination already exists: ${resolvedDestinationPath}`;
+          return `目标路径已存在：${resolvedDestinationPath}`;
         }
         fs.rmSync(resolvedDestinationPath, { recursive: true, force: true });
       }
@@ -831,9 +831,9 @@ export const extractZipTool = tool(
       ].join(" ");
 
       await execFileUtf8("powershell.exe", ["-NoProfile", "-Command", script]);
-      return `Zip extracted successfully: ${resolvedDestinationPath}`;
+      return `ZIP 解压成功：${resolvedDestinationPath}`;
     } catch (error) {
-      return toToolError("Extract zip", error);
+      return toToolError("解压 ZIP", error);
     }
   },
   {
@@ -855,13 +855,13 @@ export const revealInFolderTool = tool(
       assertNotProtectedPath(resolvedPath);
 
       if (!fs.existsSync(resolvedPath)) {
-        return `Path does not exist: ${resolvedPath}`;
+        return `路径不存在：${resolvedPath}`;
       }
 
       shell.showItemInFolder(resolvedPath);
-      return `Revealed in folder successfully: ${resolvedPath}`;
+      return `已在文件夹中定位：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Reveal in folder", error);
+      return toToolError("在文件夹中显示", error);
     }
   },
   {
@@ -880,17 +880,17 @@ export const openPathTool = tool(
       assertNotProtectedPath(resolvedPath);
 
       if (!fs.existsSync(resolvedPath)) {
-        return `Path does not exist: ${resolvedPath}`;
+        return `路径不存在：${resolvedPath}`;
       }
 
       const result = await shell.openPath(resolvedPath);
       if (result) {
-        return `Open path failed: ${result}`;
+        return `打开路径失败：${result}`;
       }
 
-      return `Path opened successfully: ${resolvedPath}`;
+      return `路径打开成功：${resolvedPath}`;
     } catch (error) {
-      return toToolError("Open path", error);
+      return toToolError("打开路径", error);
     }
   },
   {

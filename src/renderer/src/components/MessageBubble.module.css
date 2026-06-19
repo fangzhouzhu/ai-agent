@@ -755,6 +755,9 @@
 
 .fileActionCard {
   padding: 10px;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
 }
 
 .fileActionTitle {
@@ -765,10 +768,31 @@
 }
 
 .fileActionPath {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: #315ff1;
   font-size: 11px;
   word-break: break-all;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  position: relative;
+  z-index: 2;
 }
+
+.fileActionPath:hover {
+  color: #2348c7;
+}
+
+.fileActionPath:focus-visible {
+  outline: 2px solid rgba(49, 95, 241, 0.28);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 
 .fileList {
   display: flex;

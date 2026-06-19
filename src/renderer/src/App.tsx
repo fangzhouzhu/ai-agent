@@ -2712,7 +2712,7 @@ const App: React.FC = () => {
               onlineModelCandidates={onlineModelCandidates}
               skills={draftSkills}
               agents={selectableAgents.map((agent) => ({ id: agent.id, name: agent.name }))}
-              selectedAgentId={activeConversation?.agentProfileId ?? pendingAgent?.id ?? ''}
+              selectedAgentId={activeConversation ? (activeConversation.agentProfileId ?? '') : (pendingAgent?.id ?? '')}
               canSelectAgent={!activeConversation || (activeConversation.loaded && activeConversation.messages.length === 0)}
               onSelectAgent={(agentId) => void handleSelectConversationAgent(agentId)}
               onUpdateRoute={handleInlineRouteUpdate}

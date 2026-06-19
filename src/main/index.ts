@@ -1,11 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { app, shell, BrowserWindow, ipcMain, dialog } from "electron";
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Menu,
+  Tray,
+  nativeImage,
+} from "electron";
 import { basename, join } from "path";
 import { is } from "@electron-toolkit/utils";
 import {
@@ -119,6 +128,63 @@ type ChatRequestState = {
   controller: AbortController;
   webContents: Electron.WebContents;
 };
+
+let appTray: Tray | null = null;
+let isQuitting = false;
+
+function getTrayIconPath(): string {
+  const fileName = process.platform === "win32" ? "icon.ico" : "icon.png";
+  const candidates = [
+    join(process.resourcesPath, fileName),
+    join(app.getAppPath(), "build", fileName),
+    join(__dirname, "../../build", fileName),
+  ];
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function showPrimaryWindow(): void {
+  const [mainWindow] = BrowserWindow.getAllWindows();
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray(): void {
+  if (appTray) return;
+
+  const trayIcon = nativeImage.createFromPath(getTrayIconPath());
+  appTray = new Tray(trayIcon);
+  appTray.setToolTip("Centibot");
+  appTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "打开",
+        click: () => {
+          showPrimaryWindow();
+        },
+      },
+      {
+        label: "退出",
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
+    ]),
+  );
+  appTray.on("double-click", () => {
+    showPrimaryWindow();
+  });
+}
 
 const chatRequests = new Map<string, ChatRequestState>();
 
@@ -631,7 +697,7 @@ function shouldUseAgentTools(message: string): boolean {
 
   // 仅在明显需要工具时走 Agent，降低普通问答首字延迟。
   const toolIntentRegex =
-    /(读取文件|读文件|写文件|删除文件|列出目录|搜索文件|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch|股市|a股|港股|美股|股票|大盘|指数|行情|新闻|资讯|上证|深证|沪深|金价|油价|生成pdf|生成ppt|生成报告|写报告|分析报告|投资报告|研究报告|pdf|ppt|pptx|报告|演示文稿|幻灯片)/;
+    /(读取文件|读文件|写文件|创建文件|新建文件|保存文件|生成文件|删除文件|列出目录|搜索文件|桌面|电脑桌面|desktop|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|create file|new file|save file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch|股市|a股|港股|美股|股票|大盘|指数|行情|新闻|资讯|上证|深证|沪深|金价|油价|生成pdf|生成ppt|生成报告|写报告|分析报告|投资报告|研究报告|pdf|ppt|pptx|报告|演示文稿|幻灯片)/;
 
   const localSystemHints = [
     "\u6211\u7684\u7535\u8111",
@@ -882,8 +948,19 @@ function createWindow(): void {
     },
   });
 
-  mainWindow.on("ready-to-show", () => {
+  let windowShown = false;
+  const showMainWindow = () => {
+    if (windowShown || mainWindow.isDestroyed()) return;
+    windowShown = true;
     mainWindow.show();
+  };
+
+  mainWindow.once("ready-to-show", showMainWindow);
+  mainWindow.webContents.once("did-finish-load", showMainWindow);
+  mainWindow.on("close", (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -1918,6 +1995,15 @@ ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
   return error || null;
 });
 
+ipcMain.handle("shell:revealInFolder", async (_event, filePath: string) => {
+  try {
+    shell.showItemInFolder(filePath);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+});
+
 ipcMain.handle(
   "ui:perform-input-edit-action",
   (event, action: "copy" | "cut" | "paste") => {
@@ -1938,18 +2024,7 @@ const CENTIBOT_AGENT_PORT = 18790;
 let centibotAgentServer: ReturnType<typeof createServer> | null = null;
 
 function focusPrimaryWindow(): void {
-  const [mainWindow] = BrowserWindow.getAllWindows();
-  if (!mainWindow) return;
-
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
-  }
-
-  if (!mainWindow.isVisible()) {
-    mainWindow.show();
-  }
-
-  mainWindow.focus();
+  showPrimaryWindow();
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -2455,6 +2530,7 @@ app.whenReady().then(async () => {
   });
 
   createWindow();
+  createTray();
   startCentibotAgentServer();
   void checkWechatBotBinding();
   void fetchOllamaModels()
@@ -2484,6 +2560,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
+  appTray?.destroy();
+  appTray = null;
   centibotAgentServer?.close();
   centibotAgentServer = null;
   stopOpenClawGateway();

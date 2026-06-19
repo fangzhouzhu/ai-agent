@@ -84,6 +84,10 @@ function linkifyLocalFilePaths(text: string): string {
   )
 }
 
+function preserveMarkdownHref(href: string): string {
+  return href
+}
+
 function splitStructuredKnowledgeAnswer(text: string): AssistantContentParts | null {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -136,6 +140,33 @@ function renderInputPreview(input: unknown) {
   }
 
   return <code>{JSON.stringify(input, null, 2)}</code>
+}
+
+async function handleOpenLocalPath(filePath: string): Promise<void> {
+  const openError = await window.electronAPI.openPath(filePath)
+  if (!openError) return
+
+  const revealError = await window.electronAPI.revealInFolder(filePath)
+  if (!revealError) return
+
+  window.alert(`打开文件失败：${openError}\n定位文件失败：${revealError}`)
+}
+
+function renderOpenPathButton(filePath: string, className: string) {
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void handleOpenLocalPath(filePath)
+      }}
+      title={`打开文件：${filePath}`}
+    >
+      {filePath}
+    </button>
+  )
 }
 
 function renderFileList(items: Array<{ type: string; name: string; extra?: string }>) {
@@ -407,10 +438,23 @@ function renderResultPreview(toolName: string, result: string) {
   if (toolName === 'write_file' || toolName === 'delete_file') {
     const matched = trimmed.match(/^(文件(?:写入|删除)成功)[:：]\s*(.+)$/)
     if (matched) {
+      const filePath = matched[2]
       return (
-        <div className={styles.fileActionCard}>
+        <div
+          className={styles.fileActionCard}
+          onClick={() => void handleOpenLocalPath(filePath)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              void handleOpenLocalPath(filePath)
+            }
+          }}
+          title={`打开文件：${filePath}`}
+        >
           <div className={styles.fileActionTitle}>{matched[1]}</div>
-          <div className={styles.fileActionPath}>{matched[2]}</div>
+          {renderOpenPathButton(filePath, styles.fileActionPath)}
         </div>
       )
     }
@@ -882,7 +926,7 @@ const TaskMessagePanel: React.FC<{
               key={filePath}
               type="button"
               className={styles.taskFileBtn}
-              onClick={() => void window.electronAPI.openPath(filePath)}
+              onClick={() => void handleOpenLocalPath(filePath)}
             >
               打开文件：{filePath}
             </button>
@@ -1143,6 +1187,7 @@ const MessageBubble: React.FC<Props> = ({
             <div className="markdown-body">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                urlTransform={(href) => preserveMarkdownHref(href)}
                 components={{
                   a({ href, children, ...props }) {
                     return (
@@ -1154,7 +1199,7 @@ const MessageBubble: React.FC<Props> = ({
                           event.preventDefault()
                           if (href) {
                             if (isLocalFileHref(href)) {
-                              void window.electronAPI.openPath(decodeLocalFileHref(href))
+                              void handleOpenLocalPath(decodeLocalFileHref(href))
                               return
                             }
                             window.open(href, '_blank', 'noopener,noreferrer')
