@@ -430,6 +430,11 @@
   overflow: hidden;
 }
 
+.suggestionDropdownAbove {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
 .suggestionList {
   display: flex;
   flex-direction: column;

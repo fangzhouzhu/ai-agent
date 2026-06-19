@@ -214,9 +214,11 @@ const InputBar: React.FC<Props> = ({
   const [sendMode, setSendMode] = useState<'chat' | 'task'>('chat')
   const [selectedSkills, setSelectedSkills] = useState<SkillConfig[]>([])
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
+  const [suggestionPlacement, setSuggestionPlacement] = useState<'below' | 'above'>('below')
   const [contextMenu, setContextMenu] = useState<InputContextMenuState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputStageRef = useRef<HTMLDivElement>(null)
+  const suggestionDropdownRef = useRef<HTMLDivElement>(null)
   const isBusy = isLoading || isRagProcessing
   const unifiedRoute = modelConfig.chat
   const activeOnlineProfile =
@@ -253,6 +255,38 @@ const InputBar: React.FC<Props> = ({
       window.removeEventListener('scroll', closeMenu, true)
     }
   }, [contextMenu])
+
+  useEffect(() => {
+    if (!skillQueryContext || suggestedSkills.length === 0) return
+
+    const updateSuggestionPlacement = () => {
+      const root = inputStageRef.current
+      const dropdown = suggestionDropdownRef.current
+      if (!root || !dropdown) return
+
+      const rootRect = root.getBoundingClientRect()
+      const dropdownHeight = dropdown.offsetHeight
+      const viewportHeight = window.innerHeight
+      const spaceBelow = viewportHeight - rootRect.bottom
+      const spaceAbove = rootRect.top
+
+      if (spaceBelow < dropdownHeight + 8 && spaceAbove > spaceBelow) {
+        setSuggestionPlacement('above')
+        return
+      }
+
+      setSuggestionPlacement('below')
+    }
+
+    updateSuggestionPlacement()
+    window.addEventListener('resize', updateSuggestionPlacement)
+    window.addEventListener('scroll', updateSuggestionPlacement, true)
+
+    return () => {
+      window.removeEventListener('resize', updateSuggestionPlacement)
+      window.removeEventListener('scroll', updateSuggestionPlacement, true)
+    }
+  }, [skillQueryContext, suggestedSkills.length, input, selectedSkills.length])
 
   const modelOptions: ModelOption[] = [
     ...(localModels.length > 0 || unifiedRoute.provider === 'ollama'
@@ -627,7 +661,12 @@ const InputBar: React.FC<Props> = ({
             )}
 
             {skillQueryContext && suggestedSkills.length > 0 && (
-              <div className={styles.suggestionDropdown}>
+              <div
+                ref={suggestionDropdownRef}
+                className={`${styles.suggestionDropdown} ${
+                  suggestionPlacement === 'above' ? styles.suggestionDropdownAbove : ''
+                }`}
+              >
                 <div className={styles.suggestionList}>
                   {suggestedSkills.map((skill, index) => (
                     <button

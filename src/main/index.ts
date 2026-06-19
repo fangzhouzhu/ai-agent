@@ -1937,6 +1937,30 @@ ipcMain.handle(
 const CENTIBOT_AGENT_PORT = 18790;
 let centibotAgentServer: ReturnType<typeof createServer> | null = null;
 
+function focusPrimaryWindow(): void {
+  const [mainWindow] = BrowserWindow.getAllWindows();
+  if (!mainWindow) return;
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
+  mainWindow.focus();
+}
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    focusPrimaryWindow();
+  });
+}
+
 type OpenAICompatibleMessage = {
   role: "system" | "user" | "assistant";
   content?: unknown;
@@ -2444,7 +2468,12 @@ app.whenReady().then(async () => {
     });
 
   app.on("activate", function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      return;
+    }
+
+    focusPrimaryWindow();
   });
 });
 
