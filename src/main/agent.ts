@@ -28,6 +28,7 @@ import {
   TOOL_SYSTEM_PROMPT,
   buildRuntimeContextPrompt,
 } from "./prompts/agentPrompts";
+import { isRealtimeRecommendationQuery } from "./queryRouting";
 import type {
   ModelProvider,
   ModelSettings,
@@ -302,6 +303,121 @@ type PreCalledResult = {
   args: Record<string, unknown>;
   result: string;
 };
+
+function shouldPreCallWebSearch(userMessage: string): boolean {
+  return isRealtimeRecommendationQuery(userMessage);
+}
+
+function buildRecommendationSummaryInstruction(userMessage: string): string {
+  if (!shouldPreCallWebSearch(userMessage)) {
+    return "请根据上面的工具结果直接回答用户问题，不要重复工具调用过程。";
+  }
+
+  return [
+    "请严格基于上面的搜索结果和网页正文回答，不要凭模型记忆补充。",
+    "如果证据不足，只能说“未检索到明确榜单/评测结论”或“现有证据不足以支持该结论”，不能擅自推断“尚未发布”或“官方未公布”。",
+    "优先回答用户真正想要的推荐结果，不要把答案写成泛泛的市场综述。",
+    "推荐类问题必须优先按维度给建议，例如：影像、性能、续航、性价比，而不是武断给出唯一“最佳”。",
+    "只有在搜索结果里明确出现具体机型、发布时间、评测结论时，才能写入答案；没有证据就不要点名。",
+    "最终答案请严格使用下面结构：",
+    "1. 检索时间：一句话说明这是基于当前检索结果的总结。",
+    "2. 直接结论：先直接回答“是否存在统一权威榜单”，如果没有，就明确说更适合按维度推荐。",
+    "3. 按维度推荐：最多列 3 到 4 条，每条都包含“推荐方向/机型 + 简短依据”。",
+    "4. 不确定性说明：一句话说明后续新机发布或评测更新后结论可能变化。",
+    "整段回答尽量简洁，优先给出可执行建议，不要重复工具调用过程。",
+  ].join("");
+
+  if (!shouldPreCallWebSearch(userMessage)) {
+    return "请根据上面的工具结果直接回答用户问题，不要重复工具调用过程。";
+  }
+
+  return [
+    "请严格基于上面的搜索与网页正文结果回答，不要凭模型记忆补充。",
+    "如果证据不足，只能说“未检索到明确榜单/评测结论”或“现有证据不足以支持该结论”，不能擅自推断“尚未发布”或“官方未公布”。",
+    "优先按维度给建议，例如：影像、性能、续航、性价比，而不是武断给出唯一“最佳”。",
+    "如果结果里出现具体机型、发布时间、评测结论，请明确说明这些信息来自搜索结果。",
+    "答案开头先说明这是基于当前检索结果的总结。",
+  ].join("");
+}
+
+function buildRecommendationSummaryInstructionV2(
+  userMessage: string,
+): string {
+  if (!shouldPreCallWebSearch(userMessage)) {
+    return "请根据上面的工具结果直接回答用户问题，不要重复工具调用过程。";
+  }
+
+  return [
+    "请严格基于上面的搜索结果和网页正文回答，不要凭模型记忆补充。",
+    "如果证据不足，只能说“未检索到明确榜单/评测结论”或“现有证据不足以支持该结论”，不能擅自推断“尚未发布”或“官方未公布”。",
+    "优先回答用户真正想要的推荐结果，不要把答案写成泛泛的市场综述。",
+    "推荐类问题必须优先按维度给建议，例如：影像、性能、续航、性价比，而不是武断给出唯一“最佳”。",
+    "除非同一机型被至少两个独立来源同时支持，或有明确评测对比证据，否则不要点名把它写成推荐机型。",
+    "官网营销文案、宣传口号、外观描述不能单独作为推荐依据。",
+    "最终答案请严格使用下面结构：",
+    "1. 检索时间：一句话说明这是基于当前检索结果的总结。",
+    "2. 直接结论：先回答是否存在统一权威榜单；如果没有，就明确说更适合按维度推荐。",
+    "3. 按维度推荐：最多列 2 到 3 条；如果证据不足，就写“暂无明确推荐机型，仅给出选购方向”。",
+    "4. 不确定性说明：一句话说明后续新机发布或评测更新后结论可能变化。",
+    "整段回答尽量简洁，优先给出可执行建议，不要重复工具调用过程。",
+  ].join("");
+}
+
+function extractSearchResultUrls(result: string): string[] {
+  const urls = result.match(/^https?:\/\/\S+$/gm) ?? [];
+  const deduped = Array.from(new Set(urls.map((url) => url.trim())));
+  return deduped.filter(
+    (url) =>
+      !/(gov\.cn|calendar|holiday|baike\.baidu|wikipedia|sports|travel|weather|zhihu\.com|zhuanlan\.zhihu\.com|xiaohongshu\.com|weibo\.com)/i.test(
+        url,
+      ),
+  );
+}
+
+function hasUsableRecommendationEvidence(
+  userMessage: string,
+  preResults: PreCalledResult[],
+): boolean {
+  if (!shouldPreCallWebSearch(userMessage)) {
+    return true;
+  }
+
+  const fetchResults = preResults.filter((result) => result.toolName === "fetch_url");
+  const validFetchResults = fetchResults.filter((result) => {
+    const text = result.result.trim();
+    return (
+      !/failed:|失败|error/i.test(text) &&
+      text.length >= 300 &&
+      !/无法提取|未获取到|empty/i.test(text)
+    );
+  });
+
+  if (validFetchResults.length > 0) {
+    return true;
+  }
+
+  if (fetchResults.length > 0) {
+    return false;
+  }
+
+  const searchResults = preResults.filter(
+    (result) => result.toolName === "web_search",
+  );
+  return searchResults.some((result) => {
+    const urls = extractSearchResultUrls(result.result);
+    const entryCount = (result.result.match(/^\d+\.\s+/gm) ?? []).length;
+    return urls.length >= 2 && entryCount >= 2;
+  });
+}
+
+function buildWeakEvidenceRecommendationReply(): string {
+  return [
+    "基于这次联网结果，暂时没有提取到足够可靠的评测正文或一致结论。",
+    "现在不适合直接点名“今年最好的手机”是哪一款，否则很容易误导。",
+    "更稳妥的回答是：目前更适合按维度来选，比如影像、性能、续航、系统和性价比。",
+    "如果你愿意，我可以继续按更具体条件帮你筛选，例如“4000元以内拍照最好的手机”或“今年续航最强的手机”。",
+  ].join("");
+}
 
 type SpecialFolderName =
   | "desktop"
@@ -661,6 +777,50 @@ async function preCallTools(
     }
   }
 
+  if (shouldPreCallWebSearch(userMessage)) {
+    const args = { query: userMessage.trim(), maxResults: 5 };
+    onToolCall("web_search", args);
+    try {
+      const { result } = await executeTool("web_search", args, {
+        signal,
+        confirm: confirmTool,
+      });
+      onToolResult("web_search", result);
+      results.push({ toolName: "web_search", args, result });
+
+      const urls = extractSearchResultUrls(result).slice(0, 2);
+      for (const url of urls) {
+        const fetchArgs = { url, maxLength: 3000 };
+        onToolCall("fetch_url", fetchArgs);
+        try {
+          const fetched = await executeTool("fetch_url", fetchArgs, {
+            signal,
+            confirm: confirmTool,
+          });
+          onToolResult("fetch_url", fetched.result);
+          results.push({
+            toolName: "fetch_url",
+            args: fetchArgs,
+            result: fetched.result,
+          });
+        } catch (fetchError: any) {
+          const fetchResult = `fetch_url failed: ${fetchError?.message || fetchError}`;
+          onToolResult("fetch_url", fetchResult);
+          results.push({
+            toolName: "fetch_url",
+            args: fetchArgs,
+            result: fetchResult,
+          });
+        }
+      }
+    } catch (e: any) {
+      const result = `web_search failed: ${e?.message || e}`;
+      onToolResult("web_search", result);
+      results.push({ toolName: "web_search", args, result });
+    }
+    return results;
+  }
+
   return results;
 }
 
@@ -800,7 +960,14 @@ export async function chatWithAgent(
     }
   }
 
+  if (!hasUsableRecommendationEvidence(userMessage, preResults)) {
+    const safeReply = buildWeakEvidenceRecommendationReply();
+    onToken(safeReply);
+    return safeReply;
+  }
+
   if (route.provider === "openai-compatible") {
+    const summaryInstruction = buildRecommendationSummaryInstructionV2(userMessage);
     const messages: CompatibleMessage[] = [
       {
         role: "system",
@@ -885,6 +1052,10 @@ export async function chatWithAgent(
       { role: "user", content: userMessage },
       {
         role: "user",
+        content: summaryInstruction,
+      },
+      {
+        role: "user",
         content:
           "请根据上面的工具搜索结果，给出一个清晰的中文总结回答，不要重复工具调用内容。",
       },
@@ -908,6 +1079,7 @@ export async function chatWithAgent(
 
   // 关键词预路由：强制调用高置信度工具，不依赖小模型自己决定是否调用
   if (preResults.length > 0) {
+    const summaryInstruction = buildRecommendationSummaryInstructionV2(userMessage);
     const toolContext = preResults
       .map((r) => `[工具: ${r.toolName}]\n${r.result}`)
       .join("\n\n");
@@ -916,6 +1088,7 @@ export async function chatWithAgent(
       new SystemMessage(
         `以下是已自动获取的工具结果，请基于这些结果直接回答用户问题，无需再调用工具：\n\n${toolContext}`,
       ),
+      new SystemMessage(summaryInstruction),
       ...history.map(toLC),
       new HumanMessage(userMessage),
     ];
@@ -1038,6 +1211,18 @@ export async function chatStream(
   provider: ModelProvider = modelConfig.chat.provider,
   skill?: SkillConfig | null,
 ): Promise<string> {
+  if (shouldPreCallWebSearch(userMessage)) {
+    return chatWithAgent(
+      history,
+      userMessage,
+      onToken,
+      () => {},
+      () => {},
+      signal,
+      skill,
+    );
+  }
+
   const route: RouteConfig = {
     provider,
     model: modelName || modelConfig.chat.model,

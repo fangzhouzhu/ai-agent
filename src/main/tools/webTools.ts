@@ -1,5 +1,6 @@
 import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import { isRealtimeRecommendationQuery } from "../queryRouting";
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -53,6 +54,13 @@ function isPhoneLaunchQuery(query: string): boolean {
   );
 }
 
+function isPhoneRecommendationQuery(query: string): boolean {
+  return (
+    isRealtimeRecommendationQuery(query) &&
+    /(手机|智能手机|iphone|huawei|honor|xiaomi|redmi|vivo|oppo|iqoo|oneplus|realme)/i.test(query)
+  );
+}
+
 function extractPhoneBrands(text: string): string[] {
   const brandPatterns: Array<[string, RegExp]> = [
     ["华为", /华为|\bhuawei\b/i],
@@ -75,16 +83,76 @@ function appendMissingKeywords(base: string, keywords: string[]): string {
   return missing.length > 0 ? `${base} ${missing.join(" ")}` : base;
 }
 
+function buildCurrentTimeSearchHints() {
+  const now = new Date();
+  return {
+    year: String(now.getFullYear()),
+    yearMonth: `${now.getFullYear()}年${now.getMonth() + 1}月`,
+  };
+}
+
 function enhanceSearchQuery(query: string): string {
   const normalized = query.trim();
+  const { year, yearMonth } = buildCurrentTimeSearchHints();
+  const hasExplicitYear = /\b20\d{2}\b|20\d{2}年/.test(normalized);
+  const needsCurrentTimeHint =
+    /(今年|最近|最新|目前|当前|现在)/.test(normalized) && !hasExplicitYear;
   if (/site:/i.test(normalized)) {
     return normalized;
   }
   if (isFinanceQuery(normalized)) {
+    if (needsCurrentTimeHint) {
+      return normalizeText(`${normalized} ${year} ${yearMonth}`);
+    }
     return `${normalized} 东方财富 新浪财经 同花顺 上证指数 深证成指 创业板指`;
   }
 
+  if (isPhoneRecommendationQuery(normalized)) {
+    const brands = extractPhoneBrands(normalized);
+    const base = needsCurrentTimeHint
+      ? appendMissingKeywords(normalized, [year, yearMonth])
+      : normalized;
+    return normalizeText(
+      appendMissingKeywords(
+        base,
+        brands.length > 0
+          ? [
+              ...brands,
+              "智能手机",
+              "手机",
+              "评测",
+              "推荐",
+              "排行",
+              "中关村在线",
+              "IT之家",
+              "手机中国",
+              "-fifa",
+              "-world cup",
+              "-世界杯",
+              "-足球",
+            ]
+          : [
+              "智能手机",
+              "手机",
+              "评测",
+              "推荐",
+              "排行",
+              "中关村在线",
+              "IT之家",
+              "手机中国",
+              "-fifa",
+              "-world cup",
+              "-世界杯",
+              "-足球",
+            ],
+      ),
+    );
+  }
+
   if (isPhoneLaunchQuery(normalized)) {
+    if (needsCurrentTimeHint) {
+      return normalizeText(`${normalized} ${year} ${yearMonth}`);
+    }
     const brands = extractPhoneBrands(normalized);
     const withTopicKeywords = appendMissingKeywords(normalized, [
       "新机",
@@ -98,6 +166,10 @@ function enhanceSearchQuery(query: string): string {
         ? [...brands, "手机中国", "中关村在线", "IT之家"]
         : ["国产手机", "发布会", "手机中国", "中关村在线", "IT之家"],
     );
+  }
+
+  if (needsCurrentTimeHint) {
+    return normalizeText(`${normalized} ${year} ${yearMonth}`);
   }
 
   return normalized;
@@ -123,7 +195,7 @@ function isClearlyIrrelevantPhoneResult(result: string): boolean {
   const lower = result.toLowerCase();
   const badMatches = (
     lower.match(
-      /gov\.cn|s\.gov\.cn|holiday|日历|节假日|东盟|政策|国务院|放假|校历|农历/g,
+      /gov\.cn|s\.gov\.cn|holiday|日历|节假日|东盟|政策|国务院|放假|校历|农历|fifa|world cup|世界杯|足球|赛程|fixtures|stadiums|teams/g,
     ) || []
   ).length;
   const goodMatches = (
@@ -148,7 +220,7 @@ function hasPreferredPhoneSourceUrl(url: string): boolean {
 }
 
 function isBlockedPhoneSourceUrl(url: string): boolean {
-  return /(gov\.cn|calendar|festival|holiday|ncaa\.com|baibaidu\.com|baike\.baidu\.com|wikipedia\.org|sports|travel|weather)/i.test(
+  return /(gov\.cn|calendar|festival|holiday|ncaa\.com|baibaidu\.com|baike\.baidu\.com|wikipedia\.org|sports|travel|weather|zhihu\.com|zhuanlan\.zhihu\.com|xiaohongshu\.com|weibo\.com)/i.test(
     url,
   );
 }
@@ -179,11 +251,20 @@ function filterPhoneSearchResults(rawResult: string): string {
     return hasPreferredPhoneSourceUrl(url) || hasPhoneKeywords;
   });
 
+  const safeEntries = entries.filter((entry) => {
+    const lines = entry.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const url = lines.find((line) => /^https?:\/\//i.test(line));
+    return !!url && !isBlockedPhoneSourceUrl(url);
+  });
+
   if (filteredEntries.length === 0) {
-    return header;
+    if (safeEntries.length > 0) {
+      return [header, ...safeEntries.slice(0, 3)].join("\n\n");
+    }
+    return rawResult;
   }
 
-  return [header, ...filteredEntries].join("\n\n");
+  return [header, ...filteredEntries.slice(0, 5)].join("\n\n");
 }
 
 function hasSearchResultEntries(result: string): boolean {
@@ -401,6 +482,34 @@ export const webSearchTool = tool(
           return `${bingResult}\n\n[璇存槑] DuckDuckGo 涓嶅彲杈撅紝宸插垏鎹?Bing銆俙`;
         } catch (bingError: any) {
           return `鑱旂綉鎼滅储澶辫触: 鎵嬫満瀹氬悜婧愭煡璇㈢殑 DuckDuckGo 涓?Bing 鍧囦笉鍙揪銆侱uckDuckGo: ${duckError?.message || "鏈煡閿欒"}锛汢ing: ${bingError?.message || "鏈煡閿欒"}`;
+        }
+      }
+    }
+
+    if (isPhoneRecommendationQuery(originalQuery)) {
+      try {
+        const bingResult = filterPhoneSearchResults(
+          await searchWithBing(effectiveQuery, limit),
+        );
+        if (
+          !isClearlyIrrelevantPhoneResult(bingResult) &&
+          hasPreferredPhoneSources(bingResult)
+        ) {
+          return `${bingResult}\n\n[说明] 手机推荐类查询已优先使用 Bing。`;
+        }
+
+        const duckResult = filterPhoneSearchResults(
+          await searchWithDuckDuckGo(effectiveQuery, limit),
+        );
+        return `${duckResult}\n\n[说明] Bing 结果相关性不足，已切换 DuckDuckGo 兜底。`;
+      } catch (bingError: any) {
+        try {
+          const duckResult = filterPhoneSearchResults(
+            await searchWithDuckDuckGo(effectiveQuery, limit),
+          );
+          return `${duckResult}\n\n[说明] Bing 不可达，已切换 DuckDuckGo。`;
+        } catch (duckError: any) {
+          return `联网搜索失败: 手机推荐查询的 Bing 与 DuckDuckGo 均不可达。Bing: ${bingError?.message || "未知错误"}；DuckDuckGo: ${duckError?.message || "未知错误"}`;
         }
       }
     }

@@ -48,6 +48,13 @@ import { executeTool } from "./runtime/ToolExecutor";
 import { matchSkillForInput, type ResolvedSkillMatch } from "./skills";
 import type { ToolApprovalRequest } from "./runtime/ToolExecutor";
 import {
+  isDirectCurrentTimeQuery,
+  isKnowledgeBaseQuery,
+  isLocalActionQuery,
+  isRealtimeFactQuery,
+  shouldUseWebSearchForQuery,
+} from "./queryRouting";
+import {
   type Task,
 } from "./taskRunner";
 import {
@@ -667,62 +674,19 @@ async function unbindWechatBot(): Promise<WechatBotStatus> {
 }
 
 function shouldUseAgentTools(message: string): boolean {
-  const text = message.toLowerCase();
-
-  // 仅在明显需要工具时走 Agent，降低普通问答首字延迟。
-  const toolIntentRegex =
-    /(读取文件|读文件|写文件|创建文件|新建文件|保存文件|生成文件|删除文件|列出目录|搜索文件|桌面|电脑桌面|desktop|当前时间|当前日期|今天几号|今天是几号|今天几月几号|今天星期几|今天周几|今天是哪天|几号|几月几号|星期几|周几|日期|几点|计算|换算|单位|汇率|天气|联网|搜索|网页|链接|url|clipboard|copy|read file|write file|create file|new file|save file|delete file|list directory|search files|time|date|today|day of week|calculate|calculator|unit convert|currency|weather|web search|fetch|股市|a股|港股|美股|股票|大盘|指数|行情|新闻|资讯|上证|深证|沪深|金价|油价|生成pdf|生成ppt|生成报告|写报告|分析报告|投资报告|研究报告|pdf|ppt|pptx|报告|演示文稿|幻灯片)/;
-
-  const localSystemHints = [
-    "\u6211\u7684\u7535\u8111",
-    "\u6211\u8fd9\u53f0\u7535\u8111",
-    "\u5f53\u524d\u8fd0\u884c",
-    "\u6b63\u5728\u8fd0\u884c",
-    "\u8fd0\u884c\u54ea\u4e9b\u8f6f\u4ef6",
-    "\u5f00\u7740\u54ea\u4e9b\u8f6f\u4ef6",
-    "\u6253\u5f00\u4e86\u54ea\u4e9b\u8f6f\u4ef6",
-    "\u67e5\u770b\u8fdb\u7a0b",
-    "\u5217\u51fa\u8fdb\u7a0b",
-    "\u67e5\u770b\u8f6f\u4ef6",
-    "\u67e5\u770b\u5e94\u7528",
-    "task manager",
-    "process",
-    "processes",
-    "running apps",
-    "running programs",
-  ];
-  const hasLocalSystemIntent = localSystemHints.some((hint) =>
-    message.includes(hint),
-  );
-
-  return toolIntentRegex.test(text) || hasLocalSystemIntent;
+  return isLocalActionQuery(message);
 }
 
 function shouldUseRealtimeTool(message: string): boolean {
-  const text = message.toLowerCase();
-  const realtimeIntentRegex =
-    /(今天|现在|当前|今日).*(日期|时间|几点|几号|星期几|周几|哪天)|((what|which)\s+day\s+is\s+it)|(today'?s?\s+date)|current\s+(date|time)/;
-
-  return realtimeIntentRegex.test(text) || shouldDirectReturnCurrentTime(text);
+  return isRealtimeFactQuery(message);
 }
 
 function shouldDirectReturnCurrentTime(message: string): boolean {
-  const text = message.toLowerCase().trim();
-  return /^(现在)?几点了[？?]?$/i.test(text)
-    || /^(现在)?几点[？?]?$/i.test(text)
-    || /^(当前|现在)?时间是?什么[？?]?$/i.test(text)
-    || /^(今天)?几号[？?]?$/i.test(text)
-    || /^(今天是)?几月几号[？?]?$/i.test(text)
-    || /^(今天|现在|当前).*(时间|日期|星期几|周几|哪天|几点|几号)/i.test(text)
-    || /^(what time is it|current time|current date|today'?s date|what day is it)[?.! ]*$/i.test(text);
+  return isDirectCurrentTimeQuery(message);
 }
 
 function shouldUseWebSearchTool(message: string): boolean {
-  const text = message.toLowerCase();
-  const webIntentRegex =
-    /((今天|今日|当前|现在|最新|最近|实时).*(股市|a股|港股|美股|股票|大盘|指数|行情|市场|新闻|资讯|汇率|金价|油价|热点|比赛|票房))|((股市|a股|港股|美股|股票|大盘|指数|行情|市场|新闻|资讯|汇率|金价|油价|热点).*(怎么样|如何|多少|走势|情况|消息|动态|表现))/;
-
-  return webIntentRegex.test(text);
+  return shouldUseWebSearchForQuery(message);
 }
 
 function shouldUseCalculatorTool(message: string): boolean {
@@ -752,13 +716,7 @@ function isCasualChat(message: string): boolean {
 }
 
 function shouldUseKnowledgeBase(message: string): boolean {
-  const text = message.trim().toLowerCase();
-  if (!text || isCasualChat(text)) return false;
-
-  const kbIntentRegex =
-    /(知识库|文档|文件|资料|材料|原文|上下文|根据|依据|上传|检索|查找|总结|概括|摘要|讲了什么|说了什么|主要内容|出处|来源|引用|pdf|word|docx|txt|表格|合同|手册|报告|政策|说明书)/i;
-
-  return kbIntentRegex.test(text);
+  return isKnowledgeBaseQuery(message);
 }
 
 type RouteDecision = {

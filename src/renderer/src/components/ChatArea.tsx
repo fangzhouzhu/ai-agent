@@ -52,6 +52,15 @@ const ChatArea: React.FC<Props> = ({
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
+  const previousSnapshotRef = useRef<{
+    length: number
+    lastMessageId: string | null
+    lastMessageRole: Message['role'] | null
+  }>({
+    length: 0,
+    lastMessageId: null,
+    lastMessageRole: null,
+  })
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
   const updateScrollState = useCallback(() => {
@@ -71,12 +80,33 @@ const ChatArea: React.FC<Props> = ({
   }, [])
 
   useEffect(() => {
-    if (isNearBottomRef.current) {
+    const previousSnapshot = previousSnapshotRef.current
+    const lastMessage = messages[messages.length - 1]
+    const hasNewMessage = messages.length > previousSnapshot.length
+    const appendedMessages = hasNewMessage
+      ? messages.slice(previousSnapshot.length)
+      : []
+    const hasNewUserMessage = appendedMessages.some((message) => message.role === 'user')
+
+    if (hasNewUserMessage) {
+      isNearBottomRef.current = true
+      bottomRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'end',
+      })
+    } else if (isNearBottomRef.current) {
       bottomRef.current?.scrollIntoView({
         behavior: isLoading ? 'auto' : 'smooth',
         block: 'end',
       })
     }
+
+    previousSnapshotRef.current = {
+      length: messages.length,
+      lastMessageId: lastMessage?.id ?? null,
+      lastMessageRole: lastMessage?.role ?? null,
+    }
+
     updateScrollState()
   }, [messages, isLoading, updateScrollState])
 
