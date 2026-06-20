@@ -20,6 +20,8 @@ const SETTINGS_FILE = () => join(getDataDir(), "settings.json");
 const AGENTS_FILE = () => join(getDataDir(), "agents.json");
 const WECHAT_BOT_MESSAGES_FILE = () => join(getDataDir(), "wechat-bot-messages.json");
 const GENERAL_AGENT_ID = "general-assistant";
+const pendingFileOps = new Map<string, Promise<void>>();
+const pendingJsonCache = new Map<string, string>();
 
 export interface ConvMeta {
   id: string;
@@ -217,6 +219,10 @@ function createGeneralAgentProfile(existing?: Partial<AgentProfile>): AgentProfi
 
 function readJSON<T>(filePath: string, fallback: T): T {
   try {
+    const pending = pendingJsonCache.get(filePath);
+    if (pending) {
+      return JSON.parse(pending) as T;
+    }
     if (!fs.existsSync(filePath)) return fallback;
     return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
   } catch {
@@ -224,8 +230,34 @@ function readJSON<T>(filePath: string, fallback: T): T {
   }
 }
 
-function writeJSON(filePath: string, data: unknown): void {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+function enqueueFileOperation(filePath: string, operation: () => Promise<void>): Promise<void> {
+  const previous = pendingFileOps.get(filePath) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(operation)
+    .finally(() => {
+      if (pendingFileOps.get(filePath) === next) {
+        pendingFileOps.delete(filePath);
+      }
+    });
+
+  pendingFileOps.set(filePath, next);
+  return next;
+}
+
+function writeJSON(filePath: string, data: unknown): Promise<void> {
+  const serialized = JSON.stringify(data, null, 2);
+  pendingJsonCache.set(filePath, serialized);
+  return enqueueFileOperation(filePath, async () => {
+    await fs.promises.writeFile(filePath, serialized, "utf-8");
+  });
+}
+
+function deleteFile(filePath: string): Promise<void> {
+  pendingJsonCache.delete(filePath);
+  return enqueueFileOperation(filePath, async () => {
+    await fs.promises.rm(filePath, { force: true });
+  });
 }
 
 export function listConversations(): ConvMeta[] {
@@ -247,8 +279,8 @@ export function getConversationMeta(id: string): ConvMeta | null {
   return listConversations().find((meta) => meta.id === id) ?? null;
 }
 
-function saveIndex(metas: ConvMeta[]): void {
-  writeJSON(INDEX_FILE(), metas);
+function saveIndex(metas: ConvMeta[]): Promise<void> {
+  return writeJSON(INDEX_FILE(), metas);
 }
 
 export function loadConversation(id: string): StoredMessage[] {
@@ -256,7 +288,7 @@ export function loadConversation(id: string): StoredMessage[] {
   return readJSON<StoredMessage[]>(file, []);
 }
 
-export function saveConversation(meta: ConvMeta, messages: StoredMessage[]): void {
+export function saveConversation(meta: ConvMeta, messages: StoredMessage[]): Promise<void> {
   const metas = readJSON<ConvMeta[]>(INDEX_FILE(), []);
   const idx = metas.findIndex((m) => m.id === meta.id);
   if (idx >= 0) {
@@ -264,43 +296,44 @@ export function saveConversation(meta: ConvMeta, messages: StoredMessage[]): voi
   } else {
     metas.unshift(meta);
   }
-  saveIndex(metas);
+  const saveIndexPromise = saveIndex(metas);
 
   const file = join(getConvDir(), `${meta.id}.json`);
-  writeJSON(file, messages);
+  return Promise.all([saveIndexPromise, writeJSON(file, messages)]).then(() => undefined);
 }
 
-export function deleteConversation(id: string): void {
+export function deleteConversation(id: string): Promise<void> {
   const metas = readJSON<ConvMeta[]>(INDEX_FILE(), []);
-  saveIndex(metas.filter((m) => m.id !== id));
+  const saveIndexPromise = saveIndex(metas.filter((m) => m.id !== id));
   const file = join(getConvDir(), `${id}.json`);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
+  return Promise.all([saveIndexPromise, deleteFile(file)]).then(() => undefined);
 }
 
-export function updateConversationMeta(meta: ConvMeta): void {
+export function updateConversationMeta(meta: ConvMeta): Promise<void> {
   const metas = readJSON<ConvMeta[]>(INDEX_FILE(), []);
   const idx = metas.findIndex((m) => m.id === meta.id);
   if (idx >= 0) {
     metas[idx] = meta;
-    saveIndex(metas);
+    return saveIndex(metas);
   }
+  return Promise.resolve();
 }
 
 export function getActiveId(): string | null {
   return readJSON<{ id: string | null }>(ACTIVE_FILE(), { id: null }).id;
 }
 
-export function setActiveId(id: string | null): void {
-  writeJSON(ACTIVE_FILE(), { id });
+export function setActiveId(id: string | null): Promise<void> {
+  return writeJSON(ACTIVE_FILE(), { id });
 }
 
 export function getModelSettings(): ModelSettings {
   return readJSON<ModelSettings>(SETTINGS_FILE(), {});
 }
 
-export function saveModelSettings(settings: ModelSettings): void {
+export function saveModelSettings(settings: ModelSettings): Promise<void> {
   const prev = getModelSettings();
-  writeJSON(SETTINGS_FILE(), { ...prev, ...settings });
+  return writeJSON(SETTINGS_FILE(), { ...prev, ...settings });
 }
 
 export function getSkills(): SkillConfig[] {
@@ -308,8 +341,8 @@ export function getSkills(): SkillConfig[] {
   return Array.isArray(settings.skills) ? settings.skills : [];
 }
 
-export function saveSkills(skills: SkillConfig[]): void {
-  saveModelSettings({ skills });
+export function saveSkills(skills: SkillConfig[]): Promise<void> {
+  return saveModelSettings({ skills });
 }
 
 export function getWechatBotSettings(): WechatBotSettings {
@@ -317,11 +350,13 @@ export function getWechatBotSettings(): WechatBotSettings {
   return settings.wechatBot ?? {};
 }
 
-export function saveWechatBotSettings(wechatBot: WechatBotSettings): void {
+export function saveWechatBotSettings(
+  wechatBot: WechatBotSettings,
+): Promise<void> {
   const now = Date.now();
   const prev = getWechatBotSettings();
   const token = wechatBot.token?.trim() ?? prev.token;
-  saveModelSettings({
+  return saveModelSettings({
     wechatBot: {
       ...prev,
       ...wechatBot,
@@ -338,8 +373,10 @@ export function loadWechatBotMessages(): WechatBotPanelMessage[] {
     .slice(-80);
 }
 
-export function saveWechatBotMessages(messages: WechatBotPanelMessage[]): void {
-  writeJSON(WECHAT_BOT_MESSAGES_FILE(), messages.slice(-80));
+export function saveWechatBotMessages(
+  messages: WechatBotPanelMessage[],
+): Promise<void> {
+  return writeJSON(WECHAT_BOT_MESSAGES_FILE(), messages.slice(-80));
 }
 
 export function getKbUiState(): {
@@ -359,8 +396,8 @@ export function saveKbUiState(
   selectedIds: string[],
   ragOnly: boolean,
   minScore: number,
-): void {
-  saveModelSettings({
+): Promise<void> {
+  return saveModelSettings({
     kbSelectedIds: selectedIds,
     kbRagOnly: ragOnly,
     kbMinScore: minScore,
@@ -421,7 +458,7 @@ export function getAgentProfile(id: string): AgentProfile | null {
   return listAgentProfiles().find((agent) => agent.id === id) ?? null;
 }
 
-export function saveAgentProfile(agent: AgentProfile): AgentProfile {
+export async function saveAgentProfile(agent: AgentProfile): Promise<AgentProfile> {
   if (agent.id === GENERAL_AGENT_ID) {
     return createGeneralAgentProfile(getAgentProfile(GENERAL_AGENT_ID) ?? undefined);
   }
@@ -461,25 +498,25 @@ export function saveAgentProfile(agent: AgentProfile): AgentProfile {
   const nextAgents = existing
     ? customAgents.map((item) => (item.id === next.id ? next : item))
     : [next, ...customAgents];
-  writeJSON(AGENTS_FILE(), nextAgents);
+  await writeJSON(AGENTS_FILE(), nextAgents);
   return next;
 }
 
-export function deleteAgentProfile(id: string): boolean {
+export async function deleteAgentProfile(id: string): Promise<boolean> {
   if (id === GENERAL_AGENT_ID) return false;
 
   const agents = listAgentProfiles();
   const customAgents = agents.filter((agent) => agent.id !== GENERAL_AGENT_ID);
   const filtered = customAgents.filter((agent) => agent.id !== id);
   if (filtered.length === customAgents.length) return false;
-  writeJSON(AGENTS_FILE(), filtered);
+  await writeJSON(AGENTS_FILE(), filtered);
 
   const metas = listConversations().map((meta) =>
     meta.agentProfileId === id
       ? { ...meta, agentProfileId: null, updatedAt: Date.now() }
       : meta,
   );
-  saveIndex(metas);
+  await saveIndex(metas);
   return true;
 }
 

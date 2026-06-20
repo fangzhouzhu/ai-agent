@@ -22,13 +22,10 @@ import {
   chatStream,
   chatWithRag,
   fetchOllamaModels,
-  setChatModel,
   getChatModel,
-  setAgentModel,
-  getAgentModel,
-  setRagModel,
-  getRagModel,
   getRagProvider,
+  getAgentModel,
+  getRagModel,
   applyModelSettings,
   getModelSettingsSnapshot,
   getChatProvider,
@@ -36,79 +33,36 @@ import {
   describeRouteModel,
   type ChatMessage,
 } from "./agent";
-import { testOpenAICompatibleApi } from "./openaiCompatible";
+import { registerAppIpcHandlers } from "./ipc/registerAppIpc";
+import { registerKnowledgeIpcHandlers } from "./ipc/registerKnowledgeIpc";
+import { registerWorkbenchIpcHandlers } from "./ipc/registerWorkbenchIpc";
 import {
   ingestFile,
-  listRagFiles,
-  removeRagFile,
   retrieveRelevantChunksByPaths,
 } from "./rag";
-import {
-  listKnowledgeBases,
-  createKnowledgeBase,
-  updateKnowledgeBase,
-  deleteKnowledgeBase,
-  listDocuments,
-} from "./ragRepository";
-import {
-  ingestDocumentToKb,
-  removeDocumentFromKb,
-  rebuildDocumentIndex,
-} from "./ragIndexer";
 import { retrieveFromKbs } from "./ragRetriever";
-import { deleteKbVectors } from "./ragStore";
 import { RAG_CITATION_PROMPT } from "./prompts/agentPrompts";
-import { listTraces, getTrace, recordTrace } from "./runtime/trace";
-import {
-  getCurrentLogFilePath,
-  getLogDirectory,
-  writeAppLog,
-} from "./runtime/logger";
-import { listToolPolicies, updateToolPolicy } from "./tools/policy";
+import { recordTrace } from "./runtime/trace";
+import { writeAppLog } from "./runtime/logger";
+import { executeTool } from "./runtime/ToolExecutor";
 import { matchSkillForInput, type ResolvedSkillMatch } from "./skills";
 import type { ToolApprovalRequest } from "./runtime/ToolExecutor";
 import {
-  createAndRunTask,
-  listTasks,
-  getTask,
-  cancelTask,
-  pauseTask,
-  resumeTask,
-  deleteTask,
-  rerunTask,
   type Task,
 } from "./taskRunner";
 import {
-  listConversations,
-  loadConversation,
-  saveConversation,
-  deleteConversation,
-  updateConversationMeta,
-  getActiveId,
-  setActiveId,
   getModelSettings,
   saveModelSettings,
   getSkills,
-  saveSkills,
-  listAgentProfiles,
   getAgentProfile,
-  saveAgentProfile,
-  deleteAgentProfile,
   getConversationMeta,
   getWechatBotSettings,
   saveWechatBotSettings,
   loadWechatBotMessages,
   saveWechatBotMessages,
-  getKbUiState,
-  saveKbUiState,
-  type ConvMeta,
-  type StoredMessage,
-  type ModelSettings,
-  type OnlineProviderSettings,
-  type WechatBotSettings,
+  type AgentProfile,
   type WechatBotPanelMessage,
   type SkillConfig,
-  type AgentProfile,
 } from "./storage";
 import {
   clearOfficialWeixinState,
@@ -186,11 +140,31 @@ function createTray(): void {
   });
 }
 
+function isSafeExternalUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 const chatRequests = new Map<string, ChatRequestState>();
 
 type PendingToolApproval = {
   resolve: (approved: boolean) => void;
   conversationId: string;
+};
+
+type ChatModelDiagnostics = {
+  routeMs?: number;
+  firstToolCallMs?: number;
+  toolCount?: number;
+  toolTotalMs?: number;
+  lastToolFinishedMs?: number;
+  finalAnswerStartMs?: number;
+  firstTokenMs?: number;
+  totalMs?: number;
 };
 
 const pendingToolApprovals = new Map<string, PendingToolApproval>();
@@ -729,7 +703,18 @@ function shouldUseRealtimeTool(message: string): boolean {
   const realtimeIntentRegex =
     /(今天|现在|当前|今日).*(日期|时间|几点|几号|星期几|周几|哪天)|((what|which)\s+day\s+is\s+it)|(today'?s?\s+date)|current\s+(date|time)/;
 
-  return realtimeIntentRegex.test(text);
+  return realtimeIntentRegex.test(text) || shouldDirectReturnCurrentTime(text);
+}
+
+function shouldDirectReturnCurrentTime(message: string): boolean {
+  const text = message.toLowerCase().trim();
+  return /^(现在)?几点了[？?]?$/i.test(text)
+    || /^(现在)?几点[？?]?$/i.test(text)
+    || /^(当前|现在)?时间是?什么[？?]?$/i.test(text)
+    || /^(今天)?几号[？?]?$/i.test(text)
+    || /^(今天是)?几月几号[？?]?$/i.test(text)
+    || /^(今天|现在|当前).*(时间|日期|星期几|周几|哪天|几点|几号)/i.test(text)
+    || /^(what time is it|current time|current date|today'?s date|what day is it)[?.! ]*$/i.test(text);
 }
 
 function shouldUseWebSearchTool(message: string): boolean {
@@ -964,7 +949,13 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    if (isSafeExternalUrl(details.url)) {
+      void shell.openExternal(details.url);
+    } else {
+      writeAppLog("warn", "window", "Blocked external URL", {
+        url: details.url,
+      });
+    }
     return { action: "deny" };
   });
 
@@ -1023,8 +1014,30 @@ ipcMain.handle(
       scene: string;
       skill?: string;
       routeMs?: number;
+      diagnostics?: ChatModelDiagnostics;
     } | null = null;
     let firstTokenSent = false;
+    let firstToolCallAt: number | null = null;
+    let currentToolStartedAt: number | null = null;
+    let lastToolFinishedAt: number | null = null;
+    let toolCount = 0;
+    let toolTotalMs = 0;
+    let routeLatencyMs: number | undefined;
+    const publishDiagnostics = (patch: ChatModelDiagnostics) => {
+      if (!latestModelInfo) return;
+      latestModelInfo = {
+        ...latestModelInfo,
+        routeMs: patch.routeMs ?? latestModelInfo.routeMs,
+        diagnostics: {
+          ...(latestModelInfo.diagnostics ?? {}),
+          ...patch,
+        },
+      };
+      webContents.send("chat:model-info", {
+        conversationId: requestConversationId,
+        modelInfo: latestModelInfo,
+      });
+    };
     const emitToken = (token: string) => {
       const isFirstToken = !firstTokenSent && token.length > 0;
       const elapsedMs = isFirstToken
@@ -1033,6 +1046,10 @@ ipcMain.handle(
       if (isFirstToken) {
         firstTokenSent = true;
         if (latestModelInfo) {
+          const finalAnswerStartMs =
+            lastToolFinishedAt === null
+              ? undefined
+              : Math.max(0, Date.now() - lastToolFinishedAt);
           const nextModelInfo = {
             ...latestModelInfo,
             scene: `${latestModelInfo.scene} · 首字 ${elapsedMs} ms`,
@@ -1058,6 +1075,19 @@ ipcMain.handle(
       });
     };
     const emitToolCall = (toolName: string, input: unknown) => {
+      const now = Date.now();
+      toolCount += 1;
+      currentToolStartedAt = now;
+      if (firstToolCallAt === null) {
+        firstToolCallAt = now;
+      }
+      publishDiagnostics({
+        firstToolCallMs:
+          firstToolCallAt === null
+            ? undefined
+            : Math.max(0, firstToolCallAt - requestStartedAt),
+        toolCount,
+      });
       webContents.send("chat:tool-call", {
         conversationId: requestConversationId,
         toolName,
@@ -1065,10 +1095,21 @@ ipcMain.handle(
       });
     };
     const emitToolResult = (toolName: string, result: string) => {
+      const now = Date.now();
+      if (currentToolStartedAt !== null) {
+        toolTotalMs += Math.max(0, now - currentToolStartedAt);
+        currentToolStartedAt = null;
+      }
+      lastToolFinishedAt = now;
       webContents.send("chat:tool-result", {
         conversationId: requestConversationId,
         toolName,
         result,
+      });
+      publishDiagnostics({
+        toolCount,
+        toolTotalMs,
+        lastToolFinishedMs: Math.max(0, now - requestStartedAt),
       });
     };
     const emitModelInfo = (modelInfo: {
@@ -1076,11 +1117,18 @@ ipcMain.handle(
       scene: string;
       skill?: string;
       routeMs?: number;
+      diagnostics?: ChatModelDiagnostics;
     }) => {
-      latestModelInfo = modelInfo;
+      latestModelInfo = {
+        ...modelInfo,
+        diagnostics: {
+          routeMs: modelInfo.routeMs,
+          ...(modelInfo.diagnostics ?? {}),
+        },
+      };
       webContents.send("chat:model-info", {
         conversationId: requestConversationId,
-        modelInfo,
+        modelInfo: latestModelInfo,
       });
     };
     const emitDone = (status: "done" | "aborted" = "done") => {
@@ -1147,6 +1195,7 @@ ipcMain.handle(
         forceAgent,
       });
       const routeMs = Math.max(0, Date.now() - requestStartedAt);
+      routeLatencyMs = routeMs;
       const {
         matchedSkill,
         skillAttachmentPaths,
@@ -1253,6 +1302,28 @@ ipcMain.handle(
         at: Date.now(),
       });
       emitModelInfo(decoratedModelInfo);
+      if (
+        !useRag &&
+        !useSkillAttachments &&
+        shouldDirectReturnCurrentTime(message)
+      ) {
+        const toolArgs = { timezone: "Asia/Shanghai", locale: "zh-CN" };
+        emitToolCall("get_current_time", toolArgs);
+        const toolExecution = await executeTool("get_current_time", toolArgs, {
+          signal,
+          confirm: requestToolApproval,
+        });
+        emitToolResult("get_current_time", toolExecution.result);
+        emitToken(toolExecution.result);
+        publishDiagnostics({
+          routeMs,
+          toolCount,
+          toolTotalMs,
+          totalMs: Math.max(0, Date.now() - requestStartedAt),
+        });
+        emitDone();
+        return;
+      }
 
       // 自动路由：文档问答 -> RAG 模型；工具/复杂任务 -> Agent 模型；其余 -> 普通对话模型
       if (useRag) {
@@ -1467,10 +1538,22 @@ ${context}
           matchedSkill?.skill,
         );
       }
+      publishDiagnostics({
+        routeMs: routeLatencyMs,
+        toolCount,
+        toolTotalMs,
+        totalMs: Math.max(0, Date.now() - requestStartedAt),
+      });
       emitDone();
     } catch (err: any) {
       // AbortError 不是错误，发送 done 以保留已输出内容
       if (err?.name === "AbortError" || signal.aborted) {
+        publishDiagnostics({
+          routeMs: routeLatencyMs,
+          toolCount,
+          toolTotalMs,
+          totalMs: Math.max(0, Date.now() - requestStartedAt),
+        });
         emitDone("aborted");
       } else {
         emitError(err.message || "未知错误");
@@ -1514,102 +1597,35 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle("models:list", async () => {
-  return fetchOllamaModels();
+registerAppIpcHandlers();
+registerKnowledgeIpcHandlers();
+registerWorkbenchIpcHandlers({
+  checkWechatBotBinding,
+  refreshWechatBotQr,
+  unbindWechatBot,
+  wechatBotMessages,
 });
 
 // IPC: 获取完整模型/Provider 配置
-ipcMain.handle("settings:get-model-config", async () => {
-  return getModelSettingsSnapshot();
-});
 
 // IPC: 保存完整模型/Provider 配置
-ipcMain.handle(
-  "settings:save-model-config",
-  async (_event, settings: ModelSettings) => {
-    applyModelSettings(settings);
-    const snapshot = getModelSettingsSnapshot();
-    saveModelSettings(snapshot);
-    return snapshot;
-  },
-);
 
 // IPC: 测试在线 API 是否可用
-ipcMain.handle(
-  "settings:test-online",
-  async (
-    _event,
-    payload: { online: OnlineProviderSettings; model?: string },
-  ) => {
-    return testOpenAICompatibleApi({
-      settings: payload.online,
-      model: payload.model,
-    });
-  },
-);
 
-ipcMain.handle("settings:get-wechat-bot", async () => {
-  return getWechatBotSettings();
-});
 
-ipcMain.handle(
-  "settings:save-wechat-bot",
-  async (_event, settings: WechatBotSettings) => {
-    const normalized: WechatBotSettings = {
-      enabled: Boolean(settings.enabled),
-      token: settings.token?.trim() ?? "",
-      chatModel: settings.chatModel?.trim() ?? "",
-      chatProvider: settings.chatProvider,
-      qrcode: settings.qrcode?.trim() ?? "",
-      qrContent: settings.qrContent?.trim() ?? "",
-      botId: settings.botId?.trim() ?? "",
-      userId: settings.userId?.trim() ?? "",
-      nickname: settings.nickname?.trim() ?? "",
-      status: settings.status ?? "idle",
-    };
-    saveWechatBotSettings(normalized);
-    return getWechatBotSettings();
-  },
-);
 
-ipcMain.handle("settings:refresh-wechat-bot-qr", async () => {
-  return refreshWechatBotQr();
-});
 
-ipcMain.handle("settings:get-wechat-bot-status", async () => {
-  return checkWechatBotBinding();
-});
 
-ipcMain.handle("settings:get-openclaw-gateway-state", async () => {
-  return getOpenClawGatewayState();
-});
 
-ipcMain.handle("settings:restart-openclaw-gateway", async () => {
-  await restartOpenClawGateway();
-  return getOpenClawGatewayState();
-});
 
-ipcMain.handle("settings:unbind-wechat-bot", async () => {
-  return unbindWechatBot();
-});
 
 ipcMain.handle("wechat-bot:send-message", async () => {
   throw new Error("微信机器人页面为只读同步视图，请在微信 ClawBot 中发消息。");
 });
 
-ipcMain.handle("wechat-bot:list-messages", async () => {
-  return wechatBotMessages;
-});
 
 // IPC: 本地 Skills 配置
-ipcMain.handle("skills:list", async () => {
-  return getSkills();
-});
 
-ipcMain.handle("skills:save", async (_event, skills: SkillConfig[]) => {
-  saveSkills(skills);
-  return getSkills();
-});
 
 ipcMain.handle("skills:pick-files", async () => {
   const result = await dialog.showOpenDialog({
@@ -1643,40 +1659,13 @@ ipcMain.handle("skills:pick-files", async () => {
   });
 });
 
-ipcMain.handle("tools:list-policies", () => listToolPolicies());
 
-ipcMain.handle(
-  "tools:update-policy",
-  (_event, name: string, requiresConfirmation: boolean) =>
-    updateToolPolicy(name, requiresConfirmation),
-);
 
-ipcMain.handle("diagnostics:list-traces", () => listTraces());
 
-ipcMain.handle("diagnostics:get-trace", (_event, traceId: string) =>
-  getTrace(traceId),
-);
 
-ipcMain.handle("diagnostics:get-log-info", () => ({
-  directory: getLogDirectory(),
-  currentFile: getCurrentLogFilePath(),
-}));
 
-ipcMain.handle("diagnostics:open-log-directory", async () => {
-  const result = await shell.openPath(getLogDirectory());
-  return { ok: result.length === 0, message: result };
-});
 
-ipcMain.handle("kb:get-ui-state", async () => {
-  return getKbUiState();
-});
 
-ipcMain.handle(
-  "kb:save-ui-state",
-  async (_event, selectedIds: string[], ragOnly: boolean, minScore: number) => {
-    saveKbUiState(selectedIds, ragOnly, minScore);
-  },
-);
 
 // IPC: 选择并上传文档到 RAG 索引
 ipcMain.handle("rag:pick-files", async (event) => {
@@ -1748,277 +1737,80 @@ ipcMain.handle("rag:pick-files", async (event) => {
 });
 
 // IPC: 查询当前已上传文档
-ipcMain.handle("rag:list", () => {
-  return listRagFiles();
-});
 
 // IPC: 删除单个已上传文档
-ipcMain.handle("rag:remove", (_event, id: string) => {
-  return removeRagFile(id);
-});
 
 // ---- 知识库 IPC ----
 
 // 列出所有知识库
-ipcMain.handle("kb:list", () => {
-  return listKnowledgeBases();
-});
 
 // 创建知识库
-ipcMain.handle(
-  "kb:create",
-  (
-    _event,
-    data: {
-      name: string;
-      description?: string;
-      chunkSize?: number;
-      chunkOverlap?: number;
-    },
-  ) => {
-    return createKnowledgeBase(data);
-  },
-);
 
 // 更新知识库
-ipcMain.handle(
-  "kb:update",
-  (_event, id: string, data: { name?: string; description?: string }) => {
-    return updateKnowledgeBase(id, data);
-  },
-);
 
 // 删除知识库（包含其所有文档和向量）
-ipcMain.handle("kb:delete", async (_event, id: string) => {
-  // Remove all document files and vectors
-  const docs = listDocuments(id);
-  for (const doc of docs) {
-    try {
-      await removeDocumentFromKb(doc.id);
-    } catch {
-      // best-effort
-    }
-  }
-  await deleteKbVectors(id);
-  return deleteKnowledgeBase(id);
-});
 
 // 列出知识库中的文档
-ipcMain.handle("kb:list-docs", (_event, kbId: string) => {
-  return listDocuments(kbId);
-});
 
 // 向知识库添加文档（通过文件选择器）
-ipcMain.handle("kb:add-files", async (event, kbId: string) => {
-  const result = await dialog.showOpenDialog({
-    properties: ["openFile", "multiSelections"],
-    filters: [
-      {
-        name: "Documents",
-        extensions: ["txt", "md", "pdf", "docx", "csv", "json", "ts", "js"],
-      },
-      { name: "All Files", extensions: ["*"] },
-    ],
-  });
-
-  if (result.canceled || result.filePaths.length === 0) return [];
-
-  const added = [];
-  for (const filePath of result.filePaths) {
-    try {
-      const doc = await ingestDocumentToKb(kbId, filePath);
-      added.push(doc);
-    } catch (err: unknown) {
-      event.sender.send("kb:indexing-progress", {
-        docId: "",
-        kbId,
-        status: "failed",
-        message: `${basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  }
-  return added;
-});
 
 // 删除知识库中的单个文档
-ipcMain.handle("kb:remove-doc", async (_event, docId: string) => {
-  await removeDocumentFromKb(docId);
-});
 
 // 重建文档索引
-ipcMain.handle("kb:rebuild-doc", async (_event, docId: string) => {
-  await rebuildDocumentIndex(docId);
-});
 
 // IPC: 切换聊天模型
-ipcMain.handle("agents:list", () => {
-  return listAgentProfiles();
-});
 
-ipcMain.handle("agents:save", (_event, agent: AgentProfile) => {
-  return saveAgentProfile(agent);
-});
 
-ipcMain.handle("agents:delete", (_event, id: string) => {
-  return deleteAgentProfile(id);
-});
 
-ipcMain.handle("models:set", async (_event, modelName: string) => {
-  setChatModel(modelName);
-  saveModelSettings({ chatModel: getChatModel() });
-  return getChatModel();
-});
 
-ipcMain.handle("models:set-chat", async (_event, modelName: string) => {
-  setChatModel(modelName);
-  saveModelSettings({ chatModel: getChatModel() });
-  return getChatModel();
-});
 
 // IPC: 获取当前聊天模型
-ipcMain.handle("models:get", async () => {
-  return getChatModel();
-});
 
-ipcMain.handle("models:get-chat", async () => {
-  return getChatModel();
-});
 
 // IPC: 切换 Agent / 工具模型
-ipcMain.handle("models:set-agent", async (_event, modelName: string) => {
-  setAgentModel(modelName);
-  saveModelSettings({ agentModel: getAgentModel() });
-  return getAgentModel();
-});
 
 // IPC: 获取当前 Agent / 工具模型
-ipcMain.handle("models:get-agent", async () => {
-  return getAgentModel();
-});
 
 // IPC: 切换 RAG 回答模型
-ipcMain.handle("models:set-rag", async (_event, modelName: string) => {
-  setRagModel(modelName);
-  saveModelSettings({ ragModel: getRagModel() });
-  return getRagModel();
-});
 
 // IPC: 获取当前 RAG 回答模型
-ipcMain.handle("models:get-rag", async () => {
-  return getRagModel();
-});
 
 // ---- 存储 IPC ----
 
 // 获取对话列表（仅元数据）
-ipcMain.handle("storage:list", () => {
-  return listConversations();
-});
 
 // 加载单条对话的消息
-ipcMain.handle("storage:load", (_event, id: string) => {
-  return loadConversation(id);
-});
 
 // 保存单条对话（元数据 + 消息）
-ipcMain.handle(
-  "storage:save",
-  (_event, meta: ConvMeta, messages: StoredMessage[]) => {
-    saveConversation(meta, messages);
-  },
-);
 
 // 仅更新元数据（标题、时间戳）
-ipcMain.handle("storage:update-meta", (_event, meta: ConvMeta) => {
-  updateConversationMeta(meta);
-});
 
 // 删除对话
-ipcMain.handle("storage:delete", (_event, id: string) => {
-  deleteConversation(id);
-});
 
 // 获取上次活跃 ID
-ipcMain.handle("storage:get-active", () => {
-  return getActiveId();
-});
 
 // 保存活跃 ID
-ipcMain.handle("storage:set-active", (_event, id: string | null) => {
-  setActiveId(id);
-});
 
 // ---- 任务 IPC ----
 
 // 创建并执行任务（立即返回任务 ID，执行进度通过 task:update 事件推送）
-ipcMain.handle("task:create", (_event, prompt: string) => {
-  return createAndRunTask(prompt);
-});
 
 // 列出所有任务
-ipcMain.handle("task:list", () => {
-  return listTasks();
-});
 
 // 获取单个任务详情
-ipcMain.handle("task:get", (_event, id: string) => {
-  return getTask(id) ?? null;
-});
 
 // 取消运行中的任务
-ipcMain.handle("task:cancel", (_event, id: string) => {
-  return cancelTask(id);
-});
 
 // 暂停运行中的任务
-ipcMain.handle("task:pause", (_event, id: string) => {
-  return pauseTask(id);
-});
 
 // 继续已暂停的任务
-ipcMain.handle("task:resume", (_event, id: string) => {
-  return resumeTask(id);
-});
 
 // 重新运行任务（清空步骤重跑）
-ipcMain.handle("task:rerun", (_event, id: string) => {
-  return rerunTask(id);
-});
 
 // 删除任务记录
-ipcMain.handle("task:delete", (_event, id: string) => {
-  return deleteTask(id);
-});
 
-ipcMain.handle("shell:openPath", async (_event, filePath: string) => {
-  const error = await shell.openPath(filePath);
-  return error || null;
-});
 
-ipcMain.handle("shell:revealInFolder", async (_event, filePath: string) => {
-  try {
-    shell.showItemInFolder(filePath);
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-});
 
-ipcMain.handle(
-  "ui:perform-input-edit-action",
-  (event, action: "copy" | "cut" | "paste") => {
-    const webContents = event.sender;
-    if (action === "copy") {
-      webContents.copy();
-      return;
-    }
-    if (action === "cut") {
-      webContents.cut();
-      return;
-    }
-    webContents.paste();
-  },
-);
 
 const CENTIBOT_AGENT_PORT = 18790;
 let centibotAgentServer: ReturnType<typeof createServer> | null = null;
@@ -2537,7 +2329,7 @@ app.whenReady().then(async () => {
     .then(() => {
       saveModelSettings(getModelSettingsSnapshot());
     })
-    .catch((error) => {
+    .catch((error: unknown) => {
       writeAppLog("warn", "startup", "Fetch Ollama models after window creation failed", {
         error: error instanceof Error ? error.message : String(error),
       });

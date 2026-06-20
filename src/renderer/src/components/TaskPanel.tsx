@@ -28,6 +28,14 @@ const STATUS_LABELS: Record<Task['status'], string> = {
   cancelled: '已取消',
 }
 
+const CANCELLABLE_TASK_STATUSES = new Set<Task['status']>([
+  'running',
+  'paused',
+  'waiting_for_approval',
+  'waiting_for_input',
+  'blocked',
+])
+
 interface Props {
   selectedTaskId?: string | null
   onSelectedTaskIdChange?: (id: string | null) => void
@@ -232,7 +240,7 @@ const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) 
                   </button>
                 )}
                 {/* 停止（运行中或已暂停） */}
-                {(['running', 'paused', 'waiting_for_approval', 'waiting_for_input', 'blocked'] as const).includes(selectedTask.status) && (
+                {CANCELLABLE_TASK_STATUSES.has(selectedTask.status) && (
                   <button
                     className={`${styles.iconBtn} ${styles.iconBtnDangerOutline}`}
                     onClick={() => void handleCancel(selectedTask.id)}

@@ -1158,10 +1158,10 @@ const MessageBubble: React.FC<Props> = ({
               </span>
             </div>
             {renderResultPreview(promotedToolResult.toolName, promotedToolResult.result)}
-            {false && message.modelInfo.routeMs !== undefined && (
+            {false && message.modelInfo?.routeMs !== undefined && (
               <span className={styles.metaChip}>
                 <span className={styles.metaLabel}>路由</span>
-                <span>{formatLatency(message.modelInfo.routeMs)}</span>
+                <span>{formatLatency(message.modelInfo?.routeMs)}</span>
               </span>
             )}
             {false && message.firstTokenMs !== undefined && (

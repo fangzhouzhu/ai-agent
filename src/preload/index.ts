@@ -20,7 +20,7 @@ export type StoredMessage = {
   task?: Task;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
-  modelInfo?: { model: string; scene: string };
+  modelInfo?: ModelRouteInfo;
   ragContextId?: string;
   durationMs?: number;
   firstTokenMs?: number;
@@ -28,11 +28,23 @@ export type StoredMessage = {
   isStopped?: boolean;
 };
 
+export type ModelRouteDiagnostics = {
+  routeMs?: number;
+  firstToolCallMs?: number;
+  toolCount?: number;
+  toolTotalMs?: number;
+  lastToolFinishedMs?: number;
+  finalAnswerStartMs?: number;
+  firstTokenMs?: number;
+  totalMs?: number;
+};
+
 export type ModelRouteInfo = {
   model: string;
   scene: string;
   skill?: string;
   routeMs?: number;
+  diagnostics?: ModelRouteDiagnostics;
 };
 
 export type ChatTokenEvent = {
@@ -319,7 +331,7 @@ export type WechatBotMessage = {
   source?: "wechat" | "panel" | "system";
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
-  modelInfo?: { model: string; scene: string; skill?: string };
+  modelInfo?: ModelRouteInfo;
   durationMs?: number;
   isStreaming?: boolean;
   createdAt: number;
@@ -387,21 +399,27 @@ const api = {
     const handler = (_: Electron.IpcRendererEvent, data: ChatTokenEvent) =>
       callback(data);
     ipcRenderer.on("chat:token", handler);
-    return () => ipcRenderer.removeListener("chat:token", handler);
+    return () => {
+      ipcRenderer.removeListener("chat:token", handler);
+    };
   },
 
   onToolCall: (callback: (data: ChatToolCallEvent) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: ChatToolCallEvent) =>
       callback(data);
     ipcRenderer.on("chat:tool-call", handler);
-    return () => ipcRenderer.removeListener("chat:tool-call", handler);
+    return () => {
+      ipcRenderer.removeListener("chat:tool-call", handler);
+    };
   },
 
   onToolResult: (callback: (data: ChatToolResultEvent) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: ChatToolResultEvent) =>
       callback(data);
     ipcRenderer.on("chat:tool-result", handler);
-    return () => ipcRenderer.removeListener("chat:tool-result", handler);
+    return () => {
+      ipcRenderer.removeListener("chat:tool-result", handler);
+    };
   },
 
   onToolApprovalRequest: (
@@ -412,8 +430,9 @@ const api = {
       data: ChatToolApprovalRequestEvent,
     ) => callback(data);
     ipcRenderer.on("chat:tool-approval-request", handler);
-    return () =>
+    return () => {
       ipcRenderer.removeListener("chat:tool-approval-request", handler);
+    };
   },
 
   respondToolApproval: (
@@ -426,21 +445,27 @@ const api = {
     const handler = (_: Electron.IpcRendererEvent, data: ChatModelInfoEvent) =>
       callback(data);
     ipcRenderer.on("chat:model-info", handler);
-    return () => ipcRenderer.removeListener("chat:model-info", handler);
+    return () => {
+      ipcRenderer.removeListener("chat:model-info", handler);
+    };
   },
 
   onDone: (callback: (data: ChatDoneEvent) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: ChatDoneEvent) =>
       callback(data);
     ipcRenderer.on("chat:done", handler);
-    return () => ipcRenderer.removeListener("chat:done", handler);
+    return () => {
+      ipcRenderer.removeListener("chat:done", handler);
+    };
   },
 
   onError: (callback: (data: ChatErrorEvent) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: ChatErrorEvent) =>
       callback(data);
     ipcRenderer.on("chat:error", handler);
-    return () => ipcRenderer.removeListener("chat:error", handler);
+    return () => {
+      ipcRenderer.removeListener("chat:error", handler);
+    };
   },
 
   listModels: () => ipcRenderer.invoke("models:list"),
@@ -499,7 +524,9 @@ const api = {
       data: { status: WechatBotStatus; messages: WechatBotMessage[] },
     ) => callback(data);
     ipcRenderer.on("wechat-bot:update", handler);
-    return () => ipcRenderer.removeListener("wechat-bot:update", handler);
+    return () => {
+      ipcRenderer.removeListener("wechat-bot:update", handler);
+    };
   },
 
   listSkills: (): Promise<SkillConfig[]> => ipcRenderer.invoke("skills:list"),
@@ -551,7 +578,9 @@ const api = {
       const handler = (_: Electron.IpcRendererEvent, data: RagStatus) =>
         callback(data);
       ipcRenderer.on("rag:status", handler);
-      return () => ipcRenderer.removeListener("rag:status", handler);
+      return () => {
+        ipcRenderer.removeListener("rag:status", handler);
+      };
     },
   },
 
@@ -584,7 +613,9 @@ const api = {
         data: KbIndexingProgress,
       ) => callback(data);
       ipcRenderer.on("kb:indexing-progress", handler);
-      return () => ipcRenderer.removeListener("kb:indexing-progress", handler);
+      return () => {
+        ipcRenderer.removeListener("kb:indexing-progress", handler);
+      };
     },
   },
 
@@ -632,7 +663,9 @@ const api = {
       const handler = (_: Electron.IpcRendererEvent, task: Task) =>
         callback(task);
       ipcRenderer.on("task:update", handler);
-      return () => ipcRenderer.removeListener("task:update", handler);
+      return () => {
+        ipcRenderer.removeListener("task:update", handler);
+      };
     },
   },
 

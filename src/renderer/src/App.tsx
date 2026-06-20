@@ -37,9 +37,9 @@ const TitleBar: React.FC = () => (
       alignItems: 'center',
       zIndex: 9999,
       boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.9)',
-      WebkitAppRegion: 'drag' as any,
       userSelect: 'none',
-    }} />
+      WebkitAppRegion: 'drag',
+    } as React.CSSProperties & { WebkitAppRegion: 'drag' }} />
     <div style={{
       position: 'fixed',
       top: '40px',
@@ -1172,21 +1172,20 @@ const App: React.FC = () => {
     const nextTitle = title.trim()
     if (!nextTitle) return
 
-    let updatedConversation: Conversation | null = null
+    const currentConversation = conversations.find((conv) => conv.id === id)
+    if (!currentConversation) return
+
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      title: nextTitle,
+      updatedAt: Date.now(),
+    }
 
     setConversations((prev) =>
       prev.map((conv) => {
-        if (conv.id !== id) return conv
-        updatedConversation = {
-          ...conv,
-          title: nextTitle,
-          updatedAt: Date.now(),
-        }
-        return updatedConversation
+        return conv.id === id ? updatedConversation : conv
       })
     )
-
-    if (!updatedConversation) return
 
     await window.electronAPI.storage.updateMeta({
       id: updatedConversation.id,
@@ -1195,7 +1194,7 @@ const App: React.FC = () => {
       createdAt: updatedConversation.createdAt,
       updatedAt: updatedConversation.updatedAt,
     })
-  }, [])
+  }, [conversations])
 
   const updateOnlineConfig = useCallback((patch: Partial<OnlineProviderConfig>) => {
     setDraftModelConfig((prev) => ({

@@ -6,6 +6,16 @@ export interface MessageModelInfo {
   scene: string;
   skill?: string;
   routeMs?: number;
+  diagnostics?: {
+    routeMs?: number;
+    firstToolCallMs?: number;
+    toolCount?: number;
+    toolTotalMs?: number;
+    lastToolFinishedMs?: number;
+    finalAnswerStartMs?: number;
+    firstTokenMs?: number;
+    totalMs?: number;
+  };
 }
 
 export interface Message {
