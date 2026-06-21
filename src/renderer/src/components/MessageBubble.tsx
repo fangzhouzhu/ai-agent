@@ -1282,11 +1282,22 @@ const MessageBubble: React.FC<Props> = ({
                 </button>
               </>
             ) : (
-              !message.task && isLast && (
-                <button className={styles.actionBtn} onClick={() => onRegenerate(message.id)} disabled={isLoading} title="重新生成" aria-label="重新生成">
-                  <RegenerateIcon />
+              <>
+                <button
+                  className={`${styles.actionBtn} ${styles.dangerBtn}`}
+                  onClick={() => onDelete(message.id)}
+                  disabled={isLoading}
+                  title="删除消息"
+                  aria-label="删除消息"
+                >
+                  <DeleteIcon />
                 </button>
-              )
+                {!message.task && isLast && (
+                  <button className={styles.actionBtn} onClick={() => onRegenerate(message.id)} disabled={isLoading} title="重新生成" aria-label="重新生成">
+                    <RegenerateIcon />
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}

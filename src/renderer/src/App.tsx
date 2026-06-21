@@ -2054,8 +2054,19 @@ const App: React.FC = () => {
   )
 
   const handleDeleteMessage = useCallback(
-    (messageId: string) => {
+    async (messageId: string) => {
       if (!activeId) return
+      const targetConv = conversations.find((c) => c.id === activeId)
+      const targetMessage = targetConv?.messages.find((message) => message.id === messageId)
+      if (!targetMessage) return
+
+      const confirmed = await confirm({
+        message: targetMessage.role === 'user' ? '确定删除这条个人消息吗？' : '确定删除这条 AI 回复吗？',
+        description: '删除后将从当前对话中移除，且无法恢复。',
+        tone: 'danger',
+      })
+      if (!confirmed) return
+
       setConversations((prev) => {
         const updated = prev.map((c) => {
           if (c.id !== activeId) return c
@@ -2073,7 +2084,7 @@ const App: React.FC = () => {
         return updated
       })
     },
-    [activeId, persistConversation]
+    [activeId, confirm, conversations, persistConversation]
   )
 
   const handleRegenerateMessage = useCallback(
