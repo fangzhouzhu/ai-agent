@@ -123,6 +123,15 @@
   box-shadow: 0 14px 30px rgba(159, 29, 29, 0.08);
 }
 
+.imageOnlyBubble {
+  padding: 0;
+  overflow: hidden;
+}
+
+.imageOnlyBubble .attachmentGrid {
+  margin-bottom: 0;
+}
+
 .userText {
   font-family: inherit;
   font-size: 14px;
@@ -140,6 +149,227 @@
   word-break: break-word;
   color: #162652;
   margin: 0;
+}
+
+.attachmentGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.attachmentCard {
+  max-width: min(100%, 280px);
+  width: fit-content;
+  height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  overflow: hidden;
+  background: transparent;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.attachmentImage,
+.markdownImage {
+  display: block;
+  width: auto;
+  max-width: min(100%, 280px);
+  height: auto;
+  max-height: 280px;
+  object-fit: contain;
+}
+
+.attachmentImage {
+  border-radius: 12px;
+}
+
+.markdownImage {
+  max-width: min(100%, 520px);
+  border-radius: 14px;
+  border: 1px solid rgba(191, 207, 246, 0.86);
+  margin: 10px 0;
+}
+
+.markdownImageButton {
+  display: block;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.imageDialog {
+  max-width: none;
+  max-height: none;
+  width: 100vw;
+  height: 100vh;
+  padding: 84px 28px 28px;
+  border: none;
+  background: rgba(9, 14, 28, 0.72);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+
+.imageDialog::backdrop {
+  background: rgba(9, 14, 28, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.imageDialogBody {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 76px 54px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.imageDialogStage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.imageDialogPan {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  height: fit-content;
+  max-width: 100%;
+  max-height: 100%;
+  will-change: transform;
+  cursor: grab;
+}
+
+.imageDialogPan:active {
+  cursor: grabbing;
+}
+
+.imageDialogViewport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  height: fit-content;
+  max-width: 100%;
+  max-height: 100%;
+  transform-origin: center center;
+}
+
+.imageDialogImage {
+  display: block;
+  max-width: min(92vw, 1400px);
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  user-select: none;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.imageDialogClose {
+  position: fixed;
+  top: 88px;
+  right: 24px;
+  z-index: 1002;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.imageDialogClose:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.imageDialogHint {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.imageDialogBody::-webkit-scrollbar {
+  display: none;
+}
+
+.imageLightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(9, 14, 28, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.imageLightboxInner {
+  max-width: min(92vw, 1400px);
+  max-height: 92vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.imageLightboxImage {
+  display: block;
+  max-width: 100%;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.imageLightboxClose {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.imageLightboxClose:hover {
+  background: rgba(255, 255, 255, 0.24);
 }
 
 .codeBlockWithCopy {

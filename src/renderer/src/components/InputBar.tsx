@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import type { ImageAttachment } from '../../../preload'
 import CustomSelect from './CustomSelect'
 import styles from './InputBar.module.css'
 
@@ -70,7 +71,7 @@ type InputContextMenuState = {
 }
 
 interface Props {
-  onSend: (message: string, mode: 'chat' | 'task') => void
+  onSend: (message: string, mode: 'chat' | 'task', attachments: ImageAttachment[]) => void
   onAbort: () => void
   isLoading: boolean
   isRagProcessing: boolean
@@ -146,6 +147,39 @@ function resizeTextarea(textarea: HTMLTextAreaElement | null) {
   textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px'
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function getImageSize(dataUrl: string): Promise<{ width?: number; height?: number }> {
+  return new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+    image.onerror = () => resolve({})
+    image.src = dataUrl
+  })
+}
+
+async function createImageAttachment(file: File, source: ImageAttachment['source']): Promise<ImageAttachment> {
+  const dataUrl = await readFileAsDataUrl(file)
+  const size = await getImageSize(dataUrl)
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: file.name || `image-${Date.now()}.png`,
+    mimeType: file.type || 'image/png',
+    dataUrl,
+    size: file.size,
+    width: size.width,
+    height: size.height,
+    source,
+  }
+}
+
 function getCaret(textarea: HTMLTextAreaElement | null, fallback: number) {
   return textarea?.selectionStart ?? fallback
 }
@@ -211,6 +245,7 @@ const InputBar: React.FC<Props> = ({
   onApplyOnlineProfile,
 }) => {
   const [input, setInput] = useState('')
+  const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([])
   const [sendMode, setSendMode] = useState<'chat' | 'task'>('chat')
   const [selectedSkills, setSelectedSkills] = useState<SkillConfig[]>([])
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
@@ -426,15 +461,16 @@ const InputBar: React.FC<Props> = ({
   const handleSend = () => {
     const skillPrefix = selectedSkills.map((skill) => `#${skill.name}`).join(' ')
     const message = [skillPrefix, input.trim()].filter(Boolean).join(' ').trim()
-    if (!message || isBusy) return
+    if ((!message && imageAttachments.length === 0) || isBusy) return
 
     setInput('')
+    setImageAttachments([])
     setSelectedSkills([])
     setActiveSuggestionIndex(0)
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-    onSend(message, sendMode)
+    onSend(message, sendMode, imageAttachments)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -490,6 +526,31 @@ const InputBar: React.FC<Props> = ({
     setInput(extracted.nextInput)
     setActiveSuggestionIndex(0)
     requestAnimationFrame(() => resizeTextarea(textareaRef.current))
+  }
+
+  const appendImages = async (files: FileList | File[], source: ImageAttachment['source']) => {
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+
+    const nextAttachments = await Promise.all(imageFiles.map((file) => createImageAttachment(file, source)))
+    setImageAttachments((prev) => [...prev, ...nextAttachments].slice(0, 6))
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFiles = Array.from(e.clipboardData.items)
+      .filter((item) => item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+
+    if (imageFiles.length === 0) return
+
+    e.preventDefault()
+    void appendImages(imageFiles, 'paste')
+  }
+
+  const removeImageAttachment = (attachmentId: string) => {
+    setImageAttachments((prev) => prev.filter((item) => item.id !== attachmentId))
+    requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
   const handleTextareaContextMenu = (e: React.MouseEvent<HTMLTextAreaElement>) => {
@@ -624,12 +685,35 @@ const InputBar: React.FC<Props> = ({
                 </div>
               )}
 
+              {imageAttachments.length > 0 && (
+                <div className={styles.imagePreviewRow}>
+                  {imageAttachments.map((attachment) => (
+                    <div key={attachment.id} className={styles.imagePreviewCard}>
+                      <img
+                        className={styles.imagePreview}
+                        src={attachment.dataUrl}
+                        alt={attachment.name}
+                      />
+                      <button
+                        type="button"
+                        className={styles.imagePreviewRemove}
+                        onClick={() => removeImageAttachment(attachment.id)}
+                        title="移除图片"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <textarea
                 ref={textareaRef}
                 className={styles.textarea}
                 value={input}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 onClick={() => setActiveSuggestionIndex(0)}
                 onContextMenu={handleTextareaContextMenu}
                 placeholder={placeholder}
@@ -746,7 +830,7 @@ const InputBar: React.FC<Props> = ({
                 <button
                   className={styles.sendBtn}
                   onClick={handleSend}
-                  disabled={(!input.trim() && selectedSkills.length === 0) || isBusy}
+                  disabled={(!input.trim() && selectedSkills.length === 0 && imageAttachments.length === 0) || isBusy}
                   title="发送消息"
                 >
                   <svg viewBox="0 0 24 24" fill="currentColor">

@@ -8,7 +8,7 @@ import SkillsPanel from './components/SkillsPanel'
 import WechatBotPanel from './components/WechatBotPanel'
 import CustomSelect from './components/CustomSelect'
 import { useAppDialog } from './components/AppDialogProvider'
-import type { Task } from '../../preload/index'
+import type { ImageAttachment, Task } from '../../preload/index'
 
 import {
   type Conversation,
@@ -2119,6 +2119,7 @@ const App: React.FC = () => {
       const history = baseMessages.slice(0, -1).map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
+        attachments: m.attachments,
       }))
 
       const aiMsgId = uuidv4()
@@ -2224,6 +2225,23 @@ const App: React.FC = () => {
         )
       })
 
+      const removeAttachments = window.electronAPI.onAttachments(({ conversationId, attachments }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === aiMsgId ? { ...m, attachments } : m
+                  ),
+                }
+              : c
+          )
+        )
+      })
+
       let finalized = false
       const finalize = (errorUpdate?: Partial<Message>) => {
         if (finalized) return
@@ -2265,6 +2283,7 @@ const App: React.FC = () => {
         removeToolCall()
         removeToolResult()
         removeModelInfo()
+        removeAttachments()
         removeDone()
         removeError()
         resetTokenBuffer(convId)
@@ -2279,6 +2298,7 @@ const App: React.FC = () => {
           // 仅在显式开启 forceAgent 时强制走 Agent，避免简单问答因智能体类型被误送入工具链路。
           Boolean(activeConversationAgent?.models.forceAgent),
           ragFilesRef.current.map((file) => file.id),
+          userMsg.attachments ?? [],
           buildKnowledgeOptions(activeConversationAgent),
         )
       } catch (error) {
@@ -2293,7 +2313,7 @@ const App: React.FC = () => {
 
   // 发送消息
   const handleSend = useCallback(
-    async (text: string, mode: 'chat' | 'task') => {
+    async (text: string, mode: 'chat' | 'task', attachments: ImageAttachment[] = []) => {
       if (isRagProcessing) return
 
       let convId = activeId
@@ -2310,7 +2330,7 @@ const App: React.FC = () => {
       if (!convId || !targetConv) return
 
       if (mode === 'task') {
-        const userMsg = createMessage('user', text)
+        const userMsg = createMessage('user', text, attachments)
         const isFirstMsg = targetConv.messages.length === 0
         const newTitle = isFirstMsg ? generateTitle(text) : targetConv.title
 
@@ -2363,7 +2383,7 @@ const App: React.FC = () => {
       const currentRagFiles = ragFilesRef.current
       const activeRagContextId = currentRagFiles.length > 0 ? ragContextId : undefined
       const userMsg: Message = {
-        ...createMessage('user', text),
+        ...createMessage('user', text, attachments),
         ragContextId: activeRagContextId,
       }
       const aiMsgId = uuidv4()
@@ -2404,6 +2424,7 @@ const App: React.FC = () => {
         .map((m) => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
+          attachments: m.attachments,
         }))
 
       const removeToken = window.electronAPI.onToken(({ conversationId, token, isFirstToken, elapsedMs }) => {
@@ -2481,6 +2502,23 @@ const App: React.FC = () => {
         )
       })
 
+      const removeAttachments = window.electronAPI.onAttachments(({ conversationId, attachments }) => {
+        if (conversationId !== convId) return
+        if (streamingMsgIdRef.current[convId] !== aiMsgId) return
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === aiMsgId ? { ...m, attachments } : m
+                  ),
+                }
+              : c
+          )
+        )
+      })
+
       let finalized = false
       const finalize = (errorUpdate?: Partial<Message>) => {
         if (finalized) return
@@ -2523,6 +2561,7 @@ const App: React.FC = () => {
         removeToolCall()
         removeToolResult()
         removeModelInfo()
+        removeAttachments()
         removeDone()
         removeError()
         resetTokenBuffer(convId)
@@ -2540,6 +2579,7 @@ const App: React.FC = () => {
               : pendingAgent)?.models.forceAgent
           ),
           currentRagFiles.map((file) => file.id),
+          userMsg.attachments ?? [],
           buildKnowledgeOptions(
             (targetConv?.agentProfileId
               ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
@@ -3037,7 +3077,7 @@ const App: React.FC = () => {
                 >
                   <span className={styles.settingsNavIcon}>◉</span>
                   <span className={styles.settingsNavText}>
-                    <span>在线预设</span>
+                    <span>模型设置</span>
                     <small>模型、API 与 RAG</small>
                   </span>
                 </button>

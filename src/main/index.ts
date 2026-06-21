@@ -33,6 +33,10 @@ import {
   describeRouteModel,
   type ChatMessage,
 } from "./agent";
+import {
+  generateOpenAICompatibleImage,
+  type ImageAttachment,
+} from "./openaiCompatible";
 import { registerAppIpcHandlers } from "./ipc/registerAppIpc";
 import { registerKnowledgeIpcHandlers } from "./ipc/registerKnowledgeIpc";
 import { registerWorkbenchIpcHandlers } from "./ipc/registerWorkbenchIpc";
@@ -719,6 +723,24 @@ function shouldUseKnowledgeBase(message: string): boolean {
   return isKnowledgeBaseQuery(message);
 }
 
+function hasImageAttachments(
+  attachments?: ImageAttachment[],
+): attachments is ImageAttachment[] {
+  return Array.isArray(attachments) && attachments.length > 0;
+}
+
+function isImageGenerationRequest(message: string): boolean {
+  const text = message.trim().toLowerCase();
+  if (!text) return false;
+  if (/(分析|识别|描述|解释|看看|看下|ocr|读图|图片里|图里)/i.test(text)) {
+    return false;
+  }
+
+  return /(生成(一张)?图|生成图片|帮我画|画一张|创建图片|做一张海报|draw an image|generate image|create image)/i.test(
+    message,
+  );
+}
+
 type RouteDecision = {
   matchedSkill: ResolvedSkillMatch | null;
   skillAttachmentPaths: string[];
@@ -935,6 +957,7 @@ ipcMain.handle(
       conversationId,
       useAgent,
       fileIds,
+      attachments,
       kbIds,
       ragOnly,
       minScore,
@@ -947,6 +970,7 @@ ipcMain.handle(
       conversationId?: string | null;
       useAgent: boolean;
       fileIds?: string[];
+      attachments?: ImageAttachment[];
       kbIds?: string[];
       ragOnly?: boolean;
       minScore?: number;
@@ -1089,6 +1113,12 @@ ipcMain.handle(
         modelInfo: latestModelInfo,
       });
     };
+    const emitAttachments = (nextAttachments: ImageAttachment[]) => {
+      webContents.send("chat:attachments", {
+        conversationId: requestConversationId,
+        attachments: nextAttachments,
+      });
+    };
     const emitDone = (status: "done" | "aborted" = "done") => {
       webContents.send("chat:done", {
         conversationId: requestConversationId,
@@ -1142,11 +1172,12 @@ ipcMain.handle(
         knowledgeOptions.fallbackToChat ??
         !effectiveRagOnly;
       const forceAgent = useAgent || Boolean(activeAgent?.models.forceAgent);
+      const hasInputImages = Array.isArray(attachments) && attachments.length > 0;
       const useFileRag = Array.isArray(fileIds) && fileIds.length > 0;
       const hasSelectedKbs =
         Array.isArray(effectiveKbIds) && effectiveKbIds.length > 0;
       const useKbRag = hasSelectedKbs;
-      const useRag = useFileRag || useKbRag;
+      const useRag = !hasInputImages && (useFileRag || useKbRag);
       const route = resolveRouteDecision(message, {
         suppressToolsForRag: useRag,
         useRag,
@@ -1173,6 +1204,7 @@ ipcMain.handle(
       const fallbackUseAdvanced = fallbackRoute.useAdvancedModel;
 
       const effectiveHistory = useRealtimeTool ? [] : history;
+      const activeAttachments = attachments ?? [];
       const runFallbackChat = async (reason: string) => {
         const fallbackModelInfo = {
           model: describeRouteModel(
@@ -1201,6 +1233,8 @@ ipcMain.handle(
             signal,
             matchedSkill?.skill,
             requestToolApproval,
+            undefined,
+            activeAttachments,
           );
           return;
         }
@@ -1213,6 +1247,7 @@ ipcMain.handle(
           fallbackUseAdvanced ? getAgentModel() : getChatModel(),
           fallbackUseAdvanced ? getAgentProvider() : getChatProvider(),
           matchedSkill?.skill,
+          activeAttachments,
         );
       };
 
@@ -1260,6 +1295,47 @@ ipcMain.handle(
         at: Date.now(),
       });
       emitModelInfo(decoratedModelInfo);
+      const routeProvider = useRag
+        ? getRagProvider()
+        : useTools || useAdvancedModel
+          ? getAgentProvider()
+          : getChatProvider();
+      const routeModel = useRag
+        ? getRagModel()
+        : useTools || useAdvancedModel
+          ? getAgentModel()
+          : getChatModel();
+
+      if (!useRag && !useSkillAttachments && isImageGenerationRequest(message)) {
+        if (routeProvider !== "openai-compatible") {
+          throw new Error(
+            "当前生成图仅支持在线兼容模型，请切换到支持生图的在线模型后重试。",
+          );
+        }
+
+        const generated = await generateOpenAICompatibleImage({
+          settings: getModelSettings().online ?? {},
+          model: routeModel,
+          prompt: message,
+        });
+
+        if (generated.images.length === 0) {
+          throw new Error("模型没有返回可展示的图片结果。");
+        }
+
+        emitAttachments(generated.images);
+        emitToken(
+          generated.revisedPrompt
+            ? `已生成 ${generated.images.length} 张图片。\n\n模型修订提示词：${generated.revisedPrompt}`
+            : `已生成 ${generated.images.length} 张图片，可继续让我调整风格、比例或文案。`,
+        );
+        publishDiagnostics({
+          routeMs,
+          totalMs: Math.max(0, Date.now() - requestStartedAt),
+        });
+        emitDone();
+        return;
+      }
       if (
         !useRag &&
         !useSkillAttachments &&
@@ -1344,6 +1420,7 @@ ${context}
                 getRagModel(),
                 getRagProvider(),
                 matchedSkill?.skill,
+                activeAttachments,
               );
             } catch (ragErr) {
               if (!effectiveRagOnly || effectiveFallbackToChat) {
@@ -1404,6 +1481,7 @@ ${context}
               getRagModel(),
               getRagProvider(),
               matchedSkill?.skill,
+              activeAttachments,
             );
           } else if (useTools) {
             await chatWithAgent(
@@ -1421,6 +1499,8 @@ ${context}
               signal,
               matchedSkill?.skill,
               requestToolApproval,
+              undefined,
+              activeAttachments,
             );
           } else {
             await chatStream(
@@ -1433,6 +1513,7 @@ ${context}
               useAdvancedModel ? getAgentModel() : getChatModel(),
               useAdvancedModel ? getAgentProvider() : getChatProvider(),
               matchedSkill?.skill,
+              activeAttachments,
             );
           }
         } catch {
@@ -1451,6 +1532,9 @@ ${context}
               },
               signal,
               matchedSkill?.skill,
+              undefined,
+              undefined,
+              activeAttachments,
             );
           } else {
             await chatStream(
@@ -1463,6 +1547,7 @@ ${context}
               useAdvancedModel ? getAgentModel() : getChatModel(),
               useAdvancedModel ? getAgentProvider() : getChatProvider(),
               matchedSkill?.skill,
+              activeAttachments,
             );
           }
         }
@@ -1482,6 +1567,8 @@ ${context}
           signal,
           matchedSkill?.skill,
           requestToolApproval,
+          undefined,
+          activeAttachments,
         );
       } else {
         await chatStream(
@@ -1494,6 +1581,7 @@ ${context}
           useAdvancedModel ? getAgentModel() : getChatModel(),
           useAdvancedModel ? getAgentProvider() : getChatProvider(),
           matchedSkill?.skill,
+          activeAttachments,
         );
       }
       publishDiagnostics({

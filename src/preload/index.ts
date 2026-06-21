@@ -3,6 +3,18 @@ import { contextBridge, ipcRenderer } from "electron";
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
+  attachments?: ImageAttachment[];
+};
+
+export type ImageAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  size: number;
+  width?: number;
+  height?: number;
+  source: "paste" | "screenshot" | "generated";
 };
 
 export type ConvMeta = {
@@ -17,6 +29,7 @@ export type StoredMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ImageAttachment[];
   task?: Task;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
@@ -77,6 +90,11 @@ export type ChatToolApprovalRequestEvent = {
 export type ChatModelInfoEvent = {
   conversationId: string;
   modelInfo: ModelRouteInfo;
+};
+
+export type ChatAttachmentsEvent = {
+  conversationId: string;
+  attachments: ImageAttachment[];
 };
 
 export type ChatDoneEvent = {
@@ -377,6 +395,7 @@ const api = {
     conversationId: string | null,
     useAgent: boolean,
     fileIds: string[] = [],
+    attachments: ImageAttachment[] = [],
     knowledgeOptions?: {
       kbIds?: string[];
       ragOnly?: boolean;
@@ -392,6 +411,7 @@ const api = {
       conversationId,
       useAgent,
       fileIds,
+      attachments,
       ...knowledgeOptions,
     }),
 
@@ -447,6 +467,17 @@ const api = {
     ipcRenderer.on("chat:model-info", handler);
     return () => {
       ipcRenderer.removeListener("chat:model-info", handler);
+    };
+  },
+
+  onAttachments: (callback: (data: ChatAttachmentsEvent) => void) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      data: ChatAttachmentsEvent,
+    ) => callback(data);
+    ipcRenderer.on("chat:attachments", handler);
+    return () => {
+      ipcRenderer.removeListener("chat:attachments", handler);
     };
   },
 

@@ -1,8 +1,31 @@
 import type { OnlineProviderSettings } from "./storage";
 
+export type CompatibleContentPart =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "image_url";
+      image_url: {
+        url: string;
+      };
+    };
+
+export type ImageAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  size: number;
+  width?: number;
+  height?: number;
+  source: "paste" | "screenshot" | "generated";
+};
+
 export type CompatibleMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content?: string | null;
+  content?: string | CompatibleContentPart[] | null;
   name?: string;
   tool_call_id?: string;
   tool_calls?: CompatibleToolCall[];
@@ -692,6 +715,18 @@ function buildHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+function getCompatibleTextContent(
+  content?: string | CompatibleContentPart[] | null,
+): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
 async function extractErrorMessage(response: Response): Promise<string> {
   const raw = await response.text();
   try {
@@ -899,7 +934,9 @@ export async function invokeOpenAICompatibleChat(options: {
   };
 
   const message = data.choices?.[0]?.message;
-  const parsed = parseInlineTaggedToolCalls(message?.content || "");
+  const parsed = parseInlineTaggedToolCalls(
+    getCompatibleTextContent(message?.content),
+  );
 
   return {
     content: parsed.sanitizedContent,
@@ -956,7 +993,9 @@ export async function streamOpenAICompatibleChat(options: {
         };
       }>;
     };
-    const content = fallback.choices?.[0]?.message?.content || "";
+    const content = getCompatibleTextContent(
+      fallback.choices?.[0]?.message?.content,
+    );
     if (content) onToken(content);
     return content;
   }
@@ -1059,6 +1098,36 @@ export async function streamOpenAICompatibleChat(options: {
   }
 
   return emittedSanitizedContent;
+}
+
+export function buildCompatibleUserContent(
+  text: string,
+  attachments: ImageAttachment[] = [],
+): string | CompatibleContentPart[] {
+  const normalizedText = text.trim();
+  const imageParts = attachments
+    .filter((attachment) => attachment.dataUrl.startsWith("data:image/"))
+    .map((attachment) => ({
+      type: "image_url" as const,
+      image_url: {
+        url: attachment.dataUrl,
+      },
+    }));
+
+  if (imageParts.length === 0) {
+    return normalizedText;
+  }
+
+  const parts: CompatibleContentPart[] = [];
+  if (normalizedText) {
+    parts.push({
+      type: "text",
+      text: normalizedText,
+    });
+  }
+
+  parts.push(...imageParts);
+  return parts;
 }
 
 export async function testOpenAICompatibleApi(options: {
@@ -1168,4 +1237,64 @@ export async function testOpenAICompatibleApi(options: {
       testedAt: Date.now(),
     };
   }
+}
+
+export async function generateOpenAICompatibleImage(options: {
+  settings: OnlineProviderSettings;
+  model: string;
+  prompt: string;
+  size?: string;
+}): Promise<{ images: ImageAttachment[]; revisedPrompt?: string }> {
+  const { settings, model, prompt, size = "1024x1024" } = options;
+  const resolved = ensureOnlineSettings(settings, model);
+  const response = await fetch(`${resolved.baseUrl}/images/generations`, {
+    method: "POST",
+    headers: buildHeaders(resolved.apiKey),
+    body: JSON.stringify({
+      model: resolved.model,
+      prompt,
+      size,
+      response_format: "b64_json",
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      withProviderErrorHint(
+        await extractErrorMessage(response),
+        settings,
+        resolved.model,
+      ),
+    );
+  }
+
+  const data = (await response.json()) as {
+    data?: Array<{
+      url?: string;
+      b64_json?: string;
+      revised_prompt?: string;
+    }>;
+  };
+
+  const images: ImageAttachment[] = [];
+  for (const [index, item] of (data.data ?? []).entries()) {
+    const dataUrl = item.b64_json
+      ? `data:image/png;base64,${item.b64_json}`
+      : item.url || "";
+    if (!dataUrl) continue;
+
+    images.push({
+      id: `generated-${Date.now()}-${index}`,
+      name: `generated-${index + 1}.png`,
+      mimeType: "image/png",
+      dataUrl,
+      size: item.b64_json ? item.b64_json.length : dataUrl.length,
+      source: "generated",
+    });
+  }
+
+  return {
+    images,
+    revisedPrompt: data.data?.find((item) => item.revised_prompt)?.revised_prompt,
+  };
 }

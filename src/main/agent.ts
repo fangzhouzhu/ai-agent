@@ -11,9 +11,11 @@ import { allTools } from "./tools";
 import { summarizeToolPolicies } from "./tools/policy";
 import {
   OPENAI_COMPATIBLE_TOOLS,
+  buildCompatibleUserContent,
   invokeOpenAICompatibleChat,
   streamOpenAICompatibleChat,
   type CompatibleMessage,
+  type ImageAttachment,
 } from "./openaiCompatible";
 import { buildSkillPrompt } from "./skills";
 import { toAppError } from "./runtime/errors";
@@ -40,6 +42,7 @@ import type {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  attachments?: ImageAttachment[];
 }
 
 type RouteKey = "chat" | "agent" | "rag";
@@ -408,6 +411,153 @@ function hasUsableRecommendationEvidence(
     const entryCount = (result.result.match(/^\d+\.\s+/gm) ?? []).length;
     return urls.length >= 2 && entryCount >= 2;
   });
+}
+
+type OllamaChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+  images?: string[];
+};
+
+function toBase64Image(dataUrl: string): string | null {
+  const matched = dataUrl.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
+  return matched?.[1] ?? null;
+}
+
+function toOllamaMessage(msg: ChatMessage): OllamaChatMessage {
+  const images =
+    msg.role === "user"
+      ? (msg.attachments ?? [])
+          .map((attachment) => toBase64Image(attachment.dataUrl))
+          .filter((item): item is string => Boolean(item))
+      : [];
+
+  return {
+    role: msg.role,
+    content: msg.role === "assistant" ? stripReasoningContent(msg.content) : msg.content,
+    ...(images.length > 0 ? { images } : {}),
+  };
+}
+
+async function streamFromOllamaApi(
+  modelName: string,
+  messages: OllamaChatMessage[],
+  onToken: (token: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const traceId = createTraceId();
+  const startedAt = Date.now();
+  recordTrace({
+    type: "model_start",
+    traceId,
+    model: modelName,
+    messages: messages.length,
+    at: startedAt,
+  });
+
+  const response = await fetch("http://localhost:11434/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: modelName,
+      messages,
+      stream: true,
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ollama 请求失败: HTTP ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error("Ollama 未返回可读取的数据流");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullResponse = "";
+
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const payload = JSON.parse(trimmed) as {
+          done?: boolean;
+          message?: {
+            content?: string;
+          };
+          error?: string;
+        };
+
+        if (payload.error) {
+          throw new Error(payload.error);
+        }
+
+        const token = payload.message?.content ?? "";
+        if (token) {
+          onToken(token);
+          fullResponse += token;
+        }
+
+        if (payload.done) {
+          recordTrace({
+            type: "model_end",
+            traceId,
+            model: modelName,
+            durationMs: Date.now() - startedAt,
+            at: Date.now(),
+          });
+          return fullResponse;
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const payload = JSON.parse(buffer.trim()) as {
+        done?: boolean;
+        message?: { content?: string };
+        error?: string;
+      };
+      if (payload.error) throw new Error(payload.error);
+      const token = payload.message?.content ?? "";
+      if (token) {
+        onToken(token);
+        fullResponse += token;
+      }
+    }
+
+    recordTrace({
+      type: "model_end",
+      traceId,
+      model: modelName,
+      durationMs: Date.now() - startedAt,
+      at: Date.now(),
+    });
+
+    return fullResponse;
+  } catch (error) {
+    recordTrace({
+      type: "error",
+      traceId,
+      error: toAppError(error, "model", "MODEL_STREAM_FAILED"),
+      at: Date.now(),
+    });
+    throw error;
+  }
 }
 
 function buildWeakEvidenceRecommendationReply(): string {
@@ -856,7 +1006,11 @@ function toCompatibleMessage(msg: ChatMessage): CompatibleMessage {
   return {
     role: msg.role,
     content:
-      msg.role === "assistant" ? stripReasoningContent(msg.content) : msg.content,
+      msg.role === "assistant"
+        ? stripReasoningContent(msg.content)
+        : msg.role === "user"
+          ? buildCompatibleUserContent(msg.content, msg.attachments)
+          : msg.content,
   };
 }
 
@@ -926,11 +1080,26 @@ export async function chatWithAgent(
   skill?: SkillConfig | null,
   confirmTool?: (request: ToolApprovalRequest) => Promise<boolean>,
   routeOverride?: Partial<RouteConfig>,
+  attachments: ImageAttachment[] = [],
 ): Promise<string> {
   const route: RouteConfig = {
     provider: routeOverride?.provider ?? modelConfig.agent.provider,
     model: routeOverride?.model || modelConfig.agent.model,
   };
+
+  if (route.provider === "ollama" && attachments.length > 0) {
+    return chatStream(
+      history,
+      userMessage,
+      onToken,
+      signal,
+      route.model,
+      "ollama",
+      skill,
+      attachments,
+    );
+  }
+
   const preResults = await preCallTools(
     history,
     userMessage,
@@ -968,13 +1137,16 @@ export async function chatWithAgent(
 
   if (route.provider === "openai-compatible") {
     const summaryInstruction = buildRecommendationSummaryInstructionV2(userMessage);
-    const messages: CompatibleMessage[] = [
+      const messages: CompatibleMessage[] = [
       {
         role: "system",
         content: buildSystemPrompt(skill, { enableTools: true }),
       },
       ...history.map(toCompatibleMessage),
-      { role: "user", content: userMessage },
+      {
+        role: "user",
+        content: buildCompatibleUserContent(userMessage, attachments),
+      },
     ];
 
     // 最多执行 8 轮工具调用，避免无限循环
@@ -1210,6 +1382,7 @@ export async function chatStream(
   modelName = modelConfig.chat.model,
   provider: ModelProvider = modelConfig.chat.provider,
   skill?: SkillConfig | null,
+  attachments: ImageAttachment[] = [],
 ): Promise<string> {
   if (shouldPreCallWebSearch(userMessage)) {
     return chatWithAgent(
@@ -1220,6 +1393,9 @@ export async function chatStream(
       () => {},
       signal,
       skill,
+      undefined,
+      undefined,
+      attachments,
     );
   }
 
@@ -1249,7 +1425,10 @@ export async function chatStream(
           content: systemPrompt,
         },
         ...scopedHistory.map(toCompatibleMessage),
-        { role: "user", content: userMessage },
+        {
+          role: "user",
+          content: buildCompatibleUserContent(userMessage, attachments),
+        },
       ],
       onToken,
       signal,
@@ -1259,6 +1438,21 @@ export async function chatStream(
   const systemPrompt = useLightweightPrompt
     ? LIGHTWEIGHT_CHAT_SYSTEM_PROMPT
     : buildSystemPrompt(skill, { enableTools: false });
+
+  if (attachments.length > 0) {
+    const multimodalMessages: ChatMessage[] = [
+      { role: "system", content: systemPrompt },
+      ...scopedHistory,
+      { role: "user", content: userMessage, attachments },
+    ];
+    return streamFromOllamaApi(
+      route.model,
+      multimodalMessages.map(toOllamaMessage),
+      onToken,
+      signal,
+    );
+  }
+
   const messages = [
     new SystemMessage(systemPrompt),
     ...scopedHistory.map(toLC),

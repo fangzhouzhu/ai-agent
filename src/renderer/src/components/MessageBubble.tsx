@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import type { ImageAttachment } from '../../../preload'
 import type { Message } from '../types/conversation'
 import type { ReactNode } from 'react'
 import styles from './MessageBubble.module.css'
@@ -354,6 +355,211 @@ function splitAssistantDisplayContent(text: string): AssistantContentParts {
     thought: '',
     answer: plainContent,
   }
+}
+
+const ImagePreviewDialog: React.FC<{
+  image: { src: string; alt: string } | null
+  onClose: () => void
+}> = ({ image, onClose }) => {
+  const dialogRef = React.useRef<HTMLDialogElement>(null)
+  const [scale, setScale] = React.useState(1)
+  const [offset, setOffset] = React.useState({ x: 0, y: 0 })
+  const dragStateRef = React.useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+  } | null>(null)
+  const closeDialog = React.useCallback(() => {
+    const dialog = dialogRef.current
+    if (dialog?.open) {
+      dialog.close()
+      return
+    }
+    onClose()
+  }, [onClose])
+
+  React.useEffect(() => {
+    if (image) {
+      setScale(1)
+      setOffset({ x: 0, y: 0 })
+    }
+  }, [image])
+
+  React.useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+
+    if (image) {
+      if (!dialog.open) dialog.showModal()
+      return
+    }
+
+    if (dialog.open) dialog.close()
+  }, [image])
+
+  React.useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+
+    const handleCancel = (event: Event) => {
+      event.preventDefault()
+      closeDialog()
+    }
+    const handleClose = () => onClose()
+
+    dialog.addEventListener('cancel', handleCancel)
+    dialog.addEventListener('close', handleClose)
+    return () => {
+      dialog.removeEventListener('cancel', handleCancel)
+      dialog.removeEventListener('close', handleClose)
+    }
+  }, [closeDialog, onClose])
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className={styles.imageDialog}
+      onClick={(event) => {
+        if (event.target === dialogRef.current) closeDialog()
+      }}
+    >
+      <button
+        type="button"
+        className={styles.imageDialogClose}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          closeDialog()
+        }}
+        aria-label="关闭大图预览"
+      >
+        ×
+      </button>
+      {image && (
+        <div
+          className={styles.imageDialogBody}
+          onWheel={(event) => {
+            event.preventDefault()
+            const delta = event.deltaY < 0 ? 0.12 : -0.12
+            setScale((current) => Math.min(6, Math.max(0.2, Number((current + delta).toFixed(2)))))
+          }}
+        >
+          <div className={styles.imageDialogStage}>
+            <div
+              className={styles.imageDialogPan}
+              style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0)` }}
+              onDoubleClick={() => {
+                setScale(1)
+                setOffset({ x: 0, y: 0 })
+              }}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return
+                dragStateRef.current = {
+                  pointerId: event.pointerId,
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  originX: offset.x,
+                  originY: offset.y,
+                }
+                event.currentTarget.setPointerCapture(event.pointerId)
+              }}
+              onPointerMove={(event) => {
+                const dragState = dragStateRef.current
+                if (!dragState || dragState.pointerId !== event.pointerId) return
+
+                const nextX = dragState.originX + (event.clientX - dragState.startX)
+                const nextY = dragState.originY + (event.clientY - dragState.startY)
+                setOffset({ x: nextX, y: nextY })
+              }}
+              onPointerUp={(event) => {
+                if (dragStateRef.current?.pointerId !== event.pointerId) return
+                dragStateRef.current = null
+                event.currentTarget.releasePointerCapture(event.pointerId)
+              }}
+              onPointerCancel={(event) => {
+                if (dragStateRef.current?.pointerId !== event.pointerId) return
+                dragStateRef.current = null
+                event.currentTarget.releasePointerCapture(event.pointerId)
+              }}
+            >
+              <div
+                className={styles.imageDialogViewport}
+                style={{ transform: `scale(${scale})` }}
+              >
+                <img
+                  className={styles.imageDialogImage}
+                  src={image.src}
+                  alt={image.alt}
+                />
+              </div>
+            </div>
+          </div>
+          <div className={styles.imageDialogHint}>滚轮缩放，双击还原</div>
+        </div>
+      )}
+    </dialog>
+  )
+}
+
+const AttachmentGallery: React.FC<{ attachments: ImageAttachment[] }> = ({ attachments }) => {
+  if (attachments.length === 0) return null
+  const [activeAttachment, setActiveAttachment] = React.useState<ImageAttachment | null>(null)
+
+  return (
+    <>
+      <div className={styles.attachmentGrid}>
+        {attachments.map((attachment) => (
+          <button
+            key={attachment.id}
+            type="button"
+            className={styles.attachmentCard}
+            onClick={() => setActiveAttachment(attachment)}
+            title={attachment.name}
+          >
+            <img className={styles.attachmentImage} src={attachment.dataUrl} alt={attachment.name} />
+          </button>
+        ))}
+      </div>
+
+      {false && activeAttachment && (
+        <div
+          className={styles.imageLightbox}
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setActiveAttachment(null)}
+        >
+          <button
+            type="button"
+            className={styles.imageLightboxClose}
+            onClick={() => setActiveAttachment(null)}
+            aria-label="关闭大图预览"
+          >
+            ×
+          </button>
+          <div
+            className={styles.imageLightboxInner}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              className={styles.imageLightboxImage}
+              src={activeAttachment?.dataUrl ?? ''}
+              alt={activeAttachment?.name ?? ''}
+            />
+          </div>
+        </div>
+      )}
+      <ImagePreviewDialog
+        image={
+          activeAttachment
+            ? { src: activeAttachment.dataUrl, alt: activeAttachment.name }
+            : null
+        }
+        onClose={() => setActiveAttachment(null)}
+      />
+    </>
+  )
 }
 
 function formatThoughtDuration(durationMs?: number): string {
@@ -1025,6 +1231,7 @@ const MessageBubble: React.FC<Props> = ({
   const editInputRef = useRef<HTMLTextAreaElement>(null)
   const [isEditing, setIsEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(message.content)
+  const [activeMarkdownImage, setActiveMarkdownImage] = React.useState<{ src: string; alt: string } | null>(null)
 
   useEffect(() => {
     setDraft(message.content)
@@ -1116,6 +1323,9 @@ const MessageBubble: React.FC<Props> = ({
       : null
   const shouldHideAssistantBody =
     !isUser && shouldSuppressAssistantBody(displayContent, promotedToolResult)
+  const attachments = message.attachments ?? []
+  const hasTextContent = Boolean(displayContent?.trim())
+  const isImageOnlyBubble = attachments.length > 0 && !hasTextContent
 
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
@@ -1175,20 +1385,47 @@ const MessageBubble: React.FC<Props> = ({
 
         {/* 消息内容 */}
         {!shouldHideAssistantBody && (
-        <div className={`${styles.bubble} ${isUser ? styles.userBubble : styles.aiBubble} ${message.isError ? styles.errorBubble : ''}`}>
+        <div
+          className={`${styles.bubble} ${isUser ? styles.userBubble : styles.aiBubble} ${
+            message.isError ? styles.errorBubble : ''
+          } ${isImageOnlyBubble ? styles.imageOnlyBubble : ''}`}
+        >
           {isUser ? (
-            <pre className={styles.userText}>{message.content}</pre>
+            <>
+              <AttachmentGallery attachments={attachments} />
+              {message.content ? <pre className={styles.userText}>{message.content}</pre> : null}
+            </>
           ) : message.isStreaming ? (
-            <pre className={styles.assistantText}>
-              {displayContent || ' '}
-              <span ref={cursorRef} className={styles.cursor} />
-            </pre>
+            <>
+              <AttachmentGallery attachments={attachments} />
+              <pre className={styles.assistantText}>
+                {displayContent || ' '}
+                <span ref={cursorRef} className={styles.cursor} />
+              </pre>
+            </>
           ) : (
             <div className="markdown-body">
+              <AttachmentGallery attachments={attachments} />
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 urlTransform={(href) => preserveMarkdownHref(href)}
                 components={{
+                  img({ src = '', alt = '', ...props }) {
+                    return (
+                      <button
+                        type="button"
+                        className={styles.markdownImageButton}
+                        onClick={() => setActiveMarkdownImage({ src, alt })}
+                      >
+                        <img
+                          src={src}
+                          alt={alt}
+                          className={styles.markdownImage}
+                          {...props}
+                        />
+                      </button>
+                    )
+                  },
                   a({ href, children, ...props }) {
                     return (
                       <a
@@ -1301,6 +1538,38 @@ const MessageBubble: React.FC<Props> = ({
             )}
           </div>
         )}
+
+        {false && activeMarkdownImage && (
+          <div
+            className={styles.imageLightbox}
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setActiveMarkdownImage(null)}
+          >
+            <button
+              type="button"
+              className={styles.imageLightboxClose}
+              onClick={() => setActiveMarkdownImage(null)}
+              aria-label="关闭大图预览"
+            >
+              ×
+            </button>
+            <div
+              className={styles.imageLightboxInner}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <img
+                className={styles.imageLightboxImage}
+                src={activeMarkdownImage?.src ?? ''}
+                alt={activeMarkdownImage?.alt ?? ''}
+              />
+            </div>
+          </div>
+        )}
+        <ImagePreviewDialog
+          image={activeMarkdownImage}
+          onClose={() => setActiveMarkdownImage(null)}
+        />
       </div>
     </div>
   )

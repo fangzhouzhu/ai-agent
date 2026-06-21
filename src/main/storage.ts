@@ -35,6 +35,16 @@ export interface StoredMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: Array<{
+    id: string;
+    name: string;
+    mimeType: string;
+    dataUrl: string;
+    size: number;
+    width?: number;
+    height?: number;
+    source: "paste" | "screenshot" | "generated";
+  }>;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
   modelInfo?: { model: string; scene: string; skill?: string };
