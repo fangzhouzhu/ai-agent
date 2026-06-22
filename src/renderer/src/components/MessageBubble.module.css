@@ -158,6 +158,66 @@
   margin-bottom: 12px;
 }
 
+.documentGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.documentCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(100%, 320px);
+  padding: 10px 12px;
+  border: none;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 24px rgba(45, 78, 155, 0.1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.documentCard:hover {
+  box-shadow: 0 12px 28px rgba(45, 78, 155, 0.14);
+}
+
+.documentIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f0f5ff, #e1ecff);
+  color: #315ff1;
+  font-size: 14px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.documentMeta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.documentName {
+  color: #172957;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.documentType {
+  color: #8a98ba;
+  font-size: 12px;
+}
+
 .attachmentCard {
   max-width: min(100%, 280px);
   width: fit-content;

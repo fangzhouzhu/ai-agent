@@ -45,6 +45,13 @@ export interface StoredMessage {
     height?: number;
     source: "paste" | "screenshot" | "generated";
   }>;
+  documentAttachments?: Array<{
+    id: string;
+    name: string;
+    path: string;
+    chunks: number;
+    uploadedAt: number;
+  }>;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
   modelInfo?: { model: string; scene: string; skill?: string };

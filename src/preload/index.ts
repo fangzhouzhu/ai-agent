@@ -17,6 +17,14 @@ export type ImageAttachment = {
   source: "paste" | "screenshot" | "generated";
 };
 
+export type DocumentAttachment = {
+  id: string;
+  name: string;
+  path: string;
+  chunks: number;
+  uploadedAt: number;
+};
+
 export type ConvMeta = {
   id: string;
   title: string;
@@ -30,6 +38,7 @@ export type StoredMessage = {
   role: "user" | "assistant";
   content: string;
   attachments?: ImageAttachment[];
+  documentAttachments?: DocumentAttachment[];
   task?: Task;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];

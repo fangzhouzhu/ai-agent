@@ -1,15 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import type { ImageAttachment } from '../../../preload'
+import type { ImageAttachment, RagFileMeta } from '../../../preload'
 import CustomSelect from './CustomSelect'
 import styles from './InputBar.module.css'
-
-interface RagFileMeta {
-  id: string
-  name: string
-  path: string
-  chunks: number
-  uploadedAt: number
-}
 
 type ModelProvider = 'ollama' | 'openai-compatible'
 type RouteKey = 'chat' | 'agent' | 'rag'
@@ -71,12 +63,18 @@ type InputContextMenuState = {
 }
 
 interface Props {
-  onSend: (message: string, mode: 'chat' | 'task', attachments: ImageAttachment[]) => void
+  onSend: (
+    message: string,
+    mode: 'chat' | 'task',
+    attachments: ImageAttachment[],
+    documentAttachments: RagFileMeta[]
+  ) => void
   onAbort: () => void
   isLoading: boolean
   isRagProcessing: boolean
   ragStatusText: string
   ragFiles: RagFileMeta[]
+  hideRagFiles?: boolean
   onPickFiles: () => void | Promise<void>
   onRemoveFile: (id: string) => void | Promise<void>
   modelConfig: ModelRouteConfig
@@ -231,6 +229,7 @@ const InputBar: React.FC<Props> = ({
   isRagProcessing,
   ragStatusText,
   ragFiles,
+  hideRagFiles = false,
   onPickFiles,
   onRemoveFile,
   modelConfig,
@@ -470,7 +469,7 @@ const InputBar: React.FC<Props> = ({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
-    onSend(message, sendMode, imageAttachments)
+    onSend(message, sendMode, imageAttachments, ragFiles)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -613,7 +612,7 @@ const InputBar: React.FC<Props> = ({
   return (
     <div className={styles.container}>
       <div className={styles.inner}>
-        {(isRagProcessing || ragFiles.length > 0) && (
+        {(isRagProcessing || (!hideRagFiles && ragFiles.length > 0)) && (
           <div className={styles.fileList}>
             {isRagProcessing && (
               <div className={styles.processingNotice}>

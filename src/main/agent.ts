@@ -90,6 +90,10 @@ const modelConfig: ModelConfig = {
   activeOnlineProfileId: null,
 };
 
+const OLLAMA_BASE_URL = "http://localhost:11434";
+const OLLAMA_FALLBACK_BASE_URL = "http://127.0.0.1:11434";
+const OLLAMA_REQUEST_TIMEOUT_MS = 90_000;
+
 function pickPreferredModel(
   models: string[],
   matchers: RegExp[],
@@ -246,10 +250,93 @@ export function getModel(): string {
 function buildLLM(modelName: string, streaming = false): ChatOllama {
   return new ChatOllama({
     model: modelName,
-    baseUrl: "http://localhost:11434",
+    baseUrl: OLLAMA_BASE_URL,
     streaming,
     // verbose: true, // 在主进程终端打印请求/响应详情
   });
+}
+
+function isRetryableOllamaFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("fetch failed") ||
+    message.includes("timed out") ||
+    message.includes("econnrefused") ||
+    message.includes("connect") ||
+    message.includes("socket") ||
+    message.includes("network")
+  );
+}
+
+function getOllamaResourceHint(modelName: string): string {
+  const totalMemoryGb = Math.round(os.totalmem() / 1024 / 1024 / 1024);
+  if (
+    totalMemoryGb <= 20 &&
+    /(7b|8b|vl|vision)/i.test(modelName)
+  ) {
+    return `当前机器内存约 ${totalMemoryGb} GB，运行 ${modelName} 这类视觉/7B 模型可能会长时间无响应。建议切换到更小的模型，或在更高内存环境下重试。`;
+  }
+  return "";
+}
+
+function toReadableOllamaError(error: unknown, modelName: string): Error {
+  if (error instanceof Error) {
+    const resourceHint = getOllamaResourceHint(modelName);
+    if (error.name === "AbortError" || /timed out/i.test(error.message)) {
+      return new Error(
+        [
+          `Ollama 请求超时：模型“${modelName}”在 ${Math.round(OLLAMA_REQUEST_TIMEOUT_MS / 1000)} 秒内没有返回结果。`,
+          resourceHint,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+    }
+    if (/fetch failed/i.test(error.message)) {
+      return new Error(
+        [
+          `连接 Ollama 失败：无法访问 ${OLLAMA_BASE_URL}。请确认 Ollama 已启动，并检查模型“${modelName}”是否已安装。`,
+          resourceHint,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+    }
+    return error;
+  }
+
+  return new Error(
+    `连接 Ollama 失败：请求模型“${modelName}”时发生未知错误。`,
+  );
+}
+
+async function fetchOllamaApi(
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
+  const urls = [`${OLLAMA_BASE_URL}${path}`, `${OLLAMA_FALLBACK_BASE_URL}${path}`];
+  let lastError: unknown = null;
+  const timeoutSignal = AbortSignal.timeout(OLLAMA_REQUEST_TIMEOUT_MS);
+  const mergedSignal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+
+  for (const url of urls) {
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: mergedSignal,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableOllamaFetchError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Ollama request failed");
 }
 
 async function streamFromOllama(
@@ -455,21 +542,35 @@ async function streamFromOllamaApi(
     at: startedAt,
   });
 
-  const response = await fetch("http://localhost:11434/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages,
-      stream: true,
-    }),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetchOllamaApi("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages,
+        stream: true,
+      }),
+      signal,
+    });
+  } catch (error) {
+    const readableError = toReadableOllamaError(error, modelName);
+    recordTrace({
+      type: "error",
+      traceId,
+      error: toAppError(readableError, "model", "MODEL_STREAM_FAILED"),
+      at: Date.now(),
+    });
+    throw readableError;
+  }
 
   if (!response.ok) {
-    throw new Error(`Ollama 请求失败: HTTP ${response.status}`);
+    const detail = await response.text().catch(() => "");
+    const suffix = detail ? ` - ${detail.slice(0, 300)}` : "";
+    throw new Error(`Ollama 请求失败: HTTP ${response.status}${suffix}`);
   }
 
   if (!response.body) {
@@ -977,7 +1078,9 @@ async function preCallTools(
 // 获取可用的 Ollama 模型列表
 export async function fetchOllamaModels(): Promise<string[]> {
   try {
-    const res = await fetch("http://localhost:11434/api/tags");
+    const res = await fetchOllamaApi("/api/tags", {
+      method: "GET",
+    });
     if (!res.ok) return [];
     const data = (await res.json()) as { models: { name: string }[] };
     const models = data.models.map((m) => m.name);

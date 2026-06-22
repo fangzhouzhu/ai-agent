@@ -8,7 +8,7 @@ import SkillsPanel from './components/SkillsPanel'
 import WechatBotPanel from './components/WechatBotPanel'
 import CustomSelect from './components/CustomSelect'
 import { useAppDialog } from './components/AppDialogProvider'
-import type { ImageAttachment, Task } from '../../preload/index'
+import type { ImageAttachment, RagFileMeta, Task } from '../../preload/index'
 
 import {
   type Conversation,
@@ -108,14 +108,6 @@ function getTaskMessageContent(task: Task): string {
   }
 
   return '后台任务已创建，进度会持续同步到当前对话。'
-}
-
-type RagFileMeta = {
-  id: string
-  name: string
-  path: string
-  chunks: number
-  uploadedAt: number
 }
 
 type KnowledgeBase = {
@@ -671,6 +663,7 @@ const App: React.FC = () => {
   const [loadingConversationIds, setLoadingConversationIds] = useState<string[]>([])
   const loadingConversationIdsRef = useRef<Set<string>>(new Set())
   const [ragFiles, setRagFiles] = useState<RagFileMeta[]>([])
+  const [hideQueuedRagFiles, setHideQueuedRagFiles] = useState(false)
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [isRagProcessing, setIsRagProcessing] = useState(false)
   const [ragStatusText, setRagStatusText] = useState('')
@@ -1928,6 +1921,7 @@ const App: React.FC = () => {
         return
       }
       setRagContextId(uuidv4())
+      setHideQueuedRagFiles(false)
       setRagFiles((prev) => {
         const merged = new Map(prev.map((file) => [file.id, file]))
         uploaded.forEach((file) => merged.set(file.id, file))
@@ -1950,6 +1944,7 @@ const App: React.FC = () => {
       const removed = await window.electronAPI.rag.remove(id)
       if (removed) {
         setRagContextId(uuidv4())
+        setHideQueuedRagFiles(false)
         setRagFiles((prev) => {
           const nextFiles = prev.filter((file) => file.id !== id)
           ragFilesRef.current = nextFiles
@@ -2313,8 +2308,16 @@ const App: React.FC = () => {
 
   // 发送消息
   const handleSend = useCallback(
-    async (text: string, mode: 'chat' | 'task', attachments: ImageAttachment[] = []) => {
+    async (
+      text: string,
+      mode: 'chat' | 'task',
+      attachments: ImageAttachment[] = [],
+      documentAttachments: RagFileMeta[] = []
+    ) => {
       if (isRagProcessing) return
+      if (documentAttachments.length > 0) {
+        setHideQueuedRagFiles(true)
+      }
 
       let convId = activeId
       if (convId && isConversationLoading(convId)) return
@@ -2330,7 +2333,7 @@ const App: React.FC = () => {
       if (!convId || !targetConv) return
 
       if (mode === 'task') {
-        const userMsg = createMessage('user', text, attachments)
+        const userMsg = createMessage('user', text, attachments, documentAttachments)
         const isFirstMsg = targetConv.messages.length === 0
         const newTitle = isFirstMsg ? generateTitle(text) : targetConv.title
 
@@ -2383,7 +2386,7 @@ const App: React.FC = () => {
       const currentRagFiles = ragFilesRef.current
       const activeRagContextId = currentRagFiles.length > 0 ? ragContextId : undefined
       const userMsg: Message = {
-        ...createMessage('user', text, attachments),
+        ...createMessage('user', text, attachments, documentAttachments),
         ragContextId: activeRagContextId,
       }
       const aiMsgId = uuidv4()
@@ -2578,7 +2581,7 @@ const App: React.FC = () => {
               ? agents.find((agent) => agent.id === targetConv?.agentProfileId)
               : pendingAgent)?.models.forceAgent
           ),
-          currentRagFiles.map((file) => file.id),
+          documentAttachments.map((file) => file.id),
           userMsg.attachments ?? [],
           buildKnowledgeOptions(
             (targetConv?.agentProfileId
@@ -2755,6 +2758,7 @@ const App: React.FC = () => {
               isRagProcessing={isRagProcessing}
               ragStatusText={ragStatusText}
               ragFiles={ragFiles}
+              hideRagFiles={hideQueuedRagFiles}
               onPickFiles={handlePickRagFiles}
               onRemoveFile={handleRemoveRagFile}
               modelConfig={modelConfig}

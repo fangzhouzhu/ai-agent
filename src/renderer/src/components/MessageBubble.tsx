@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import type { ImageAttachment } from '../../../preload'
+import type { DocumentAttachment, ImageAttachment } from '../../../preload'
 import type { Message } from '../types/conversation'
 import type { ReactNode } from 'react'
 import styles from './MessageBubble.module.css'
@@ -559,6 +559,41 @@ const AttachmentGallery: React.FC<{ attachments: ImageAttachment[] }> = ({ attac
         onClose={() => setActiveAttachment(null)}
       />
     </>
+  )
+}
+
+function getDocumentKindLabel(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (ext === 'doc' || ext === 'docx') return 'Word'
+  if (ext === 'pdf') return 'PDF'
+  if (ext === 'txt') return 'TXT'
+  if (ext === 'md') return 'Markdown'
+  if (ext === 'csv') return 'CSV'
+  if (ext === 'json') return 'JSON'
+  return ext ? ext.toUpperCase() : '文件'
+}
+
+const DocumentAttachmentList: React.FC<{ documents: DocumentAttachment[] }> = ({ documents }) => {
+  if (documents.length === 0) return null
+
+  return (
+    <div className={styles.documentGrid}>
+      {documents.map((document) => (
+        <button
+          key={document.id}
+          type="button"
+          className={styles.documentCard}
+          title={document.path}
+          onClick={() => void handleOpenLocalPath(document.path)}
+        >
+          <span className={styles.documentIcon}>{getDocumentKindLabel(document.name).slice(0, 1)}</span>
+          <span className={styles.documentMeta}>
+            <span className={styles.documentName}>{document.name}</span>
+            <span className={styles.documentType}>{getDocumentKindLabel(document.name)}</span>
+          </span>
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -1324,8 +1359,10 @@ const MessageBubble: React.FC<Props> = ({
   const shouldHideAssistantBody =
     !isUser && shouldSuppressAssistantBody(displayContent, promotedToolResult)
   const attachments = message.attachments ?? []
+  const documentAttachments = message.documentAttachments ?? []
   const hasTextContent = Boolean(displayContent?.trim())
-  const isImageOnlyBubble = attachments.length > 0 && !hasTextContent
+  const isImageOnlyBubble =
+    attachments.length > 0 && documentAttachments.length === 0 && !hasTextContent
 
   return (
     <div className={`${styles.wrapper} ${isUser ? styles.userWrapper : styles.assistantWrapper}`}>
@@ -1392,6 +1429,7 @@ const MessageBubble: React.FC<Props> = ({
         >
           {isUser ? (
             <>
+              <DocumentAttachmentList documents={documentAttachments} />
               <AttachmentGallery attachments={attachments} />
               {message.content ? <pre className={styles.userText}>{message.content}</pre> : null}
             </>

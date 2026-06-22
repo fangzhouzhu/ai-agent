@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import type { ImageAttachment, Task } from "../../../preload/index";
+import type { DocumentAttachment, ImageAttachment, Task } from "../../../preload/index";
 
 export interface MessageModelInfo {
   model: string;
@@ -23,6 +23,7 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   attachments?: ImageAttachment[];
+  documentAttachments?: DocumentAttachment[];
   task?: Task;
   toolCalls?: { toolName: string; input: unknown }[];
   toolResults?: { toolName: string; result: string }[];
@@ -66,12 +67,14 @@ export function createMessage(
   role: "user" | "assistant",
   content: string,
   attachments?: ImageAttachment[],
+  documentAttachments?: DocumentAttachment[],
 ): Message {
   return {
     id: uuidv4(),
     role,
     content,
     attachments,
+    documentAttachments,
   };
 }
 
@@ -87,6 +90,7 @@ export function toStoredMessage(m: Message) {
     role: m.role,
     content: m.content,
     attachments: m.attachments,
+    documentAttachments: m.documentAttachments,
     task: m.task,
     toolCalls: m.toolCalls,
     toolResults: m.toolResults,
