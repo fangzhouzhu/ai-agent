@@ -1,8 +1,8 @@
 import { app } from "electron";
-import { join } from "path";
+import { dirname, join } from "path";
 import * as fs from "fs";
 
-function getDataDir(): string {
+export function getDataDir(): string {
   const dir = join(app.getPath("userData"), "ai-agent");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -22,6 +22,18 @@ const WECHAT_BOT_MESSAGES_FILE = () => join(getDataDir(), "wechat-bot-messages.j
 const GENERAL_AGENT_ID = "general-assistant";
 const pendingFileOps = new Map<string, Promise<void>>();
 const pendingJsonCache = new Map<string, string>();
+
+export interface BackupFileEntry {
+  relativePath: string;
+  dataBase64: string;
+}
+
+export interface BackupSnapshot {
+  version: 1;
+  appName: "centibot";
+  createdAt: number;
+  files: BackupFileEntry[];
+}
 
 export interface ConvMeta {
   id: string;
@@ -275,6 +287,90 @@ function deleteFile(filePath: string): Promise<void> {
   return enqueueFileOperation(filePath, async () => {
     await fs.promises.rm(filePath, { force: true });
   });
+}
+
+function walkFilesRecursively(rootDir: string, currentDir: string): BackupFileEntry[] {
+  const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+  const files: BackupFileEntry[] = [];
+
+  for (const entry of entries) {
+    const absolutePath = join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkFilesRecursively(rootDir, absolutePath));
+      continue;
+    }
+
+    if (!entry.isFile()) continue;
+
+    const relativePath = absolutePath
+      .slice(rootDir.length)
+      .replace(/^[\\/]+/, "")
+      .replace(/\\/g, "/");
+    const dataBase64 = fs.readFileSync(absolutePath).toString("base64");
+    files.push({ relativePath, dataBase64 });
+  }
+
+  return files;
+}
+
+export function createBackupSnapshot(): BackupSnapshot {
+  const dataDir = getDataDir();
+  const files = walkFilesRecursively(dataDir, dataDir).sort((a, b) =>
+    a.relativePath.localeCompare(b.relativePath),
+  );
+
+  return {
+    version: 1,
+    appName: "centibot",
+    createdAt: Date.now(),
+    files,
+  };
+}
+
+function isBackupSnapshot(value: unknown): value is BackupSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<BackupSnapshot>;
+  return (
+    record.version === 1 &&
+    record.appName === "centibot" &&
+    Array.isArray(record.files) &&
+    record.files.every(
+      (file) =>
+        file &&
+        typeof file.relativePath === "string" &&
+        typeof file.dataBase64 === "string",
+    )
+  );
+}
+
+export function restoreBackupSnapshot(snapshot: unknown): { fileCount: number } {
+  if (!isBackupSnapshot(snapshot)) {
+    throw new Error("备份文件格式无效或版本不受支持");
+  }
+
+  const dataDir = getDataDir();
+  pendingJsonCache.clear();
+
+  if (fs.existsSync(dataDir)) {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  for (const file of snapshot.files) {
+    const sanitizedRelativePath = file.relativePath
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter((segment) => Boolean(segment) && segment !== "." && segment !== "..")
+      .join("/");
+    if (!sanitizedRelativePath) continue;
+
+    const targetPath = join(dataDir, sanitizedRelativePath);
+    const targetDir = dirname(targetPath);
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(targetPath, Buffer.from(file.dataBase64, "base64"));
+  }
+
+  return { fileCount: snapshot.files.length };
 }
 
 export function listConversations(): ConvMeta[] {

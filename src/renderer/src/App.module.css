@@ -1746,7 +1746,15 @@
 .diagnosticsActions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-top: 12px;
+}
+
+.diagnosticsActionBtn {
+  min-width: 104px;
+  padding-inline: 14px;
+  white-space: nowrap;
 }
 
 .embedNote {

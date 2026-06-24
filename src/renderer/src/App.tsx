@@ -5,6 +5,7 @@ import ChatArea from './components/ChatArea'
 import InputBar from './components/InputBar'
 import KnowledgeBasePanel from './components/KnowledgeBase'
 import SkillsPanel from './components/SkillsPanel'
+import TaskPanel from './components/TaskPanel'
 import WechatBotPanel from './components/WechatBotPanel'
 import CustomSelect from './components/CustomSelect'
 import { useAppDialog } from './components/AppDialogProvider'
@@ -699,6 +700,7 @@ const App: React.FC = () => {
     directory: '',
     currentFile: '',
   })
+  const [isBackupBusy, setIsBackupBusy] = useState(false)
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null)
   const [apiTestState, setApiTestState] = useState<ApiTestState>({
     status: 'idle',
@@ -710,8 +712,9 @@ const App: React.FC = () => {
     message: '',
   })
   const [ragContextId, setRagContextId] = useState(() => uuidv4())
-  const [currentView, setCurrentView] = useState<'chat' | 'agents' | 'kb' | 'skills' | 'wechat'>('chat')
+  const [currentView, setCurrentView] = useState<'chat' | 'task' | 'agents' | 'kb' | 'skills' | 'wechat'>('chat')
   const [activeKbId, setActiveKbId] = useState<string | null>(null)
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [runningTaskCount, setRunningTaskCount] = useState(0)
   const ragFilesRef = useRef<RagFileMeta[]>([])
   const streamingMsgIdRef = useRef<Record<string, string | null>>({})
@@ -784,6 +787,99 @@ const App: React.FC = () => {
     }
   }, [])
 
+  const handleExportBackup = useCallback(async () => {
+    if (isBackupBusy) return
+    const exportBackup = (window.electronAPI.diagnostics as {
+      exportBackup?: () => Promise<{
+        ok: boolean
+        message: string
+        filePath?: string
+        fileCount?: number
+      }>
+    }).exportBackup
+    if (typeof exportBackup !== 'function') {
+      window.alert('当前窗口尚未加载最新备份能力，请重启应用后再试。')
+      return
+    }
+
+    setIsBackupBusy(true)
+    try {
+      const result = await exportBackup()
+      if (!result.ok) {
+        if (result.message !== '已取消导出') {
+          window.alert(result.message || '导出备份失败')
+        }
+        return
+      }
+
+      window.alert(`备份导出成功\n文件数：${result.fileCount ?? 0}\n路径：${result.filePath ?? '未返回路径'}`)
+    } catch (error) {
+      window.alert(`导出备份失败：${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      setIsBackupBusy(false)
+    }
+  }, [isBackupBusy])
+
+  const handleImportBackup = useCallback(async () => {
+    if (isBackupBusy) return
+    const importBackup = (window.electronAPI.diagnostics as {
+      importBackup?: () => Promise<{
+        ok: boolean
+        message: string
+        filePath?: string
+        fileCount?: number
+        requiresRestart?: boolean
+      }>
+      relaunchApp?: () => Promise<void>
+    }).importBackup
+    const relaunchApp = (window.electronAPI.diagnostics as {
+      relaunchApp?: () => Promise<void>
+    }).relaunchApp
+
+    if (typeof importBackup !== 'function') {
+      window.alert('当前窗口尚未加载最新备份能力，请重启应用后再试。')
+      return
+    }
+
+    const confirmed = await confirm({
+      title: '导入备份',
+      message: '导入会覆盖当前本地数据，建议完成后立即重启应用。',
+      description: '请确认当前数据已经备份，避免误覆盖。',
+      confirmText: '继续导入',
+      cancelText: '取消',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+
+    setIsBackupBusy(true)
+    try {
+      const result = await importBackup()
+      if (!result.ok) {
+        if (result.message !== '已取消导入') {
+          window.alert(result.message || '导入备份失败')
+        }
+        return
+      }
+
+      const restartNow = await confirm({
+        title: '导入完成',
+        message: `已恢复 ${result.fileCount ?? 0} 个文件。是否立即重启应用以加载备份数据？`,
+        description: result.filePath,
+        confirmText: '立即重启',
+        cancelText: '稍后',
+        tone: 'default',
+      })
+
+      if (restartNow && typeof relaunchApp === 'function') {
+        await relaunchApp()
+      }
+    } catch (error) {
+      window.alert(`导入备份失败：${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      setIsBackupBusy(false)
+    }
+  }, [confirm, isBackupBusy])
+
   const handleSelectTrace = useCallback(async (traceId: string) => {
     setActiveTraceId(traceId)
     setIsTraceDetailLoading(true)
@@ -813,10 +909,11 @@ const App: React.FC = () => {
         console.error('electronAPI.storage 未就绪，请重启应用')
         return
       }
-      const [metas, activeIdStored, uploaded] = await Promise.all([
+      const [metas, activeIdStored, uploaded, tasks] = await Promise.all([
         window.electronAPI.storage.list(),
         window.electronAPI.storage.getActive(),
         window.electronAPI.rag.list(),
+        window.electronAPI.task.list(),
       ])
 
       const convs: Conversation[] = metas.map((m) => ({
@@ -834,6 +931,7 @@ const App: React.FC = () => {
 
       setRagFiles(uploaded)
       ragFilesRef.current = uploaded
+      setRunningTaskCount(tasks.filter((task) => task.status === 'running').length)
       await refreshModelConfig()
     }
     init()
@@ -2340,6 +2438,8 @@ const App: React.FC = () => {
         try {
           const taskId = await window.electronAPI.task.create(text)
           const task = (await window.electronAPI.task.get(taskId)) ?? createPendingTaskSnapshot(taskId, text)
+          setActiveTaskId(taskId)
+          setCurrentView('task')
           const taskMessage: Message = {
             id: uuidv4(),
             role: 'assistant',
@@ -2717,6 +2817,11 @@ const App: React.FC = () => {
           <KnowledgeBasePanel
             activeKbId={activeKbId}
             onActiveKbIdChange={setActiveKbId}
+          />
+        ) : currentView === 'task' ? (
+          <TaskPanel
+            selectedTaskId={activeTaskId}
+            onSelectedTaskIdChange={setActiveTaskId}
           />
         ) : currentView === 'skills' ? (
           <SkillsPanel />
@@ -3727,8 +3832,25 @@ const App: React.FC = () => {
                     <span>目录：{diagnosticLogInfo.directory || '待初始化'}</span>
                   </div>
                   <div className={styles.diagnosticsActions}>
-                    <button className={styles.secondaryBtn} onClick={() => void handleOpenLogDirectory()}>
+                    <button
+                      className={`${styles.secondaryBtn} ${styles.diagnosticsActionBtn}`}
+                      onClick={() => void handleOpenLogDirectory()}
+                    >
                       打开日志目录
+                    </button>
+                    <button
+                      className={`${styles.secondaryBtn} ${styles.diagnosticsActionBtn}`}
+                      disabled={isBackupBusy}
+                      onClick={() => void handleExportBackup()}
+                    >
+                      {isBackupBusy ? '处理中...' : '导出备份'}
+                    </button>
+                    <button
+                      className={`${styles.secondaryBtn} ${styles.dangerBtn} ${styles.diagnosticsActionBtn}`}
+                      disabled={isBackupBusy}
+                      onClick={() => void handleImportBackup()}
+                    >
+                      {isBackupBusy ? '处理中...' : '导入备份'}
                     </button>
                   </div>
                 </div>

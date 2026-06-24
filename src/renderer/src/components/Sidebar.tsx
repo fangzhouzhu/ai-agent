@@ -18,8 +18,8 @@ interface Props {
   onDelete: (id: string) => void
   onRename: (id: string, title: string) => void | Promise<void>
   onOpenSettings: () => void
-  currentView: 'chat' | 'agents' | 'kb' | 'skills' | 'wechat'
-  onViewChange: (view: 'chat' | 'agents' | 'kb' | 'skills' | 'wechat') => void
+  currentView: 'chat' | 'task' | 'agents' | 'kb' | 'skills' | 'wechat'
+  onViewChange: (view: 'chat' | 'task' | 'agents' | 'kb' | 'skills' | 'wechat') => void
   runningTaskCount: number
   activeKbId?: string | null
   onSelectKb: (id: string | null) => void
@@ -123,6 +123,14 @@ const Sidebar: React.FC<Props> = ({
               <NewChatIcon />
             </span>
             <span>新对话</span>
+          </button>
+          <button
+            className={`${styles.navItem} ${currentView === 'task' ? styles.navItemActive : ''}`}
+            onClick={() => onViewChange('task')}
+          >
+            <span className={styles.navIcon}>T</span>
+            <span>任务中心</span>
+            {runningTaskCount > 0 && <span className={styles.countBadge}>{runningTaskCount}</span>}
           </button>
           <button
             className={`${styles.navItem} ${currentView === 'agents' ? styles.navItemActive : ''}`}

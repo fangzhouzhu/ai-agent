@@ -395,6 +395,14 @@ export type DiagnosticLogInfo = {
   currentFile: string;
 };
 
+export type BackupActionResult = {
+  ok: boolean;
+  message: string;
+  filePath?: string;
+  fileCount?: number;
+  requiresRestart?: boolean;
+};
+
 export type InputEditAction = "copy" | "cut" | "paste";
 
 const api = {
@@ -591,6 +599,12 @@ const api = {
       ipcRenderer.invoke("diagnostics:get-log-info"),
     openLogDirectory: (): Promise<{ ok: boolean; message: string }> =>
       ipcRenderer.invoke("diagnostics:open-log-directory"),
+    exportBackup: (): Promise<BackupActionResult> =>
+      ipcRenderer.invoke("diagnostics:export-backup"),
+    importBackup: (): Promise<BackupActionResult> =>
+      ipcRenderer.invoke("diagnostics:import-backup"),
+    relaunchApp: (): Promise<void> =>
+      ipcRenderer.invoke("diagnostics:relaunch-app"),
   },
 
   getKbUiState: (): Promise<{

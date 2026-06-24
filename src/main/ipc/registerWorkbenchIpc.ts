@@ -1,4 +1,5 @@
-import { ipcMain, shell } from "electron";
+import { app, dialog, ipcMain, shell } from "electron";
+import { join } from "node:path";
 import {
   getCurrentLogFilePath,
   getLogDirectory,
@@ -12,6 +13,8 @@ import {
   saveWechatBotSettings,
   getKbUiState,
   saveKbUiState,
+  createBackupSnapshot,
+  restoreBackupSnapshot,
   type WechatBotSettings,
   type WechatBotPanelMessage,
   type SkillConfig,
@@ -108,6 +111,70 @@ export function registerWorkbenchIpcHandlers(
   ipcMain.handle("diagnostics:open-log-directory", async () => {
     const result = await shell.openPath(getLogDirectory());
     return { ok: result.length === 0, message: result };
+  });
+
+  ipcMain.handle("diagnostics:export-backup", async () => {
+    const snapshot = createBackupSnapshot();
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}Z$/, "Z");
+    const result = await dialog.showSaveDialog({
+      title: "导出 Centibot 备份",
+      defaultPath: join(
+        app.getPath("documents"),
+        `centibot-backup-${timestamp}.json`,
+      ),
+      filters: [{ name: "Centibot Backup", extensions: ["json"] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { ok: false, message: "已取消导出" };
+    }
+
+    await app.whenReady();
+    await import("node:fs/promises").then(({ writeFile }) =>
+      writeFile(result.filePath!, JSON.stringify(snapshot, null, 2), "utf-8"),
+    );
+
+    return {
+      ok: true,
+      message: "备份导出成功",
+      filePath: result.filePath,
+      fileCount: snapshot.files.length,
+    };
+  });
+
+  ipcMain.handle("diagnostics:import-backup", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "导入 Centibot 备份",
+      properties: ["openFile"],
+      filters: [{ name: "Centibot Backup", extensions: ["json"] }],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, message: "已取消导入" };
+    }
+
+    const selectedPath = result.filePaths[0];
+    const raw = await import("node:fs/promises").then(({ readFile }) =>
+      readFile(selectedPath, "utf-8"),
+    );
+    const parsed = JSON.parse(raw) as unknown;
+    const restored = restoreBackupSnapshot(parsed);
+
+    return {
+      ok: true,
+      message: "备份导入成功，重启应用后生效",
+      filePath: selectedPath,
+      fileCount: restored.fileCount,
+      requiresRestart: true,
+    };
+  });
+
+  ipcMain.handle("diagnostics:relaunch-app", () => {
+    app.relaunch();
+    app.exit(0);
   });
 
   ipcMain.handle("kb:get-ui-state", async () => {
