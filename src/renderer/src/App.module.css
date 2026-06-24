@@ -5,18 +5,7 @@
   overflow: hidden;
   padding-top: 40px;
   box-sizing: border-box;
-  background:
-    radial-gradient(
-      circle at 34% 4%,
-      rgba(255, 255, 255, 0.96) 0 17%,
-      transparent 31%
-    ),
-    radial-gradient(
-      circle at 84% 74%,
-      rgba(114, 152, 255, 0.12) 0 13%,
-      transparent 28%
-    ),
-    linear-gradient(135deg, #f8fbff 0%, #edf4ff 48%, #f6fbff 100%);
+  background: var(--ui-bg-page);
   color: #13244f;
 }
 
@@ -27,7 +16,7 @@
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  border-left: 1px solid rgba(203, 216, 248, 0.72);
+  border-left: 1px solid var(--ui-border);
 }
 
 .main::before {
@@ -67,8 +56,8 @@
   justify-content: space-between;
   gap: 16px;
   padding: 18px 24px;
-  border-bottom: 1px solid rgba(217, 226, 250, 0.78);
-  background: rgba(255, 255, 255, 0.62);
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-surface-glass);
   backdrop-filter: blur(16px);
 }
 
@@ -83,25 +72,25 @@
   margin: 0;
   font-size: 18px;
   font-weight: 800;
-  color: #102052;
+  color: var(--ui-color-primary);
 }
 
 .agentPageHint {
   margin: 7px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #617195;
+  color: var(--ui-color-secondary);
 }
 
 .agentPageHeaderBtn {
-  border-radius: 12px;
+  border-radius: var(--ui-radius-md);
   padding: 8px 12px;
   font: inherit;
   font-size: 12px;
   font-weight: 850;
   cursor: pointer;
-  border: 1px solid rgba(178, 196, 242, 0.82);
-  background: rgba(245, 248, 255, 0.94);
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-card-soft);
   color: #244173;
   transition:
     transform 0.16s ease,
@@ -112,9 +101,9 @@
 
 .agentPageHeaderBtn:hover {
   transform: translateY(-1px);
-  border-color: rgba(91, 124, 255, 0.52);
+  border-color: var(--ui-border-active);
   background: #ffffff;
-  box-shadow: 0 10px 22px rgba(70, 99, 180, 0.1);
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .agentWorkspace {
@@ -136,8 +125,8 @@
 }
 
 .agentOverviewCard {
-  border: 1px solid rgba(183, 200, 243, 0.78);
-  border-radius: 24px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-xl);
   background:
     linear-gradient(
       180deg,
@@ -151,7 +140,7 @@
     );
   padding: 13px 13px 12px;
   box-shadow:
-    0 10px 24px rgba(53, 81, 154, 0.08),
+    var(--ui-shadow-sm),
     inset 0 1px 0 rgba(255, 255, 255, 0.97);
   transition:
     box-shadow 0.16s ease,
@@ -160,9 +149,9 @@
 }
 
 .agentOverviewCard:hover {
-  border-color: rgba(112, 141, 233, 0.82);
+  border-color: var(--ui-border-active);
   box-shadow:
-    0 14px 28px rgba(53, 81, 154, 0.11),
+    var(--ui-shadow-md),
     inset 0 1px 0 rgba(255, 255, 255, 0.985);
 }
 
@@ -182,11 +171,11 @@
 .agentOverviewAvatar {
   width: 38px;
   height: 38px;
-  border-radius: 13px;
+  border-radius: var(--ui-radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  background: var(--ui-gradient-primary);
   color: #fff;
   font-size: 14px;
   font-weight: 800;
@@ -195,9 +184,9 @@
 
 .agentOverviewMode {
   padding: 4px 9px;
-  border-radius: 999px;
-  background: rgba(241, 246, 255, 0.98);
-  border: 1px solid rgba(192, 206, 241, 0.78);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-accent);
+  border: 1px solid var(--ui-border-strong);
   color: #62739a;
   font-size: 10px;
   font-weight: 800;
@@ -299,7 +288,7 @@
   min-width: 92px;
   padding: 6px;
   border: 1px solid rgba(190, 206, 246, 0.86);
-  border-radius: 12px;
+  border-radius: var(--ui-radius-md);
   background: #ffffff;
   box-shadow: 0 18px 40px rgba(45, 78, 170, 0.16);
 }
@@ -612,7 +601,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 16px 22px 20px;
-  border-top: 1px solid rgba(217, 226, 250, 0.8);
+  border-top: 1px solid var(--ui-border);
 }
 
 .topbar {
@@ -623,8 +612,8 @@
   justify-content: space-between;
   min-height: 72px;
   padding: 0 30px;
-  border-bottom: 1px solid rgba(202, 216, 248, 0.74);
-  background: rgba(255, 255, 255, 0.76);
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-surface-glass);
   backdrop-filter: blur(20px);
   -webkit-app-region: drag;
   flex-shrink: 0;
@@ -634,7 +623,7 @@
 .convTitle {
   font-size: 18px;
   font-weight: 800;
-  color: #0d1d4a;
+  color: var(--ui-color-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -653,8 +642,8 @@
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(221, 245, 232, 0.92);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-success);
   border: 1px solid rgba(129, 208, 167, 0.7);
   color: #1f7a55;
   font-size: 12px;
@@ -665,9 +654,9 @@
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(237, 244, 255, 0.92);
-  border: 1px solid rgba(182, 198, 241, 0.74);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface-accent);
+  border: 1px solid var(--ui-border-strong);
   color: #355599;
   font-size: 12px;
   font-weight: 700;
@@ -730,7 +719,7 @@
     linear-gradient(135deg, rgba(96, 123, 246, 0.34), rgba(79, 211, 198, 0.22))
       border-box;
   border: 1px solid transparent;
-  border-radius: 24px;
+  border-radius: 20px;
   box-shadow:
     0 30px 90px rgba(46, 76, 154, 0.22),
     0 8px 26px rgba(35, 51, 94, 0.1),
@@ -748,7 +737,7 @@
   justify-content: space-between;
   gap: 14px;
   padding: 20px 22px 12px;
-  border-bottom: 1px solid rgba(217, 226, 250, 0.8);
+  border-bottom: 1px solid var(--ui-border);
   flex-shrink: 0;
   -webkit-app-region: no-drag;
 }
@@ -756,14 +745,14 @@
 .modalTitle {
   margin: 0;
   font-size: 18px;
-  color: #102052;
+  color: var(--ui-color-primary);
 }
 
 .modalSubtitle {
   margin: 7px 0 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #617195;
+  color: var(--ui-color-secondary);
 }
 
 .modalClose {
@@ -803,7 +792,7 @@
   width: 214px;
   flex-shrink: 0;
   padding: 18px 14px;
-  border-right: 1px solid rgba(217, 226, 250, 0.82);
+  border-right: 1px solid var(--ui-border);
   background:
     radial-gradient(circle at 20% 6%, rgba(91, 124, 255, 0.1), transparent 32%),
     rgba(247, 250, 255, 0.7);
@@ -823,7 +812,7 @@
   align-items: center;
   gap: 10px;
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: var(--ui-radius-lg);
   background: transparent;
   color: #52658f;
   padding: 11px 10px;
@@ -846,31 +835,31 @@
 }
 
 .settingsNavItemActive {
-  color: #102052;
-  background: rgba(237, 244, 255, 0.96);
-  border-color: rgba(91, 124, 255, 0.5);
+  color: var(--ui-color-primary);
+  background: var(--ui-surface-accent);
+  border-color: var(--ui-border-active);
   box-shadow:
-    0 12px 24px rgba(53, 81, 154, 0.1),
+    var(--ui-shadow-sm),
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
 .settingsNavIcon {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: var(--ui-radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   color: #4162ff;
-  background: rgba(237, 244, 255, 0.94);
-  border: 1px solid rgba(180, 197, 242, 0.7);
+  background: var(--ui-surface-accent);
+  border: 1px solid var(--ui-border-strong);
   font-size: 13px;
 }
 
 .settingsNavItemActive .settingsNavIcon {
   color: #ffffff;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  background: var(--ui-gradient-primary);
   border-color: transparent;
   box-shadow: 0 10px 18px rgba(54, 103, 226, 0.2);
 }
@@ -915,13 +904,13 @@
 
 .modalSection {
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(222, 230, 250, 0.86);
+  border-bottom: 1px solid var(--ui-border);
 }
 
 .modalLabel {
   font-size: 12px;
   font-weight: 800;
-  color: #102052;
+  color: var(--ui-color-primary);
   margin-bottom: 11px;
 }
 
@@ -950,7 +939,7 @@
 
 .emptyHint {
   font-size: 12px;
-  color: #8494b4;
+  color: var(--ui-color-muted);
 }
 
 .fieldGrid {
@@ -1064,10 +1053,10 @@
 .fieldInput,
 .fieldTextarea {
   width: 100%;
-  background: rgba(247, 250, 255, 0.96);
-  border: 1px solid rgba(183, 199, 241, 0.78);
-  border-radius: 12px;
-  color: #102052;
+  background: var(--ui-surface-card-soft);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-color-primary);
   padding: 9px 11px;
   outline: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
@@ -1094,11 +1083,11 @@
 .fieldSelectOption {
   font-size: 12px;
   font-weight: 700;
-  color: #102052;
+  color: var(--ui-color-primary);
 }
 
 .fieldSelectOptionSelected {
-  color: #0d214f;
+  color: var(--ui-color-primary);
 }
 
 .fieldTextarea {
@@ -1110,7 +1099,7 @@
 .fieldSelect:focus,
 .fieldInput:focus,
 .fieldTextarea:focus {
-  border-color: #5b7cff;
+  border-color: var(--ui-border-active);
   box-shadow:
     0 0 0 3px rgba(86, 122, 255, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.82);
@@ -1118,12 +1107,12 @@
 
 .fieldInput::placeholder,
 .fieldTextarea::placeholder {
-  color: #96a6c3;
+  color: var(--ui-color-subtle);
 }
 
 .fieldHint {
   font-size: 11px;
-  color: #6f7f9f;
+  color: var(--ui-color-muted);
   line-height: 1.5;
 }
 
@@ -1225,10 +1214,10 @@
 .routeCard,
 .profileCard,
 .metricCard {
-  border: 1px solid rgba(186, 201, 241, 0.76);
-  border-radius: 14px;
-  background: rgba(249, 251, 255, 0.92);
-  box-shadow: 0 10px 24px rgba(53, 81, 154, 0.06);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .skillEditor {
@@ -1280,7 +1269,7 @@
 .hintCard {
   margin-top: 12px;
   padding: 11px 13px;
-  border-radius: 14px;
+  border-radius: var(--ui-radius-lg);
   background: linear-gradient(
     135deg,
     rgba(233, 242, 255, 0.94),
@@ -1312,9 +1301,9 @@
 }
 
 .profileCardActive {
-  border-color: #5b7cff;
+  border-color: var(--ui-border-active);
   box-shadow:
-    0 14px 30px rgba(74, 106, 224, 0.12),
+    var(--ui-shadow-md),
     0 0 0 1px rgba(91, 124, 255, 0.12) inset;
 }
 
@@ -1371,7 +1360,7 @@
 
 .miniPrimaryBtn {
   border: 1px solid #3564f3;
-  background: linear-gradient(135deg, #4d6bff, #1da8df);
+  background: var(--ui-gradient-primary);
   color: #fff;
   padding: 6px 11px;
   font-size: 11px;
@@ -1433,20 +1422,20 @@
 
 .metricLabel {
   font-size: 11px;
-  color: #7282a0;
+  color: var(--ui-color-muted);
   margin-bottom: 6px;
 }
 
 .metricValue {
   font-size: 12px;
-  color: #102052;
+  color: var(--ui-color-primary);
   line-height: 1.5;
   word-break: break-word;
 }
 
 .statusNote {
   font-size: 12px;
-  color: #5f6f93;
+  color: var(--ui-color-secondary);
 }
 
 .statusSuccess {
@@ -1474,10 +1463,10 @@
 .policyCard,
 .traceCard {
   padding: 12px;
-  border: 1px solid rgba(186, 201, 241, 0.76);
-  border-radius: 14px;
-  background: rgba(249, 251, 255, 0.92);
-  box-shadow: 0 10px 24px rgba(53, 81, 154, 0.06);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-card);
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .traceListItem {
@@ -1489,9 +1478,9 @@
 }
 
 .traceCardActive {
-  border-color: #5b7cff;
+  border-color: var(--ui-border-active);
   box-shadow:
-    0 14px 30px rgba(74, 106, 224, 0.12),
+    var(--ui-shadow-md),
     0 0 0 1px rgba(91, 124, 255, 0.12) inset;
 }
 
@@ -1771,8 +1760,8 @@
   justify-content: flex-end;
   gap: 10px;
   padding: 16px 20px 20px;
-  border-top: 1px solid rgba(217, 226, 250, 0.86);
-  background: rgba(246, 249, 255, 0.86);
+  border-top: 1px solid var(--ui-border);
+  background: var(--ui-surface-card-soft);
   flex-shrink: 0;
 }
 
@@ -1783,8 +1772,8 @@
 }
 
 .secondaryBtn {
-  border: 1px solid rgba(178, 196, 242, 0.82);
-  background: rgba(245, 248, 255, 0.94);
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-card-soft);
   color: #244173;
 }
 
@@ -1792,8 +1781,8 @@
 .miniBtn:hover,
 .miniPrimaryBtn:hover {
   transform: translateY(-1px);
-  border-color: rgba(91, 124, 255, 0.52);
-  box-shadow: 0 10px 22px rgba(70, 99, 180, 0.1);
+  border-color: var(--ui-border-active);
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .miniBtn:hover {
@@ -1806,7 +1795,7 @@
 
 .primaryBtn {
   border: 1px solid #3564f3;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  background: var(--ui-gradient-primary);
   color: #fff;
   box-shadow: 0 12px 28px rgba(53, 100, 243, 0.22);
 }

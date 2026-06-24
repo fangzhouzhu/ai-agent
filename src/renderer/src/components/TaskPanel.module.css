@@ -11,10 +11,10 @@
 .leftPanel {
   width: 290px;
   min-width: 250px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--ui-surface-glass);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid rgba(203, 216, 248, 0.78);
+  border-right: 1px solid var(--ui-border);
   flex-shrink: 0;
   overflow: hidden;
   backdrop-filter: blur(18px);
@@ -24,18 +24,18 @@
   display: flex;
   align-items: center;
   padding: 18px 16px 12px;
-  border-bottom: 1px solid rgba(217, 226, 250, 0.74);
+  border-bottom: 1px solid var(--ui-border);
 }
 
 .leftTitle {
-  color: #102052;
+  color: var(--ui-color-primary);
   font-weight: 850;
   font-size: 15px;
 }
 
 .newTaskArea {
   padding: 14px;
-  border-bottom: 1px solid rgba(217, 226, 250, 0.74);
+  border-bottom: 1px solid var(--ui-border);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -44,10 +44,10 @@
 .promptInput {
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(183, 199, 241, 0.78);
-  border-radius: 12px;
-  color: #102052;
+  background: var(--ui-surface-glass-strong);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-color-primary);
   font-size: 12.5px;
   padding: 10px 11px;
   outline: none;
@@ -60,20 +60,20 @@
 }
 
 .promptInput::placeholder {
-  color: #96a6c3;
+  color: var(--ui-color-subtle);
 }
 
 .promptInput:focus {
-  border-color: #5b7cff;
+  border-color: var(--ui-border-active);
   box-shadow: 0 0 0 3px rgba(91, 124, 255, 0.1);
 }
 
 .createBtn {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 999px;
+  border-radius: var(--ui-radius-pill);
   border: none;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  background: var(--ui-gradient-primary);
   color: #fff;
   font-size: 12.5px;
   font-weight: 850;
@@ -82,7 +82,7 @@
     opacity 0.15s,
     transform 0.15s,
     box-shadow 0.15s;
-  box-shadow: 0 12px 24px rgba(54, 103, 226, 0.2);
+  box-shadow: var(--ui-shadow-primary);
 }
 
 .createBtn:hover:not(:disabled) {
@@ -106,7 +106,7 @@
   padding: 12px 10px;
   cursor: pointer;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-md);
   transition:
     background 0.16s,
     border-color 0.16s,
@@ -114,14 +114,14 @@
 }
 
 .taskItem:hover {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(203, 216, 248, 0.72);
+  background: var(--ui-surface-glass);
+  border-color: var(--ui-border);
 }
 
 .taskItemActive {
-  background: rgba(237, 244, 255, 0.92);
-  border-color: rgba(91, 124, 255, 0.5);
-  box-shadow: 0 10px 22px rgba(53, 81, 154, 0.08);
+  background: var(--ui-surface-accent);
+  border-color: var(--ui-border-active);
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .taskItemHeader {
@@ -132,7 +132,7 @@
 }
 
 .taskItemTitle {
-  color: #162652;
+  color: var(--ui-color-body);
   font-size: 12.5px;
   font-weight: 800;
   line-height: 1.4;
@@ -151,13 +151,13 @@
 }
 
 .statusLabel {
-  color: #617195;
+  color: var(--ui-color-secondary);
   font-size: 11px;
   font-weight: 700;
 }
 
 .stepCount {
-  color: #8493ae;
+  color: var(--ui-color-muted);
   font-size: 11px;
 }
 
@@ -212,7 +212,7 @@
 }
 
 .emptyHint {
-  color: #7383a2;
+  color: var(--ui-color-muted);
   font-size: 12px;
   padding: 16px 12px;
   line-height: 1.5;
@@ -240,11 +240,11 @@
 .emptyIcon {
   width: 58px;
   height: 58px;
-  border-radius: 18px;
+  border-radius: var(--ui-radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
+  background: var(--ui-gradient-primary);
   color: #fff;
   font-size: 26px;
   line-height: 1;
@@ -252,13 +252,13 @@
 }
 
 .emptyTitle {
-  color: #102052;
+  color: var(--ui-color-primary);
   font-size: 20px;
   font-weight: 850;
 }
 
 .emptyDesc {
-  color: #5f6f93;
+  color: var(--ui-color-secondary);
   font-size: 14px;
   text-align: center;
   line-height: 1.7;
@@ -267,8 +267,8 @@
 
 .detailHeader {
   padding: 17px 22px 14px;
-  border-bottom: 1px solid rgba(211, 222, 249, 0.84);
-  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-surface-glass);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -278,7 +278,7 @@
 }
 
 .detailTitle {
-  color: #102052;
+  color: var(--ui-color-primary);
   font-size: 15px;
   font-weight: 850;
   line-height: 1.4;
@@ -335,7 +335,7 @@
 }
 
 .detailTime {
-  color: #7c8ba8;
+  color: var(--ui-color-muted);
   font-size: 12px;
 }
 
@@ -354,8 +354,8 @@
   width: 34px;
   height: 34px;
   border-radius: 11px;
-  border: 1px solid rgba(184, 200, 240, 0.84);
-  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-glass-strong);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -415,12 +415,12 @@
 }
 
 .stepItem {
-  border-radius: 14px;
-  border: 1px solid rgba(204, 216, 247, 0.8);
-  background: rgba(255, 255, 255, 0.78);
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface-glass);
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 10px 24px rgba(45, 78, 170, 0.05);
+  box-shadow: var(--ui-shadow-sm);
 }
 
 .step_thinking {
@@ -454,14 +454,14 @@
 }
 
 .stepLabel {
-  color: #162652;
+  color: var(--ui-color-body);
   font-size: 13px;
   flex: 1;
   font-weight: 800;
 }
 
 .expandIcon {
-  color: #8493ae;
+  color: var(--ui-color-muted);
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -502,7 +502,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  color: #5f6f93;
+  color: var(--ui-color-secondary);
   font-size: 13px;
   flex-shrink: 0;
 }
@@ -528,8 +528,8 @@
 
 .outputFiles {
   padding: 14px 18px;
-  border-top: 1px solid rgba(211, 222, 249, 0.84);
-  background: rgba(255, 255, 255, 0.72);
+  border-top: 1px solid var(--ui-border);
+  background: var(--ui-surface-glass);
 }
 
 .outputFilesTitle {
@@ -565,6 +565,6 @@
     min-height: 240px;
     max-height: 38vh;
     border-right: none;
-    border-bottom: 1px solid rgba(203, 216, 248, 0.78);
+    border-bottom: 1px solid var(--ui-border);
   }
 }

@@ -6,7 +6,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  color: #162652;
+  color: var(--ui-color-body);
   background:
     linear-gradient(
       180deg,
@@ -41,14 +41,14 @@
   gap: 10px;
   border: none;
   background: transparent;
-  color: #111f4d;
+  color: var(--ui-color-primary);
   padding: 5px 6px;
-  border-radius: 12px;
+  border-radius: var(--ui-radius-md);
   cursor: pointer;
 }
 
 .brandBtn:hover {
-  background: rgba(236, 242, 255, 0.92);
+  background: var(--ui-surface-accent);
 }
 
 .logoMark {
@@ -63,8 +63,8 @@
   content: "";
   position: absolute;
   border-radius: 5px;
-  background: linear-gradient(135deg, #4d6bff, #20b7c7);
-  box-shadow: 0 10px 18px rgba(54, 103, 226, 0.2);
+  background: var(--ui-gradient-primary);
+  box-shadow: var(--ui-shadow-primary);
 }
 
 .logoMark::before {
@@ -112,7 +112,7 @@
   width: 100%;
   min-height: 36px;
   border: none;
-  border-radius: 14px;
+  border-radius: var(--ui-radius-lg);
   background: transparent;
   color: #26375f;
   cursor: pointer;
@@ -129,35 +129,31 @@
 
 .navItem:hover,
 .emptyAction:hover {
-  background: rgba(235, 241, 255, 0.86);
-  color: #102052;
+  background: var(--ui-surface-accent);
+  color: var(--ui-color-primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    0 8px 18px rgba(63, 92, 170, 0.08);
+    var(--ui-shadow-sm);
 }
 
 .navItemActive {
-  background: linear-gradient(
-    180deg,
-    rgba(223, 232, 255, 0.98),
-    rgba(214, 226, 255, 0.92)
-  );
-  color: #0e214f;
+  background: var(--ui-surface-accent);
+  color: var(--ui-color-primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
     inset 0 0 0 1px rgba(130, 157, 240, 0.24),
-    0 10px 22px rgba(70, 99, 180, 0.1);
+    var(--ui-shadow-sm);
 }
 
 .listItem:hover {
   background: rgba(239, 244, 255, 0.84);
-  color: #102052;
+  color: var(--ui-color-primary);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
 .active {
   background: rgba(220, 230, 255, 0.98);
-  color: #0e214f;
+  color: var(--ui-color-primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
     inset 0 0 0 1px rgba(130, 157, 240, 0.24);
@@ -168,10 +164,10 @@
   align-items: center;
   min-height: 40px;
   padding: 7px 13px;
-  border-radius: 15px;
+  border-radius: var(--ui-radius-xl);
   color: #ffffff;
-  background: linear-gradient(135deg, #4d6bff 0%, #8c7aff 72%, #a9a3ff 100%);
-  box-shadow: 0 16px 34px rgba(82, 106, 244, 0.24);
+  background: var(--ui-gradient-primary-alt);
+  box-shadow: var(--ui-shadow-primary);
   font-weight: 800;
 }
 
@@ -193,14 +189,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #506391;
+  color: var(--ui-color-secondary);
   flex-shrink: 0;
   text-align: center;
   font-size: 14px;
   line-height: 1;
-  border-radius: 9px;
-  background: rgba(238, 243, 255, 0.94);
-  border: 1px solid rgba(199, 212, 245, 0.84);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-accent);
+  border: 1px solid var(--ui-border-strong);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
@@ -219,9 +215,9 @@
 }
 
 .navItemActive .navIcon {
-  color: #315ff1;
+  color: var(--ui-color-accent);
   background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(177, 195, 246, 0.86);
+  border-color: var(--ui-border-strong);
   box-shadow:
     0 6px 14px rgba(71, 105, 201, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
@@ -232,7 +228,7 @@
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--ui-radius-pill);
   background: #bdf3d5;
   color: #0d7a52;
   font-size: 11px;
@@ -253,7 +249,7 @@
 
 .sectionTitle {
   padding: 0 4px 10px 0;
-  color: #7281a2;
+  color: var(--ui-color-muted);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -413,11 +409,11 @@
   right: 0;
   min-width: 104px;
   padding: 6px;
-  border-radius: 12px;
-  border: 1px solid rgba(184, 198, 235, 0.92);
-  background: rgba(255, 255, 255, 0.98);
+  border-radius: var(--ui-radius-md);
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-card);
   box-shadow:
-    0 16px 32px rgba(48, 74, 142, 0.14),
+    var(--ui-shadow-lg),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
   z-index: 20;
 }
@@ -436,7 +432,7 @@
 }
 
 .itemMenuAction:hover {
-  background: rgba(238, 244, 255, 0.92);
+  background: var(--ui-surface-accent);
 }
 
 .itemMenuActionDanger {
@@ -460,16 +456,16 @@
 .footer {
   flex-shrink: 0;
   margin: 0 12px 14px;
-  border: 1px solid rgba(211, 222, 249, 0.86);
-  border-radius: 16px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-xl);
   padding: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--ui-surface-glass);
   box-shadow:
-    0 12px 28px rgba(48, 74, 142, 0.08),
+    var(--ui-shadow-sm),
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
@@ -490,10 +486,10 @@
 .settingsBtn {
   width: 34px;
   height: 34px;
-  border: 1px solid rgba(188, 203, 241, 0.86);
+  border: 1px solid var(--ui-border-strong);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.94);
-  color: #506391;
+  background: var(--ui-surface-glass-strong);
+  color: var(--ui-color-secondary);
   cursor: pointer;
   flex-shrink: 0;
   box-shadow:
@@ -509,8 +505,8 @@
 
 .settingsBtn:hover {
   background: #ffffff;
-  border-color: rgba(91, 124, 255, 0.56);
-  color: #315ff1;
-  box-shadow: 0 10px 20px rgba(45, 78, 170, 0.16);
+  border-color: var(--ui-border-active);
+  color: var(--ui-color-accent);
+  box-shadow: var(--ui-shadow-sm);
   transform: translateY(-1px);
 }
