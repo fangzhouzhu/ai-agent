@@ -8,6 +8,9 @@ import SkillsPanel from './components/SkillsPanel'
 import TaskPanel from './components/TaskPanel'
 import WechatBotPanel from './components/WechatBotPanel'
 import CustomSelect from './components/CustomSelect'
+import ModelSettings from './components/ModelSettings'
+import { prepareModelSettings, validateOnlineConnection } from './modelSettings'
+import type { ModelProvider, RouteModelConfig, SavedOnlineProfile, OnlineProviderConfig, ModelRouteConfig } from './modelSettings'
 import { useAppDialog } from './components/AppDialogProvider'
 import type { ImageAttachment, RagFileMeta, Task } from '../../preload/index'
 
@@ -124,34 +127,6 @@ type KnowledgeBase = {
   updatedAt: number
 }
 
-type ModelProvider = 'ollama' | 'openai-compatible'
-
-type RouteModelConfig = {
-  provider: ModelProvider
-  model: string
-}
-
-type SavedOnlineProfile = {
-  id: string
-  name: string
-  provider: string
-  baseUrl: string
-  apiKey: string
-  chatModel?: string
-  agentModel?: string
-  ragModel?: string
-  models?: string[]
-  createdAt: number
-  updatedAt: number
-}
-
-type OnlineProviderConfig = {
-  name: string
-  provider: string
-  baseUrl: string
-  apiKey: string
-}
-
 type WechatModelOption = {
   value: string
   label: string
@@ -173,15 +148,6 @@ type WechatBotConfig = {
   lastError?: string
   boundAt?: number
   updatedAt?: number
-}
-
-type ModelRouteConfig = {
-  chat: RouteModelConfig
-  agent: RouteModelConfig
-  rag: RouteModelConfig
-  online: OnlineProviderConfig
-  onlineProfiles: SavedOnlineProfile[]
-  activeOnlineProfileId: string | null
 }
 
 type SkillPreferredScene = 'auto' | 'chat' | 'agent' | 'rag'
@@ -543,12 +509,6 @@ function toSettingsPayload(config: ModelRouteConfig) {
   }
 }
 
-function maskApiKey(value: string): string {
-  if (!value) return '未填写'
-  if (value.length <= 8) return '••••••'
-  return `${value.slice(0, 3)}••••${value.slice(-4)}`
-}
-
 const onlineProviderPresets: Record<string, string> = {
   OpenAI: 'https://api.openai.com/v1',
   DeepSeek: 'https://api.deepseek.com/v1',
@@ -568,12 +528,6 @@ const providerModelPresets: Record<string, string[]> = {
   OpenRouter: ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet', 'google/gemini-2.0-flash-001'],
   Custom: [],
 }
-
-const ROUTE_ITEMS: Array<{ key: keyof Pick<ModelRouteConfig, 'chat' | 'agent' | 'rag'>; label: string }> = [
-  { key: 'chat', label: '普通聊天' },
-  { key: 'agent', label: '复杂任务 / Agent' },
-  { key: 'rag', label: '文档问答 / RAG' },
-]
 
 function createEmptySkill(): SkillConfig {
   const now = Date.now()
@@ -702,6 +656,11 @@ const App: React.FC = () => {
   })
   const [isBackupBusy, setIsBackupBusy] = useState(false)
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null)
+  const [isSavingModelConfig, setIsSavingModelConfig] = useState(false)
+  const [modelSaveError, setModelSaveError] = useState('')
+  const apiTestRequestRef = useRef(0)
+  const apiTestConfigRef = useRef('')
+  apiTestConfigRef.current = JSON.stringify([draftModelConfig.online.provider, draftModelConfig.online.baseUrl, draftModelConfig.online.apiKey, draftModelConfig.activeOnlineProfileId, draftModelConfig.chat])
   const [apiTestState, setApiTestState] = useState<ApiTestState>({
     status: 'idle',
     message: '',
@@ -1288,6 +1247,9 @@ const App: React.FC = () => {
   }, [conversations])
 
   const updateOnlineConfig = useCallback((patch: Partial<OnlineProviderConfig>) => {
+    if ('provider' in patch || 'baseUrl' in patch || 'apiKey' in patch) {
+      setApiTestState({ status: 'idle', message: '', models: [] })
+    }
     setDraftModelConfig((prev) => ({
       ...prev,
       online: {
@@ -1322,95 +1284,49 @@ const App: React.FC = () => {
           baseUrl: profile.baseUrl,
           apiKey: profile.apiKey,
         },
-        chat:
-          prev.chat.provider === 'openai-compatible'
-            ? { ...prev.chat, model: profile.chatModel || prev.chat.model }
-            : prev.chat,
-        agent:
-          prev.agent.provider === 'openai-compatible'
-            ? { ...prev.agent, model: profile.agentModel || prev.agent.model }
-            : prev.agent,
-        rag:
-          prev.rag.provider === 'openai-compatible'
-            ? { ...prev.rag, model: profile.ragModel || prev.rag.model }
-            : prev.rag,
+        chat: { provider: 'openai-compatible', model: profile.chatModel || profile.agentModel || profile.ragModel || providerModelPresets[profile.provider]?.[0] || '' },
+        agent: { provider: 'openai-compatible', model: profile.chatModel || profile.agentModel || profile.ragModel || providerModelPresets[profile.provider]?.[0] || '' },
+        rag: { provider: 'openai-compatible', model: profile.chatModel || profile.agentModel || profile.ragModel || providerModelPresets[profile.provider]?.[0] || '' },
       }
     })
 
     setApiTestState({
       status: 'idle',
-      message: '已切换到在线预设，点击“保存配置”后会正式生效。',
+      message: '',
       models: [],
     })
   }, [])
 
-  const handleSaveOnlineProfile = useCallback(() => {
-    const profileName = draftModelConfig.online.name.trim()
-    if (!profileName) {
-      window.alert('请先填写预设名称')
-      return
-    }
-
-    const now = Date.now()
-    const existing = draftModelConfig.onlineProfiles.find(
-      (item) => item.id === draftModelConfig.activeOnlineProfileId
-    )
-    const profileId = existing?.id ?? uuidv4()
-
-    const nextProfile: SavedOnlineProfile = {
-      id: profileId,
-      name: profileName,
-      provider: draftModelConfig.online.provider,
-      baseUrl: draftModelConfig.online.baseUrl,
-      apiKey: draftModelConfig.online.apiKey,
-      chatModel: draftModelConfig.chat.provider === 'openai-compatible' ? draftModelConfig.chat.model : undefined,
-      agentModel: draftModelConfig.agent.provider === 'openai-compatible' ? draftModelConfig.agent.model : undefined,
-      ragModel: draftModelConfig.rag.provider === 'openai-compatible' ? draftModelConfig.rag.model : undefined,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    }
-
+  const handleDeleteOnlineProfile = useCallback((profileId: string) => {
     setDraftModelConfig((prev) => {
-      const exists = prev.onlineProfiles.some((item) => item.id === profileId)
+      const remaining = prev.onlineProfiles.filter((item) => item.id !== profileId)
+      if (prev.activeOnlineProfileId !== profileId) return { ...prev, onlineProfiles: remaining }
+      const profile = remaining[0]
+      const route: RouteModelConfig = profile
+        ? { provider: 'openai-compatible', model: profile.chatModel || profile.agentModel || profile.ragModel || '' }
+        : { provider: 'ollama', model: models.find((model) => !/embed/i.test(model)) || defaultModelConfig.chat.model }
       return {
-        ...prev,
-        activeOnlineProfileId: profileId,
-        onlineProfiles: exists
-          ? prev.onlineProfiles.map((item) => (item.id === profileId ? nextProfile : item))
-          : [nextProfile, ...prev.onlineProfiles],
+        ...prev, onlineProfiles: remaining, activeOnlineProfileId: profile?.id ?? null,
+        online: profile ? { name: profile.name, provider: profile.provider, baseUrl: profile.baseUrl, apiKey: profile.apiKey } : { ...defaultModelConfig.online, name: '' },
+        chat: route, agent: { ...route }, rag: { ...route },
       }
     })
-
-    setApiTestState({
-      status: 'idle',
-      message: `预设“${profileName}”已加入待保存列表。`,
-      models: apiTestState.models,
-      latencyMs: apiTestState.latencyMs,
-      balanceInfo: apiTestState.balanceInfo,
-      testedAt: apiTestState.testedAt,
-    })
-  }, [draftModelConfig, apiTestState])
-
-  const handleDeleteOnlineProfile = useCallback((profileId: string) => {
-    setDraftModelConfig((prev) => ({
-      ...prev,
-      onlineProfiles: prev.onlineProfiles.filter((item) => item.id !== profileId),
-      activeOnlineProfileId:
-        prev.activeOnlineProfileId === profileId ? null : prev.activeOnlineProfileId,
-    }))
-  }, [])
+    setApiTestState({ status: 'idle', message: '', models: [] })
+  }, [models])
 
   const handleResetOnlineDraft = useCallback(() => {
+    const route: RouteModelConfig = { provider: 'openai-compatible', model: providerModelPresets.OpenAI[0] }
     setDraftModelConfig((prev) => ({
-      ...prev,
-      activeOnlineProfileId: null,
-      online: {
-        name: '',
-        provider: 'OpenAI',
-        baseUrl: onlineProviderPresets['OpenAI'],
-        apiKey: '',
-      },
+      ...prev, activeOnlineProfileId: null,
+      online: { ...defaultModelConfig.online, name: '' },
+      chat: route, agent: { ...route }, rag: { ...route },
     }))
+    setApiTestState({ status: 'idle', message: '', models: [] })
+  }, [])
+
+  const updateDraftModel = useCallback((route: RouteModelConfig) => {
+    setDraftModelConfig((prev) => ({ ...prev, chat: route, agent: { ...route }, rag: { ...route } }))
+    setApiTestState((prev) => ({ ...prev, status: 'idle', message: '', latencyMs: undefined }))
   }, [])
 
   const updateDraftSkill = useCallback((skillId: string, patch: Partial<SkillConfig>) => {
@@ -1535,13 +1451,18 @@ const App: React.FC = () => {
     initialTab: 'models' | 'wechat' | 'skills' | 'tools' | 'diagnostics' = 'models',
   ) => {
     await refreshModelConfig()
+    setModelSaveError('')
     setSettingsTab(initialTab)
     setShowModelConfig(true)
   }, [refreshModelConfig])
 
-  const handleCloseSettings = useCallback(() => {
+  const handleCloseSettings = useCallback(async () => {
+    if (isSavingModelConfig) return
+    if (JSON.stringify(draftModelConfig) !== JSON.stringify(modelConfig) &&
+      !await confirm({ message: '模型配置尚未保存，确定放弃修改并关闭？' })) return
+    apiTestRequestRef.current += 1
     setShowModelConfig(false)
-  }, [])
+  }, [draftModelConfig, modelConfig, confirm, isSavingModelConfig])
 
   const readSkillEditorDraft = useCallback((): SkillConfig | null => {
     if (!skillEditorDraft) return null
@@ -1693,27 +1614,31 @@ const App: React.FC = () => {
   )
 
   const handleSaveModelConfig = useCallback(async () => {
-    const routes = ROUTE_ITEMS.map((item) => ({
-      key: item.label,
-      value: draftModelConfig[item.key],
-    }))
-
-    const missingModel = routes.find((route) => !route.value.model.trim())
-    if (missingModel) {
-      window.alert(`请先填写 ${missingModel.key} 的模型名称`)
+    let configToSave: ModelRouteConfig
+    try {
+      configToSave = settingsTab === 'models'
+        ? prepareModelSettings(draftModelConfig, uuidv4(), apiTestState.models)
+        : draftModelConfig
+    } catch (error) {
+      setModelSaveError(error instanceof Error ? error.message : '配置有误，请检查后重试。')
       return
     }
 
-    const usesOnline = routes.some((route) => route.value.provider === 'openai-compatible')
-    if (usesOnline) {
-      if (!draftModelConfig.online.baseUrl.trim()) {
-        window.alert('请选择或填写在线模型的 Base URL')
-        return
+    if (settingsTab === 'models') {
+      setIsSavingModelConfig(true)
+      setModelSaveError('')
+      try {
+        const saved = await window.electronAPI.saveModelConfig(toSettingsPayload(configToSave))
+        const next = normalizeModelConfig(saved)
+        setModelConfig(next)
+        setDraftModelConfig(next)
+        setShowModelConfig(false)
+      } catch (error) {
+        setModelSaveError(error instanceof Error ? error.message : '保存失败，请重试。')
+      } finally {
+        setIsSavingModelConfig(false)
       }
-      if (!draftModelConfig.online.apiKey.trim()) {
-        window.alert('请输入在线模型 API Key')
-        return
-      }
+      return
     }
 
     const currentSkillDraft = readSkillEditorDraft()
@@ -1750,41 +1675,56 @@ const App: React.FC = () => {
 
     const normalizedSkills = normalizeDraftSkills(skillsToSave)
 
-    const [savedConfig, savedSkills, savedWechatBot] = await Promise.all([
-      window.electronAPI.saveModelConfig(toSettingsPayload(draftModelConfig)),
-      window.electronAPI.saveSkills(normalizedSkills),
-      window.electronAPI.saveWechatBotSettings(draftWechatBotConfig),
-    ])
+    setIsSavingModelConfig(true)
+    setModelSaveError('')
+    try {
+      const [savedConfig, savedSkills, savedWechatBot] = await Promise.all([
+        window.electronAPI.saveModelConfig(toSettingsPayload(configToSave)),
+        window.electronAPI.saveSkills(normalizedSkills),
+        window.electronAPI.saveWechatBotSettings(draftWechatBotConfig),
+      ])
 
-    const nextConfig = normalizeModelConfig(savedConfig)
-    const nextWechatBotConfig = normalizeWechatBotConfig(savedWechatBot)
-    setModelConfig(nextConfig)
-    setDraftModelConfig(nextConfig)
-    setWechatBotConfig(nextWechatBotConfig)
-    setDraftWechatBotConfig(nextWechatBotConfig)
-    setBotBindState((prev) => ({
-      ...prev,
-      status: nextWechatBotConfig.status ?? prev.status,
-      qrcode: nextWechatBotConfig.qrcode,
-      qrContent: nextWechatBotConfig.qrContent,
-      token: nextWechatBotConfig.token,
-      botId: nextWechatBotConfig.botId,
-      userId: nextWechatBotConfig.userId,
-      nickname: nextWechatBotConfig.nickname,
-    }))
-    setDraftSkills(savedSkills)
-    setActiveSkillId((current) =>
-      savedSkills.some((skill) => skill.id === current) ? current : (savedSkills[0]?.id ?? null)
-    )
-    const savedActive =
-      savedSkills.find((skill) => skill.id === currentSkillDraft?.id) ?? savedSkills[0] ?? null
-    setSkillEditorDraft(savedActive ? { ...savedActive, keywords: [...savedActive.keywords] } : null)
-    setSkillEditorMode(savedActive ? 'edit' : null)
-    setSkillEditorSessionId(uuidv4())
-    setShowModelConfig(false)
-  }, [draftModelConfig, draftSkills, draftWechatBotConfig, readSkillEditorDraft, skillEditorMode])
+      const nextConfig = normalizeModelConfig(savedConfig)
+      const nextWechatBotConfig = normalizeWechatBotConfig(savedWechatBot)
+      setModelConfig(nextConfig)
+      setDraftModelConfig(nextConfig)
+      setWechatBotConfig(nextWechatBotConfig)
+      setDraftWechatBotConfig(nextWechatBotConfig)
+      setBotBindState((prev) => ({
+        ...prev,
+        status: nextWechatBotConfig.status ?? prev.status,
+        qrcode: nextWechatBotConfig.qrcode,
+        qrContent: nextWechatBotConfig.qrContent,
+        token: nextWechatBotConfig.token,
+        botId: nextWechatBotConfig.botId,
+        userId: nextWechatBotConfig.userId,
+        nickname: nextWechatBotConfig.nickname,
+      }))
+      setDraftSkills(savedSkills)
+      setActiveSkillId((current) =>
+        savedSkills.some((skill) => skill.id === current) ? current : (savedSkills[0]?.id ?? null)
+      )
+      const savedActive =
+        savedSkills.find((skill) => skill.id === currentSkillDraft?.id) ?? savedSkills[0] ?? null
+      setSkillEditorDraft(savedActive ? { ...savedActive, keywords: [...savedActive.keywords] } : null)
+      setSkillEditorMode(savedActive ? 'edit' : null)
+      setSkillEditorSessionId(uuidv4())
+      setShowModelConfig(false)
+    } catch (error) {
+      setModelSaveError(error instanceof Error ? error.message : '保存失败，请重试。')
+    } finally {
+      setIsSavingModelConfig(false)
+    }
+  }, [draftModelConfig, draftSkills, draftWechatBotConfig, readSkillEditorDraft, skillEditorMode, settingsTab, apiTestState.models])
 
   const handleTestOnlineApi = useCallback(async () => {
+    const validationError = validateOnlineConnection(draftModelConfig.online)
+    if (validationError || !draftModelConfig.chat.model.trim()) {
+      setApiTestState({ status: 'error', message: validationError || '请先填写默认模型。', models: [] })
+      return
+    }
+    const requestId = ++apiTestRequestRef.current
+    const snapshot = apiTestConfigRef.current
     const testModel =
       [draftModelConfig.chat, draftModelConfig.agent, draftModelConfig.rag].find(
         (route) => route.provider === 'openai-compatible' && route.model.trim()
@@ -1798,6 +1738,7 @@ const App: React.FC = () => {
 
     try {
       const result = await window.electronAPI.testOnlineApi(draftModelConfig.online, testModel)
+      if (requestId !== apiTestRequestRef.current || snapshot !== apiTestConfigRef.current) return
       const fetchedModels = result.models ?? []
       setApiTestState({
         status: result.ok ? 'success' : 'error',
@@ -1821,6 +1762,7 @@ const App: React.FC = () => {
         })
       }
     } catch (error) {
+      if (requestId !== apiTestRequestRef.current || snapshot !== apiTestConfigRef.current) return
       setApiTestState({
         status: 'error',
         message: error instanceof Error ? error.message : 'API 测试失败',
@@ -1962,7 +1904,10 @@ const App: React.FC = () => {
     new Set(
       [
         // 优先使用当前激活预设中已缓存的模型列表（由 API Test 自动获取并持久化）
-        ...(activeOnlineProfile?.models ?? providerModelPresets[draftModelConfig.online.provider] ?? []),
+        ...((activeOnlineProfile?.provider === draftModelConfig.online.provider
+          && activeOnlineProfile?.baseUrl === draftModelConfig.online.baseUrl
+          && activeOnlineProfile?.apiKey === draftModelConfig.online.apiKey ? activeOnlineProfile?.models : undefined)
+          ?? providerModelPresets[draftModelConfig.online.provider] ?? []),
         // 本次 API Test 临时返回的模型（未保存预设时也能使用）
         ...apiTestState.models,
         // 各预设中手动保存的模型名
@@ -3159,7 +3104,7 @@ const App: React.FC = () => {
             if (e.target === e.currentTarget) handleCloseSettings()
           }}
         >
-          <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
+          <div className={styles.modal} role="dialog" aria-modal="true" aria-label="设置" onMouseDown={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div>
                 <h3 className={styles.modalTitle}>设置</h3>
@@ -3187,7 +3132,7 @@ const App: React.FC = () => {
                   <span className={styles.settingsNavIcon}>◉</span>
                   <span className={styles.settingsNavText}>
                     <span>模型设置</span>
-                    <small>模型、API 与 RAG</small>
+                    <small>服务商与默认模型</small>
                   </span>
                 </button>
                 <button
@@ -3228,245 +3173,25 @@ const App: React.FC = () => {
               <div className={styles.modalContent}>
                 <div className={styles.modalBody}>
             {settingsTab === 'models' && (
-              <>
-            <div className={styles.modalSection}>
-              <div className={styles.modalLabel}>模型切换已移到输入框</div>
-              <div className={styles.hintCard}>
-                聊天页底部现在只保留一个全局模型选择器。聊天、复杂任务和 RAG 会统一使用同一套模型配置，这里不再展示任何场景路由配置卡。
-              </div>
-            </div>
-
-            <div className={styles.modalSection}>
-              <div className={styles.modalLabel}>本地 Ollama 模型</div>
-              <div className={styles.modelList}>
-                {models.length === 0 ? (
-                  <span className={styles.emptyHint}>未检测到 Ollama 模型</span>
-                ) : (
-                  models.map((model) => (
-                    <span
-                      key={model}
-                      className={`${styles.modelTag} ${/embed/i.test(model) ? styles.embedTag : ''}`}
-                    >
-                      {model}
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className={styles.modalSection}>
-              <div className={styles.modalLabel}>在线 API / 第三方模型</div>
-
-              <div className={styles.profileToolbar}>
-                <CustomSelect
-                  rootClassName={styles.fieldSelectWrap}
-                  triggerClassName={styles.fieldSelect}
-                  menuClassName={styles.fieldSelectMenu}
-                  optionClassName={styles.fieldSelectOption}
-                  optionSelectedClassName={styles.fieldSelectOptionSelected}
-                  value={draftModelConfig.activeOnlineProfileId ?? ''}
-                  onChange={(value) => {
-                    if (!value) {
-                      handleResetOnlineDraft()
-                      return
-                    }
-                    applyOnlineProfile(value)
-                  }}
-                  options={[
-                    { value: '', label: '一键切换已保存预设...' },
-                    ...draftModelConfig.onlineProfiles.map((profile) => ({
-                      value: profile.id,
-                      label: `${profile.name} · ${profile.provider}`,
-                    })),
-                  ]}
-                />
-
-                <button className={styles.secondaryBtn} onClick={() => handleResetOnlineDraft()}>
-                  新建预设
-                </button>
-                <button className={styles.secondaryBtn} onClick={() => handleSaveOnlineProfile()}>
-                  {activeOnlineProfile ? '更新预设' : '保存为预设'}
-                </button>
-              </div>
-
-              <div className={styles.fieldGrid}>
-                <label className={styles.fieldItem}>
-                  <span>预设名称</span>
-                  <input
-                    className={styles.fieldInput}
-                    value={draftModelConfig.online.name}
-                    onChange={(e) => updateOnlineConfig({ name: e.target.value })}
-                    placeholder="例如：我的 DeepSeek / 公司 OpenAI"
-                  />
-                </label>
-
-                <div className={styles.fieldItem}>
-                  <span>服务商预设</span>
-                  <CustomSelect
-                    rootClassName={styles.fieldSelectWrap}
-                    triggerClassName={styles.fieldSelect}
-                    menuClassName={styles.fieldSelectMenu}
-                    optionClassName={styles.fieldSelectOption}
-                    optionSelectedClassName={styles.fieldSelectOptionSelected}
-                    value={draftModelConfig.online.provider}
-                    onChange={(value) => {
-                      const provider = value
-                      updateOnlineConfig({
-                        provider,
-                        baseUrl:
-                          provider === 'Custom'
-                            ? draftModelConfig.online.baseUrl
-                            : (onlineProviderPresets[provider] ?? draftModelConfig.online.baseUrl),
-                      })
-                    }}
-                    options={Object.keys(onlineProviderPresets).map((provider) => ({
-                      value: provider,
-                      label: provider,
-                    }))}
-                  />
-                </div>
-
-                <label className={styles.fieldItem}>
-                  <span>Base URL</span>
-                  <input
-                    className={styles.fieldInput}
-                    value={draftModelConfig.online.baseUrl}
-                    onChange={(e) => updateOnlineConfig({ baseUrl: e.target.value })}
-                    placeholder="https://api.openai.com/v1"
-                  />
-                </label>
-
-                <label className={styles.fieldItem}>
-                  <span>API Key</span>
-                  <input
-                    className={styles.fieldInput}
-                    type="password"
-                    value={draftModelConfig.online.apiKey}
-                    onChange={(e) => updateOnlineConfig({ apiKey: e.target.value })}
-                    placeholder="sk-..."
-                  />
-                </label>
-              </div>
-
-              <div className={styles.hintCard}>
-                支持 OpenAI、DeepSeek、Moonshot、SiliconFlow、智谱 AI、OpenRouter 等兼容 OpenAI Chat Completions 的服务；创建并保存预设后，可在聊天输入框上方直接切换全局在线模型。密钥仅保存在本机。
-              </div>
-
-              {draftModelConfig.onlineProfiles.length > 0 && (
-                <div className={styles.profileList}>
-                  {draftModelConfig.onlineProfiles.map((profile) => (
-                    <div
-                      key={profile.id}
-                      className={`${styles.profileCard} ${
-                        profile.id === draftModelConfig.activeOnlineProfileId
-                          ? styles.profileCardActive
-                          : ''
-                      }`}
-                    >
-                      <div className={styles.profileHeader}>
-                        <div>
-                          <div className={styles.profileName}>{profile.name}</div>
-                          <div className={styles.profileMeta}>
-                            {profile.provider} · {profile.baseUrl}
-                          </div>
-                        </div>
-                        <div className={styles.profileActions}>
-                          <button className={styles.miniBtn} onClick={() => applyOnlineProfile(profile.id)}>
-                            应用
-                          </button>
-                          <button
-                            className={`${styles.miniBtn} ${styles.dangerBtn}`}
-                                onClick={async () => {
-                                  if (await confirm({ message: `确定删除预设“${profile.name}”吗？`, tone: 'danger' })) {
-                                    handleDeleteOnlineProfile(profile.id)
-                                  }
-                                }}
-                          >
-                            删除
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className={styles.modelList}>
-                        {profile.chatModel && <span className={styles.modelTag}>Chat: {profile.chatModel}</span>}
-                        {profile.agentModel && <span className={styles.modelTag}>Agent: {profile.agentModel}</span>}
-                        {profile.ragModel && <span className={styles.modelTag}>RAG: {profile.ragModel}</span>}
-                        <span className={styles.modelTag}>Key: {maskApiKey(profile.apiKey)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className={styles.testRow}>
-                <button
-                  className={styles.secondaryBtn}
-                  onClick={() => void handleTestOnlineApi()}
-                  disabled={apiTestState.status === 'testing'}
-                >
-                  {apiTestState.status === 'testing' ? '测试中...' : 'API Test'}
-                </button>
-
-                {apiTestState.message && (
-                  <span
-                    className={`${styles.statusNote} ${
-                      apiTestState.status === 'success'
-                        ? styles.statusSuccess
-                        : apiTestState.status === 'error'
-                          ? styles.statusError
-                          : ''
-                    }`}
-                  >
-                    {apiTestState.message}
-                  </span>
-                )}
-              </div>
-
-              {(apiTestState.latencyMs || apiTestState.balanceInfo || apiTestState.testedAt) && (
-                <div className={styles.metricsGrid}>
-                  <div className={styles.metricCard}>
-                    <div className={styles.metricLabel}>延迟</div>
-                    <div className={styles.metricValue}>
-                      {apiTestState.latencyMs ? `${apiTestState.latencyMs} ms` : '—'}
-                    </div>
-                  </div>
-                  <div className={styles.metricCard}>
-                    <div className={styles.metricLabel}>余额</div>
-                    <div className={styles.metricValue}>{apiTestState.balanceInfo || '未提供'}</div>
-                  </div>
-                  <div className={styles.metricCard}>
-                    <div className={styles.metricLabel}>测试时间</div>
-                    <div className={styles.metricValue}>
-                      {apiTestState.testedAt
-                        ? new Date(apiTestState.testedAt).toLocaleTimeString('zh-CN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                          })
-                        : '—'}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {onlineModelCandidates.length > 0 && (
-                <div className={styles.modelList}>
-                  {onlineModelCandidates.map((model) => (
-                    <span key={model} className={styles.modelTag}>
-                      {model}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <datalist id="online-model-suggestions">
-                {onlineModelCandidates.map((model) => (
-                  <option key={`online-${model}`} value={model} />
-                ))}
-              </datalist>
-            </div>
-
-              </>
+              <ModelSettings
+                config={draftModelConfig}
+                saved={modelConfig}
+                models={models}
+                onRefreshModels={setModels}
+                candidates={onlineModelCandidates}
+                presets={onlineProviderPresets}
+                providerModels={providerModelPresets}
+                test={apiTestState}
+                onConnection={updateOnlineConfig}
+                onRoute={updateDraftModel}
+                onSelect={applyOnlineProfile}
+                onCreate={handleResetOnlineDraft}
+                onDelete={async (id) => {
+                  const profile = draftModelConfig.onlineProfiles.find((p) => p.id === id)
+                  if (profile && await confirm({ message: `确定删除配置“${profile.name}”吗？保存并应用后生效。`, tone: 'danger' })) handleDeleteOnlineProfile(id)
+                }}
+                onTest={() => void handleTestOnlineApi()}
+              />
             )}
 
             {settingsTab === 'skills' && (
@@ -3994,10 +3719,8 @@ const App: React.FC = () => {
                 </div>
 
                 <div className={styles.modalActions}>
-                  <button className={styles.secondaryBtn} onClick={() => void refreshModelConfig()}>
-                    刷新配置
-                  </button>
-                  <button className={styles.secondaryBtn} onClick={() => setShowModelConfig(false)}>
+                  <span className={`${styles.settingsSaveStatus} ${modelSaveError ? styles.statusError : ''}`} role={modelSaveError ? 'alert' : 'status'}>{modelSaveError || (settingsTab === 'models' ? '配置仅保存在本机' : '')}</span>
+                  <button className={styles.secondaryBtn} disabled={isSavingModelConfig} onClick={() => void handleCloseSettings()}>
                     取消
                   </button>
                   {settingsTab === 'tools' ? (
@@ -4009,8 +3732,8 @@ const App: React.FC = () => {
                       {isSavingToolPolicies ? '保存中...' : isToolPolicyDirty ? '保存设置' : '已保存'}
                     </button>
                   ) : (
-                    <button className={styles.primaryBtn} onClick={() => void handleSaveModelConfig()}>
-                      保存设置
+                    <button className={styles.primaryBtn} disabled={isSavingModelConfig || apiTestState.status === 'testing'} onClick={() => void handleSaveModelConfig()}>
+                      {isSavingModelConfig ? '保存中…' : settingsTab === 'models' ? '保存并应用' : '保存设置'}
                     </button>
                   )}
                 </div>

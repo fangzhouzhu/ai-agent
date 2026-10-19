@@ -696,7 +696,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 22px;
+  padding: 54px 22px 18px;
   background: rgba(29, 47, 91, 0.24);
   backdrop-filter: blur(14px);
   -webkit-app-region: no-drag;
@@ -708,7 +708,7 @@
   max-height: calc(100vh - 44px);
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
   background:
     linear-gradient(
         180deg,
@@ -1773,6 +1773,16 @@
   flex-shrink: 0;
 }
 
+.settingsSaveStatus {
+  margin-right: auto;
+  align-self: center;
+  min-width: 0;
+  color: #7a869c;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 .secondaryBtn,
 .primaryBtn {
   padding: 8px 13px;
@@ -1820,8 +1830,8 @@
 
 @media (max-width: 900px) {
   .modal {
-    height: min(720px, calc(100vh - 28px));
-    max-height: calc(100vh - 28px);
+    height: min(720px, calc(100vh - 72px));
+    max-height: calc(100vh - 72px);
   }
 
   .modalLayout {
@@ -1831,16 +1841,28 @@
   .settingsSidebar {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    padding: 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 10px;
     border-right: none;
     border-bottom: 1px solid rgba(217, 226, 250, 0.82);
   }
 
   .settingsNavTitle {
-    grid-column: 1 / -1;
-    padding: 0 4px 2px;
+    display: none;
+  }
+
+  .settingsNavItem {
+    gap: 6px;
+    padding: 8px 6px;
+  }
+
+  .settingsNavText small {
+    display: none;
+  }
+
+  .settingsNavText span {
+    font-size: 12px;
   }
 
   .settingsNavItem + .settingsNavItem {
@@ -1854,5 +1876,11 @@
   .topbar {
     min-height: 62px;
     padding: 0 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  .settingsSidebar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
