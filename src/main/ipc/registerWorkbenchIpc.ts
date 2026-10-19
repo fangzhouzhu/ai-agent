@@ -5,7 +5,7 @@ import {
   getLogDirectory,
 } from "../runtime/logger";
 import { listTraces, getTrace } from "../runtime/trace";
-import { listToolPolicies, updateToolPolicy } from "../tools/policy";
+import { listToolPolicies, updateToolPolicy, updateToolPolicies } from "../tools/policy";
 import {
   getSkills,
   saveSkills,
@@ -20,8 +20,10 @@ import {
   type SkillConfig,
 } from "../storage";
 import { getOpenClawGatewayState, restartOpenClawGateway } from "../openclawRuntime";
+import { flushTaskWrites, hasActiveTasks } from '../taskRunner';
 
 type WorkbenchIpcDependencies = {
+  isChatBusy: () => boolean;
   checkWechatBotBinding: () => Promise<unknown>;
   refreshWechatBotQr: () => Promise<unknown>;
   unbindWechatBot: () => Promise<unknown>;
@@ -90,6 +92,7 @@ export function registerWorkbenchIpcHandlers(
   });
 
   ipcMain.handle("tools:list-policies", () => listToolPolicies());
+  ipcMain.handle('tools:update-policies', (_event, patches: Record<string, boolean>) => updateToolPolicies(patches));
 
   ipcMain.handle(
     "tools:update-policy",
@@ -114,7 +117,8 @@ export function registerWorkbenchIpcHandlers(
   });
 
   ipcMain.handle("diagnostics:export-backup", async () => {
-    const snapshot = createBackupSnapshot();
+    await flushTaskWrites();
+    const snapshot = await createBackupSnapshot();
     const timestamp = new Date()
       .toISOString()
       .replace(/[-:]/g, "")
@@ -161,13 +165,18 @@ export function registerWorkbenchIpcHandlers(
       readFile(selectedPath, "utf-8"),
     );
     const parsed = JSON.parse(raw) as unknown;
-    const restored = restoreBackupSnapshot(parsed);
+    if (hasActiveTasks() || dependencies.isChatBusy()) {
+      return { ok: false, message: '请先停止正在执行的聊天和后台任务，再导入备份。' };
+    }
+    await flushTaskWrites();
+    const restored = await restoreBackupSnapshot(parsed);
 
     return {
       ok: true,
       message: "备份导入成功，重启应用后生效",
       filePath: selectedPath,
       fileCount: restored.fileCount,
+      previousDataPath: restored.previousDataPath,
       requiresRestart: true,
     };
   });

@@ -3,11 +3,8 @@ import {
   fetchOllamaModels,
   applyModelSettings,
   getModelSettingsSnapshot,
-  setChatModel,
   getChatModel,
-  setAgentModel,
   getAgentModel,
-  setRagModel,
   getRagModel,
 } from "../agent";
 import { testOpenAICompatibleApi } from "../openaiCompatible";
@@ -38,7 +35,22 @@ import {
   resumeTask,
   deleteTask,
   rerunTask,
+  retryTaskSave,
 } from "../taskRunner";
+
+let modelSaveQueue: Promise<unknown> = Promise.resolve();
+
+function persistModelConfig(patch: ModelSettings): Promise<ModelSettings> {
+  const operation = modelSaveQueue.catch(() => undefined).then(async () => {
+    const current = getModelSettingsSnapshot();
+    const next = { ...current, ...patch, online: { ...current.online, ...patch.online } };
+    await saveModelSettings(next);
+    applyModelSettings(next);
+    return getModelSettingsSnapshot();
+  });
+  modelSaveQueue = operation;
+  return operation;
+}
 
 export function registerAppIpcHandlers(): void {
   ipcMain.handle("models:list", async () => {
@@ -52,10 +64,7 @@ export function registerAppIpcHandlers(): void {
   ipcMain.handle(
     "settings:save-model-config",
     async (_event, settings: ModelSettings) => {
-      applyModelSettings(settings);
-      const snapshot = getModelSettingsSnapshot();
-      await saveModelSettings(snapshot);
-      return snapshot;
+      return persistModelConfig(settings);
     },
   );
 
@@ -85,15 +94,13 @@ export function registerAppIpcHandlers(): void {
   });
 
   ipcMain.handle("models:set", async (_event, modelName: string) => {
-    setChatModel(modelName);
-    await saveModelSettings({ chatModel: getChatModel() });
-    return getChatModel();
+    const saved = await persistModelConfig({ chatModel: modelName });
+    return saved.chatModel;
   });
 
   ipcMain.handle("models:set-chat", async (_event, modelName: string) => {
-    setChatModel(modelName);
-    await saveModelSettings({ chatModel: getChatModel() });
-    return getChatModel();
+    const saved = await persistModelConfig({ chatModel: modelName });
+    return saved.chatModel;
   });
 
   ipcMain.handle("models:get", async () => {
@@ -105,9 +112,8 @@ export function registerAppIpcHandlers(): void {
   });
 
   ipcMain.handle("models:set-agent", async (_event, modelName: string) => {
-    setAgentModel(modelName);
-    await saveModelSettings({ agentModel: getAgentModel() });
-    return getAgentModel();
+    const saved = await persistModelConfig({ agentModel: modelName });
+    return saved.agentModel;
   });
 
   ipcMain.handle("models:get-agent", async () => {
@@ -115,9 +121,8 @@ export function registerAppIpcHandlers(): void {
   });
 
   ipcMain.handle("models:set-rag", async (_event, modelName: string) => {
-    setRagModel(modelName);
-    await saveModelSettings({ ragModel: getRagModel() });
-    return getRagModel();
+    const saved = await persistModelConfig({ ragModel: modelName });
+    return saved.ragModel;
   });
 
   ipcMain.handle("models:get-rag", async () => {
@@ -162,6 +167,8 @@ export function registerAppIpcHandlers(): void {
   ipcMain.handle("task:list", () => {
     return listTasks();
   });
+
+  ipcMain.handle('task:retry-save', () => retryTaskSave());
 
   ipcMain.handle("task:get", (_event, id: string) => {
     return getTask(id) ?? null;

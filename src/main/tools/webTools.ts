@@ -1,6 +1,7 @@
 import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { isRealtimeRecommendationQuery } from "../queryRouting";
+import { fetchWithToolSignal as fetch } from '../runtime/toolContext';
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();

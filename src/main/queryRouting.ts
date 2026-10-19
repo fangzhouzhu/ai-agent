@@ -69,7 +69,7 @@ export function shouldUseWebSearchForQuery(message: string): boolean {
 
 export function isLocalActionQuery(message: string): boolean {
   return (
-    TOOL_INTENT_REGEX.test(message) ||
+    /https?:\/\//i.test(message) || TOOL_INTENT_REGEX.test(message) ||
     LOCAL_SYSTEM_HINTS.some((hint) => message.includes(hint))
   );
 }
@@ -98,4 +98,12 @@ export function detectQueryKinds(message: string): Set<QueryKind> {
     kinds.add("static-knowledge");
   }
   return kinds;
+}
+
+export function extractMathExpression(message: string): string | null {
+  const compact = message.trim()
+    .replace(/^(?:请)?(?:帮我)?(?:计算(?:一下)?|算一下)\s*/i, '')
+    .replace(/(?:等于多少|是多少|结果是什么|等于|的结果)[？?。!！\s]*$/, '')
+    .replace(/[＝=？?\s]/g, '');
+  return compact && /^[0-9+\-*/%^().,]+$/.test(compact) && /[+\-*/%^]/.test(compact) ? compact : null;
 }

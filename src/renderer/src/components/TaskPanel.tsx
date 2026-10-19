@@ -276,6 +276,9 @@ const TaskPanel: React.FC<Props> = ({ selectedTaskId, onSelectedTaskIdChange }) 
 
             {/* 步骤列表 */}
             <div className={styles.stepList}>
+              {selectedTask.persistenceError && <div role="alert">{selectedTask.persistenceError}，请检查磁盘空间。
+                <button className={styles.actionBtn} onClick={() => void window.electronAPI.task.retrySave().catch(() => {})}>重试保存</button>
+              </div>}
               {selectedTask.steps.length === 0 && selectedTask.status === 'running' && (
                 <div className={styles.waitingHint}>
                   <span className={styles.spinner} />

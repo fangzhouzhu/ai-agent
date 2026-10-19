@@ -2,6 +2,8 @@ import { allTools } from "../tools";
 import { toolPolicies, type ToolPolicy } from "../tools/policy";
 import { toAppError } from "./errors";
 import { createTraceId, previewTraceValue, recordTrace } from "./trace";
+import { runWithSignal } from './async';
+import { withToolSignal } from './toolContext';
 
 export type ToolApprovalRequest = {
   toolName: string;
@@ -22,19 +24,6 @@ export type ToolExecutionResult = {
   durationMs: number;
   policy?: ToolPolicy;
 };
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} 超时（${ms / 1000}s）`)), ms),
-    ),
-  ]);
-}
 
 export async function executeTool(
   toolName: string,
@@ -60,8 +49,9 @@ export async function executeTool(
       throw new Error(`工具 ${toolName} 不存在`);
     }
 
-    if (policy?.requiresConfirmation && options.confirm) {
-      const approved = await options.confirm({ toolName, args, policy });
+    if (policy?.requiresConfirmation) {
+      if (!options.confirm) throw new Error(`工具 ${policy.displayName || toolName} 需要用户确认，当前执行入口不支持确认。`);
+      const approved = await runWithSignal(() => options.confirm!({ toolName, args, policy }), { signal: options.signal });
       if (!approved) {
         const result = `已取消${policy.displayName || toolName}`;
         const durationMs = Date.now() - startedAt;
@@ -79,10 +69,10 @@ export async function executeTool(
       }
     }
 
-    const rawResult = await withTimeout(
-      tool.invoke(args as Record<string, unknown>, { signal: options.signal }),
-      options.timeoutMs ?? 45_000,
-      `工具 ${toolName}`,
+    options.signal?.throwIfAborted();
+    const rawResult = await runWithSignal(
+      signal => withToolSignal(signal, () => tool.invoke(args as Record<string, unknown>, { signal })),
+      { signal: options.signal, timeoutMs: options.timeoutMs ?? 45_000, label: `工具 ${toolName}` },
     );
     const result = String(rawResult);
     const durationMs = Date.now() - startedAt;

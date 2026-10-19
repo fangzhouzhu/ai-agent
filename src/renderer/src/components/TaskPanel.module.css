@@ -345,6 +345,16 @@
   flex-shrink: 0;
 }
 
+.actionBtn {
+  padding: 5px 10px;
+  margin-left: 10px;
+  border: 1px solid #b8c8ed;
+  border-radius: 6px;
+  background: #f4f7ff;
+  color: #31528d;
+  cursor: pointer;
+}
+
 .cancelBtn,
 .deleteBtn {
   display: none;

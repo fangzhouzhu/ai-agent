@@ -8,6 +8,7 @@ type ConfirmOptions = {
   confirmText?: string
   cancelText?: string
   tone?: 'default' | 'danger'
+  signal?: AbortSignal
 }
 
 type PromptOptions = {
@@ -43,7 +44,8 @@ export function useAppDialog(): DialogContextValue {
 }
 
 const AppDialogProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
-  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
+  const [confirmQueue, setConfirmQueue] = useState<ConfirmState[]>([])
+  const confirmState = confirmQueue[0] ?? null
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [promptValue, setPromptValue] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -58,15 +60,21 @@ const AppDialogProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const value = useMemo<DialogContextValue>(() => ({
     confirm: (options) =>
       new Promise<boolean>((resolve) => {
-        setConfirmState({
-          title: options.title,
-          message: options.message,
-          description: options.description,
+        if (options.signal?.aborted) { resolve(false); return }
+        const finish = (value: boolean) => {
+          options.signal?.removeEventListener('abort', cancel)
+          setConfirmQueue(queue => queue.filter(item => item.resolve !== finish))
+          resolve(value)
+        }
+        const cancel = () => finish(false)
+        options.signal?.addEventListener('abort', cancel, { once: true })
+        setConfirmQueue(queue => [...queue, {
+          ...options,
           confirmText: options.confirmText ?? (options.tone === 'danger' ? '删除' : '确定'),
           cancelText: options.cancelText ?? '取消',
           tone: options.tone ?? 'default',
-          resolve,
-        })
+          resolve: finish,
+        }])
       }),
     prompt: (options) =>
       new Promise<string | null>((resolve) => {
@@ -93,7 +101,6 @@ const AppDialogProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
               className={styles.closeBtn}
               onClick={() => {
                 confirmState.resolve(false)
-                setConfirmState(null)
               }}
               aria-label="关闭"
             >
@@ -122,8 +129,7 @@ const AppDialogProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
                 className={styles.btn}
                 onClick={() => {
                   confirmState.resolve(false)
-                  setConfirmState(null)
-                }}
+                  }}
               >
                 {confirmState.cancelText ?? '取消'}
               </button>
@@ -132,8 +138,7 @@ const AppDialogProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
                 className={`${styles.btn} ${confirmState.tone === 'danger' ? styles.btnDanger : styles.btnPrimary}`}
                 onClick={() => {
                   confirmState.resolve(true)
-                  setConfirmState(null)
-                }}
+                  }}
               >
                 {confirmState.confirmText ?? '确定'}
               </button>

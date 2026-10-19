@@ -10,6 +10,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.renderer.json",
     "test:model-settings": "node scripts/test-model-settings.mjs",
+    "test:system": "node --test scripts/test-system.mjs",
     "evals": "node scripts/run-evals.mjs",
     "dist:win": "electron-vite build && electron-builder --win",
     "dist:mac": "electron-vite build && electron-builder --mac",

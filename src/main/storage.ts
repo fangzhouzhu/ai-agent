@@ -1,5 +1,7 @@
 import { app } from "electron";
-import { dirname, join } from "path";
+import { dirname, join, resolve, relative, isAbsolute } from "path";
+import { randomUUID } from "node:crypto";
+import { atomicWriteJson, readJsonWithBackup } from "./runtime/persistence";
 import * as fs from "fs";
 
 export function getDataDir(): string {
@@ -22,6 +24,8 @@ const WECHAT_BOT_MESSAGES_FILE = () => join(getDataDir(), "wechat-bot-messages.j
 const GENERAL_AGENT_ID = "general-assistant";
 const pendingFileOps = new Map<string, Promise<void>>();
 const pendingJsonCache = new Map<string, string>();
+let settingsQueue: Promise<void> = Promise.resolve();
+const pendingSettings = new Set<Promise<void>>();
 
 export interface BackupFileEntry {
   relativePath: string;
@@ -107,6 +111,7 @@ export interface OnlineProviderSettings {
 }
 
 export interface OnlineProviderProfile extends Required<OnlineProviderSettings> {
+  models?: string[];
   id: string;
   chatModel?: string;
   agentModel?: string;
@@ -246,17 +251,18 @@ function createGeneralAgentProfile(existing?: Partial<AgentProfile>): AgentProfi
   };
 }
 
+let storageMaintenance = false;
+let restorePending = false;
+export function isRestorePending(): boolean { return restorePending; }
+
 function readJSON<T>(filePath: string, fallback: T): T {
-  try {
-    const pending = pendingJsonCache.get(filePath);
-    if (pending) {
-      return JSON.parse(pending) as T;
-    }
-    if (!fs.existsSync(filePath)) return fallback;
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
-  } catch {
-    return fallback;
-  }
+  const pending = pendingJsonCache.get(filePath);
+  if (pending !== undefined) return JSON.parse(pending) as T;
+  return readJsonWithBackup(filePath, fallback);
+}
+
+export async function flushStorageWrites(): Promise<void> {
+  while (pendingFileOps.size || pendingSettings.size) await Promise.all([...pendingFileOps.values(), ...pendingSettings]);
 }
 
 function enqueueFileOperation(filePath: string, operation: () => Promise<void>): Promise<void> {
@@ -274,18 +280,25 @@ function enqueueFileOperation(filePath: string, operation: () => Promise<void>):
   return next;
 }
 
-function writeJSON(filePath: string, data: unknown): Promise<void> {
+function writeJSON(filePath: string, data: unknown, admittedBeforeMaintenance = false): Promise<void> {
+  if (storageMaintenance && !admittedBeforeMaintenance) return Promise.reject(new Error('数据恢复期间不可写入，请稍后重试。'));
   const serialized = JSON.stringify(data, null, 2);
   pendingJsonCache.set(filePath, serialized);
   return enqueueFileOperation(filePath, async () => {
-    await fs.promises.writeFile(filePath, serialized, "utf-8");
+    try {
+      await atomicWriteJson(filePath, serialized);
+    } finally {
+      if (pendingJsonCache.get(filePath) === serialized) pendingJsonCache.delete(filePath);
+    }
   });
 }
 
 function deleteFile(filePath: string): Promise<void> {
+  if (storageMaintenance) return Promise.reject(new Error('数据恢复期间不可写入，请稍后重试。'));
   pendingJsonCache.delete(filePath);
   return enqueueFileOperation(filePath, async () => {
     await fs.promises.rm(filePath, { force: true });
+    await fs.promises.rm(`${filePath}.bak`, { force: true });
   });
 }
 
@@ -313,7 +326,8 @@ function walkFilesRecursively(rootDir: string, currentDir: string): BackupFileEn
   return files;
 }
 
-export function createBackupSnapshot(): BackupSnapshot {
+export async function createBackupSnapshot(): Promise<BackupSnapshot> {
+  await flushStorageWrites();
   const dataDir = getDataDir();
   const files = walkFilesRecursively(dataDir, dataDir).sort((a, b) =>
     a.relativePath.localeCompare(b.relativePath),
@@ -343,34 +357,52 @@ function isBackupSnapshot(value: unknown): value is BackupSnapshot {
   );
 }
 
-export function restoreBackupSnapshot(snapshot: unknown): { fileCount: number } {
-  if (!isBackupSnapshot(snapshot)) {
-    throw new Error("备份文件格式无效或版本不受支持");
+export async function restoreBackupSnapshot(snapshot: unknown): Promise<{ fileCount: number; previousDataPath: string }> {
+  if (!isBackupSnapshot(snapshot)) throw new Error('备份文件格式无效或版本不受支持');
+  if (storageMaintenance) throw new Error('已有数据恢复正在进行。');
+  storageMaintenance = true;
+  let staging = '';
+  try {
+    await flushStorageWrites();
+    const dataDir = resolve(getDataDir());
+    staging = fs.mkdtempSync(join(dirname(dataDir), 'ai-agent-restore-'));
+    const previousDataPath = `${dataDir}.previous-${randomUUID()}`;
+    const paths = new Set<string>();
+    // Fully validate and materialize the backup before moving the current data.
+    for (const file of snapshot.files) {
+      const normalized = file.relativePath.replace(/\\/g, '/');
+      const segments = normalized.split('/');
+      if (isAbsolute(normalized) || segments.some(p => !p || p === '.' || p === '..' || /[:\x00-\x1f<>"|?*]/.test(p) || /[. ]$/.test(p))) {
+        throw new Error(`备份包含无效路径：${file.relativePath}`);
+      }
+      const target = resolve(staging, ...segments);
+      const inside = relative(staging, target);
+      const key = process.platform === 'win32' ? inside.toLowerCase() : inside;
+      if (!inside || inside.startsWith('..') || isAbsolute(inside) || paths.has(key)) throw new Error('备份包含越界或重复路径');
+      paths.add(key);
+      if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.dataBase64)) throw new Error('备份包含无效文件编码');
+      const bytes = Buffer.from(file.dataBase64, 'base64');
+      if (target.endsWith('.json')) JSON.parse(bytes.toString('utf8'));
+      fs.mkdirSync(dirname(target), { recursive: true });
+      fs.writeFileSync(target, bytes);
+    }
+    // These absolute sibling paths are fixed above; no backup entry can select them.
+    fs.renameSync(dataDir, previousDataPath);
+    try {
+      fs.renameSync(staging, dataDir);
+    } catch (error) {
+      fs.renameSync(previousDataPath, dataDir);
+      throw error;
+    }
+    staging = '';
+    pendingJsonCache.clear();
+    restorePending = true;
+    return { fileCount: snapshot.files.length, previousDataPath };
+  } finally {
+    // staging is only an absolute mkdtemp directory created by this operation.
+    if (staging) fs.rmSync(staging, { recursive: true, force: true });
+    storageMaintenance = restorePending;
   }
-
-  const dataDir = getDataDir();
-  pendingJsonCache.clear();
-
-  if (fs.existsSync(dataDir)) {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-  fs.mkdirSync(dataDir, { recursive: true });
-
-  for (const file of snapshot.files) {
-    const sanitizedRelativePath = file.relativePath
-      .replace(/\\/g, "/")
-      .split("/")
-      .filter((segment) => Boolean(segment) && segment !== "." && segment !== "..")
-      .join("/");
-    if (!sanitizedRelativePath) continue;
-
-    const targetPath = join(dataDir, sanitizedRelativePath);
-    const targetDir = dirname(targetPath);
-    fs.mkdirSync(targetDir, { recursive: true });
-    fs.writeFileSync(targetPath, Buffer.from(file.dataBase64, "base64"));
-  }
-
-  return { fileCount: snapshot.files.length };
 }
 
 export function listConversations(): ConvMeta[] {
@@ -445,8 +477,14 @@ export function getModelSettings(): ModelSettings {
 }
 
 export function saveModelSettings(settings: ModelSettings): Promise<void> {
-  const prev = getModelSettings();
-  return writeJSON(SETTINGS_FILE(), { ...prev, ...settings });
+  if (storageMaintenance) return Promise.reject(new Error('备份恢复后请重启应用再修改设置。'));
+  const operation = settingsQueue.catch(() => undefined).then(() => {
+    const prev = getModelSettings();
+    return writeJSON(SETTINGS_FILE(), { ...prev, ...settings }, true);
+  }).finally(() => pendingSettings.delete(operation));
+  settingsQueue = operation;
+  pendingSettings.add(operation);
+  return operation;
 }
 
 export function getSkills(): SkillConfig[] {

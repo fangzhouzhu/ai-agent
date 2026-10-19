@@ -1,6 +1,8 @@
 import { app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
+import { atomicWriteJsonSync, readJsonWithBackup } from '../runtime/persistence';
+import { isRestorePending } from '../storage';
 
 export type ToolRisk = "read" | "write" | "delete" | "network" | "system";
 
@@ -291,34 +293,30 @@ export function listToolPolicies(): ToolPolicy[] {
   return Object.values(toolPolicies).map((policy) => ({ ...policy }));
 }
 
-function persistToolPolicies(): void {
+function persistToolPolicies(policies = toolPolicies): void {
   if (!fs.existsSync(TOOL_POLICY_STORE_DIR)) {
     fs.mkdirSync(TOOL_POLICY_STORE_DIR, { recursive: true });
   }
 
   const snapshot = Object.fromEntries(
-    Object.values(toolPolicies).map((policy) => [
+    Object.values(policies).map((policy) => [
       policy.name,
       { requiresConfirmation: policy.requiresConfirmation },
     ]),
   );
 
-  fs.writeFileSync(
+  atomicWriteJsonSync(
     TOOL_POLICY_STORE_PATH,
     JSON.stringify(snapshot, null, 2),
-    "utf-8",
   );
 }
 
 function hydrateToolPolicies(): void {
-  if (!fs.existsSync(TOOL_POLICY_STORE_PATH)) return;
-
   try {
-    const raw = fs.readFileSync(TOOL_POLICY_STORE_PATH, "utf-8");
-    const parsed = JSON.parse(raw) as Record<
+    const parsed = readJsonWithBackup<Record<
       string,
       { requiresConfirmation?: boolean }
-    >;
+    >>(TOOL_POLICY_STORE_PATH, {});
 
     for (const [name, value] of Object.entries(parsed)) {
       if (
@@ -343,9 +341,20 @@ export function updateToolPolicy(
   requiresConfirmation: boolean,
 ): boolean {
   if (!toolPolicies[name]) return false;
-  toolPolicies[name] = { ...toolPolicies[name], requiresConfirmation };
-  persistToolPolicies();
+  updateToolPolicies({ [name]: requiresConfirmation });
   return true;
+}
+
+export function updateToolPolicies(patches: Record<string, boolean>): ToolPolicy[] {
+  if (isRestorePending()) throw new Error('备份已恢复，请重启应用后修改权限。');
+  const next = { ...toolPolicies };
+  for (const [name, requiresConfirmation] of Object.entries(patches)) {
+    if (!next[name] || typeof requiresConfirmation !== 'boolean') throw new Error(`无效工具权限：${name}`);
+    next[name] = { ...next[name], requiresConfirmation };
+  }
+  persistToolPolicies(next);
+  Object.assign(toolPolicies, next);
+  return listToolPolicies();
 }
 
 hydrateToolPolicies();

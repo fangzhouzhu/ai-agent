@@ -1783,6 +1783,21 @@
   overflow-wrap: anywhere;
 }
 
+.settingsLoadNotice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 12px;
+  color: #9e4b32;
+  background: #fff6ef;
+  border-bottom: 1px solid #f1dfd0;
+}
+
+.settingsLoadNotice span { flex: 1; overflow-wrap: anywhere; }
+.settingsFields { border: 0; min-width: 0; padding: 0; margin: 0; }
+.settingsFields:disabled { opacity: .65; }
+
 .secondaryBtn,
 .primaryBtn {
   padding: 8px 13px;

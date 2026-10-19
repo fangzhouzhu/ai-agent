@@ -49,21 +49,21 @@ import { RAG_CITATION_PROMPT } from "./prompts/agentPrompts";
 import { recordTrace } from "./runtime/trace";
 import { writeAppLog } from "./runtime/logger";
 import { executeTool } from "./runtime/ToolExecutor";
-import { matchSkillForInput, type ResolvedSkillMatch } from "./skills";
+import { requestApproval, resolveApproval, resolveConversationApprovals } from "./runtime/toolApprovals";
+import { resolveRouteDecision as evaluateRouteDecision, type RouteDecision } from "./routing";
 import type { ToolApprovalRequest } from "./runtime/ToolExecutor";
 import {
   isDirectCurrentTimeQuery,
   isKnowledgeBaseQuery,
-  isLocalActionQuery,
-  isRealtimeFactQuery,
-  shouldUseWebSearchForQuery,
 } from "./queryRouting";
 import {
   type Task,
+  stopTasksForQuit,
 } from "./taskRunner";
 import {
   getModelSettings,
   saveModelSettings,
+  flushStorageWrites,
   getSkills,
   getAgentProfile,
   getConversationMeta,
@@ -162,11 +162,6 @@ function isSafeExternalUrl(rawUrl: string): boolean {
 
 const chatRequests = new Map<string, ChatRequestState>();
 
-type PendingToolApproval = {
-  resolve: (approved: boolean) => void;
-  conversationId: string;
-};
-
 type ChatModelDiagnostics = {
   routeMs?: number;
   firstToolCallMs?: number;
@@ -178,18 +173,7 @@ type ChatModelDiagnostics = {
   totalMs?: number;
 };
 
-const pendingToolApprovals = new Map<string, PendingToolApproval>();
-
-function resolvePendingApprovalsForConversation(
-  conversationId: string,
-  approved: boolean,
-): void {
-  for (const [requestId, pending] of pendingToolApprovals.entries()) {
-    if (pending.conversationId !== conversationId) continue;
-    pendingToolApprovals.delete(requestId);
-    pending.resolve(approved);
-  }
-}
+const resolvePendingApprovalsForConversation = resolveConversationApprovals;
 
 type WechatBotStatus = {
   status: "idle" | "waiting_scan" | "bound" | "error" | "unbound";
@@ -677,40 +661,7 @@ async function unbindWechatBot(): Promise<WechatBotStatus> {
   });
 }
 
-function shouldUseAgentTools(message: string): boolean {
-  return isLocalActionQuery(message);
-}
-
-function shouldUseRealtimeTool(message: string): boolean {
-  return isRealtimeFactQuery(message);
-}
-
-function shouldDirectReturnCurrentTime(message: string): boolean {
-  return isDirectCurrentTimeQuery(message);
-}
-
-function shouldUseWebSearchTool(message: string): boolean {
-  return shouldUseWebSearchForQuery(message);
-}
-
-function shouldUseCalculatorTool(message: string): boolean {
-  const compact = message.trim().replace(/[＝=？?\s]/g, "");
-  return (
-    Boolean(compact) &&
-    /^[0-9+\-*/%^().,]+$/.test(compact) &&
-    /[+\-*/%^]/.test(compact)
-  );
-}
-
-function shouldUseAdvancedModel(message: string): boolean {
-  const text = message.toLowerCase();
-  const advancedIntentRegex =
-    /(代码|编程|函数|组件|报错|错误|bug|调试|修复|重构|优化|架构|设计|分析|方案|总结|脚本|sql|正则|code|debug|fix|refactor|optimi[sz]e|architecture|analy[sz]e|plan)/;
-
-  return (
-    advancedIntentRegex.test(text) || message.length > 120 || /\n/.test(message)
-  );
-}
+function shouldDirectReturnCurrentTime(message: string): boolean { return isDirectCurrentTimeQuery(message); }
 
 function isCasualChat(message: string): boolean {
   const compact = message.trim().toLowerCase();
@@ -741,18 +692,6 @@ function isImageGenerationRequest(message: string): boolean {
   );
 }
 
-type RouteDecision = {
-  matchedSkill: ResolvedSkillMatch | null;
-  skillAttachmentPaths: string[];
-  useSkillAttachments: boolean;
-  preferredScene: SkillConfig["preferredScene"] | "auto";
-  useRealtimeTool: boolean;
-  useWebSearchTool: boolean;
-  useCalculatorTool: boolean;
-  useTools: boolean;
-  useAdvancedModel: boolean;
-};
-
 type KnowledgeRequestOptions = {
   kbIds?: string[];
   ragOnly?: boolean;
@@ -762,68 +701,8 @@ type KnowledgeRequestOptions = {
   citationRequired?: boolean;
 };
 
-function resolveRouteDecision(
-  message: string,
-  options?: {
-    suppressToolsForRag?: boolean;
-    useRag?: boolean;
-    forceAgent?: boolean;
-  },
-): RouteDecision {
-  const useRag = options?.useRag ?? false;
-  const suppressToolsForRag = options?.suppressToolsForRag ?? useRag;
-  const matchedSkill = matchSkillForInput(message, getSkills());
-  const skillAttachmentPaths =
-    matchedSkill?.skill.attachments
-      ?.map((item) => item.path?.trim())
-      .filter(Boolean) ?? [];
-  const useSkillAttachments = !useRag && skillAttachmentPaths.length > 0;
-  const preferredScene = matchedSkill?.skill.preferredScene ?? "auto";
-  const toolChecksEnabled = !suppressToolsForRag;
-  const useRealtimeTool = toolChecksEnabled && shouldUseRealtimeTool(message);
-  const useWebSearchTool = toolChecksEnabled && shouldUseWebSearchTool(message);
-  const useCalculatorTool =
-    toolChecksEnabled && shouldUseCalculatorTool(message);
-
-  let useTools =
-    toolChecksEnabled &&
-    (Boolean(options?.forceAgent) ||
-      useRealtimeTool ||
-      useWebSearchTool ||
-      useCalculatorTool ||
-      shouldUseAgentTools(message));
-  let useAdvancedModel =
-    !useRag &&
-    (useTools ||
-      Boolean(options?.forceAgent) ||
-      shouldUseAdvancedModel(message));
-
-  if (
-    !useRag &&
-    preferredScene === "chat" &&
-    !useRealtimeTool &&
-    !useWebSearchTool &&
-    !useCalculatorTool &&
-    !options?.forceAgent
-  ) {
-    useTools = false;
-    useAdvancedModel = false;
-  } else if (!useRag && (preferredScene === "agent" || options?.forceAgent)) {
-    useTools = true;
-    useAdvancedModel = true;
-  }
-
-  return {
-    matchedSkill,
-    skillAttachmentPaths,
-    useSkillAttachments,
-    preferredScene,
-    useRealtimeTool,
-    useWebSearchTool,
-    useCalculatorTool,
-    useTools,
-    useAdvancedModel,
-  };
+function resolveRouteDecision(message: string, options?: Parameters<typeof evaluateRouteDecision>[1]): RouteDecision {
+  return evaluateRouteDecision(message, options, getSkills());
 }
 
 function buildRouteModelInfo(route: RouteDecision): {
@@ -1131,23 +1010,8 @@ ipcMain.handle(
         error: message,
       });
     };
-    const requestToolApproval = (
-      request: ToolApprovalRequest,
-    ): Promise<boolean> =>
-      new Promise<boolean>((resolve) => {
-        const requestId = randomUUID();
-        pendingToolApprovals.set(requestId, {
-          resolve,
-          conversationId: requestConversationId,
-        });
-        webContents.send("chat:tool-approval-request", {
-          requestId,
-          conversationId: requestConversationId,
-          toolName: request.toolName,
-          input: request.args,
-          policy: request.policy,
-        });
-      });
+    const requestToolApproval = (request: ToolApprovalRequest): Promise<boolean> =>
+      requestApproval(request, { webContents, conversationId: requestConversationId, signal });
 
     try {
       const activeAgent = getEffectiveAgentProfile(requestConversationId);
@@ -1634,18 +1498,15 @@ ipcMain.on("chat:abort", (_event, conversationId?: string | null) => {
 // IPC: 获取模型列表
 ipcMain.handle(
   "chat:tool-approval-response",
-  (_event, payload: { requestId: string; approved: boolean }) => {
-    const pending = pendingToolApprovals.get(payload.requestId);
-    if (!pending) return false;
-    pendingToolApprovals.delete(payload.requestId);
-    pending.resolve(Boolean(payload.approved));
-    return true;
+  (event, payload: { requestId: string; approved: boolean }) => {
+    return resolveApproval(payload.requestId, Boolean(payload.approved), event.sender.id);
   },
 );
 
 registerAppIpcHandlers();
 registerKnowledgeIpcHandlers();
 registerWorkbenchIpcHandlers({
+  isChatBusy: () => chatRequests.size > 0,
   checkWechatBotBinding,
   refreshWechatBotQr,
   unbindWechatBot,
@@ -2373,7 +2234,7 @@ app.whenReady().then(async () => {
   void checkWechatBotBinding();
   void fetchOllamaModels()
     .then(() => {
-      saveModelSettings(getModelSettingsSnapshot());
+      return saveModelSettings(getModelSettingsSnapshot());
     })
     .catch((error: unknown) => {
       writeAppLog("warn", "startup", "Fetch Ollama models after window creation failed", {
@@ -2397,8 +2258,22 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
+let writesFlushedForQuit = false;
+let quitFlushStarted = false;
+app.on("before-quit", (event) => {
   isQuitting = true;
+  if (!writesFlushedForQuit) {
+    event.preventDefault();
+    if (!quitFlushStarted) {
+      quitFlushStarted = true;
+      for (const request of chatRequests.values()) request.controller.abort();
+      void stopTasksForQuit().catch(error => writeAppLog('error', 'shutdown', '任务保存失败', String(error)))
+        .then(() => flushStorageWrites())
+        .catch(error => writeAppLog('error', 'shutdown', '数据保存失败', String(error)))
+        .finally(() => { writesFlushedForQuit = true; app.quit(); });
+    }
+    return;
+  }
   appTray?.destroy();
   appTray = null;
   centibotAgentServer?.close();

@@ -1,3 +1,4 @@
+import { extractMathExpression } from './queryRouting';
 import { ChatOllama } from "@langchain/ollama";
 import {
   HumanMessage,
@@ -976,12 +977,8 @@ async function preCallTools(
     return results;
   }
 
-  const compactExpression = userMessage.trim().replace(/[=?\s]/g, "");
-  if (
-    compactExpression &&
-    /^[0-9+\-*/%^().,]+$/.test(compactExpression) &&
-    /[+\-*/%^]/.test(compactExpression)
-  ) {
+  const compactExpression = extractMathExpression(userMessage);
+  if (compactExpression) {
     const args = { expression: compactExpression };
     onToolCall("calculator", args);
     try {

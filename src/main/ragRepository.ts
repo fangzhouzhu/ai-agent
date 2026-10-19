@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "path";
-import * as fs from "fs";
-import { getRagDir } from "./storage";
+import { getRagDir, isRestorePending } from "./storage";
+import { atomicWriteJsonSync, readJsonWithBackup } from './runtime/persistence';
 
 export interface KnowledgeBase {
   id: string;
@@ -40,16 +40,12 @@ function getDocFile(): string {
 }
 
 function readJSON<T>(file: string, fallback: T): T {
-  try {
-    if (!fs.existsSync(file)) return fallback;
-    return JSON.parse(fs.readFileSync(file, "utf-8")) as T;
-  } catch {
-    return fallback;
-  }
+  return readJsonWithBackup(file, fallback);
 }
 
 function writeJSON(file: string, data: unknown): void {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf-8");
+  if (isRestorePending()) throw new Error('备份已恢复，请重启应用后修改知识库。');
+  atomicWriteJsonSync(file, JSON.stringify(data, null, 2));
 }
 
 // ---- Knowledge Base CRUD ----

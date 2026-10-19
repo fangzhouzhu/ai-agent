@@ -9,6 +9,7 @@ import TaskPanel from './components/TaskPanel'
 import WechatBotPanel from './components/WechatBotPanel'
 import CustomSelect from './components/CustomSelect'
 import ModelSettings from './components/ModelSettings'
+import { loadSettingsResources, type SettingsResource } from './settingsLoader'
 import { prepareModelSettings, validateOnlineConnection } from './modelSettings'
 import type { ModelProvider, RouteModelConfig, SavedOnlineProfile, OnlineProviderConfig, ModelRouteConfig } from './modelSettings'
 import { useAppDialog } from './components/AppDialogProvider'
@@ -27,6 +28,7 @@ import { v4 as uuidv4 } from 'uuid'
 import styles from './App.module.css'
 
 const TITLE_BAR_BACKGROUND = '#f4f8ff'
+const SETTINGS_GROUP_IDS: Record<string, string[]> = { models: ['models', 'config'], wechat: ['wechat'], skills: ['skills'], tools: ['tools'], diagnostics: ['traces', 'logs'] }
 
 const TitleBar: React.FC = () => (
   <>
@@ -658,6 +660,14 @@ const App: React.FC = () => {
   const [activeSkillId, setActiveSkillId] = useState<string | null>(null)
   const [isSavingModelConfig, setIsSavingModelConfig] = useState(false)
   const [modelSaveError, setModelSaveError] = useState('')
+  const [settingsLoadErrors, setSettingsLoadErrors] = useState<Record<string, string>>({})
+  const [settingsLoading, setSettingsLoading] = useState<Record<string, boolean>>({})
+  const settingsLoadVersions = useRef<Record<string, number>>({})
+  const settingsErrorsRef = useRef(settingsLoadErrors)
+  settingsErrorsRef.current = settingsLoadErrors
+  const currentSettingsErrors = Object.entries(settingsLoadErrors).filter(([id]) => SETTINGS_GROUP_IDS[settingsTab]?.includes(id))
+  const currentSettingsLoading = SETTINGS_GROUP_IDS[settingsTab]?.some(id => settingsLoading[id]) ?? false
+  const loadedSettingsTabs = useRef(new Set<string>())
   const apiTestRequestRef = useRef(0)
   const apiTestConfigRef = useRef('')
   apiTestConfigRef.current = JSON.stringify([draftModelConfig.online.provider, draftModelConfig.online.baseUrl, draftModelConfig.online.apiKey, draftModelConfig.activeOnlineProfileId, draftModelConfig.chat])
@@ -685,59 +695,60 @@ const App: React.FC = () => {
   const agentModeInfoButtonRef = useRef<HTMLButtonElement | null>(null)
   const activeTraceInsight = useMemo(() => buildTraceInsight(activeTraceEvents), [activeTraceEvents])
 
-  const refreshModelConfig = useCallback(async () => {
-    const [availableModels, savedConfig, savedSkills, savedWechatBot, policies, traces, logInfo, savedAgents, savedKnowledgeBases] = await Promise.all([
-      window.electronAPI.listModels(),
-      window.electronAPI.getModelConfig(),
-      window.electronAPI.listSkills(),
-      window.electronAPI.getWechatBotSettings(),
-      window.electronAPI.listToolPolicies(),
-      window.electronAPI.diagnostics.listTraces(),
-      window.electronAPI.diagnostics.getLogInfo(),
-      window.electronAPI.agents.list(),
-      window.electronAPI.kb.list(),
-    ])
-
-    const nextConfig = normalizeModelConfig(savedConfig)
-    const nextWechatBotConfig = normalizeWechatBotConfig(savedWechatBot)
-    const nextSkills = [...savedSkills].sort(
-      (a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt
-    )
-
-    setModels(availableModels)
-    setModelConfig(nextConfig)
-    setDraftModelConfig(nextConfig)
-    setAgents(savedAgents)
-    setKnowledgeBases(savedKnowledgeBases)
-    setAgentEditorDraft(null)
-    setPendingAgentId((current) => savedAgents.some((agent) => agent.id === current) ? current : null)
-    setWechatBotConfig(nextWechatBotConfig)
-    setDraftWechatBotConfig(nextWechatBotConfig)
-    setDraftSkills(nextSkills)
-    setSkillEditorDraft(nextSkills[0] ? { ...nextSkills[0], keywords: [...nextSkills[0].keywords] } : null)
-    setSkillEditorMode(nextSkills[0] ? 'edit' : null)
-    setSkillEditorSessionId(uuidv4())
-    setToolPolicies(policies)
-    setDraftToolPolicies(Object.fromEntries(policies.map((p) => [p.name, p.requiresConfirmation])))
-    setTraceSummaries(traces)
-    setActiveTraceId((current) => traces.some((trace) => trace.traceId === current) ? current : traces[0]?.traceId ?? null)
-    setDiagnosticLogInfo(logInfo)
-    setActiveSkillId(nextSkills[0]?.id ?? null)
-    setApiTestState({ status: 'idle', message: '', models: [] })
-    setBotBindState({
-      status: nextWechatBotConfig.status ?? 'idle',
-      message: nextWechatBotConfig.nickname
-        ? `已绑定微信 ClawBot：${nextWechatBotConfig.nickname}`
-        : '',
-      qrcode: nextWechatBotConfig.qrcode,
-      qrContent: nextWechatBotConfig.qrContent,
-      token: nextWechatBotConfig.token,
-      botId: nextWechatBotConfig.botId,
-      userId: nextWechatBotConfig.userId,
-      nickname: nextWechatBotConfig.nickname,
-      updatedAt: nextWechatBotConfig.updatedAt,
+  const refreshModelConfig = useCallback(async (group = 'all', failedOnly = false) => {
+    const resources: SettingsResource[] = [
+      { id: 'models', group: 'models', label: '本地模型', load: () => window.electronAPI.listModels(), apply: setModels },
+      { id: 'config', group: 'models', label: '模型配置', load: () => window.electronAPI.getModelConfig(), apply: (saved) => {
+        const next = normalizeModelConfig(saved)
+        setModelConfig(next); setDraftModelConfig(next)
+        setApiTestState({ status: 'idle', message: '', models: [] })
+      } },
+      { id: 'skills', group: 'skills', label: '技能', load: () => window.electronAPI.listSkills(), apply: (saved: SkillConfig[]) => {
+        const next = [...saved].sort((a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt)
+        setDraftSkills(next)
+        setSkillEditorDraft(next[0] ? { ...next[0], keywords: [...next[0].keywords] } : null)
+        setSkillEditorMode(next[0] ? 'edit' : null)
+        setSkillEditorSessionId(uuidv4()); setActiveSkillId(next[0]?.id ?? null)
+      } },
+      { id: 'wechat', group: 'wechat', label: '微信配置', load: () => window.electronAPI.getWechatBotSettings(), apply: (saved) => {
+        const next = normalizeWechatBotConfig(saved)
+        setWechatBotConfig(next); setDraftWechatBotConfig(next)
+        setBotBindState({ ...next, status: next.status ?? 'idle', message: next.nickname ? `已绑定微信 ClawBot：${next.nickname}` : '' })
+      } },
+      { id: 'tools', group: 'tools', label: '工具权限', load: () => window.electronAPI.listToolPolicies(), apply: (policies: ToolPolicy[]) => {
+        setToolPolicies(policies); setDraftToolPolicies(Object.fromEntries(policies.map(p => [p.name, p.requiresConfirmation])))
+      } },
+      { id: 'traces', group: 'diagnostics', label: '运行记录', load: () => window.electronAPI.diagnostics.listTraces(), apply: (traces: TraceSummary[]) => {
+        setTraceSummaries(traces)
+        setActiveTraceId(current => traces.some(trace => trace.traceId === current) ? current : traces[0]?.traceId ?? null)
+      } },
+      { id: 'logs', group: 'diagnostics', label: '日志信息', load: () => window.electronAPI.diagnostics.getLogInfo(), apply: setDiagnosticLogInfo },
+      { id: 'agents', group: 'core', label: '智能体', load: () => window.electronAPI.agents.list(), apply: (saved: AgentProfile[]) => {
+        setAgents(saved); setPendingAgentId(current => saved.some(agent => agent.id === current) ? current : null)
+      } },
+      { id: 'knowledge', group: 'core', label: '知识库', load: () => window.electronAPI.kb.list(), apply: setKnowledgeBases },
+    ]
+    const selected = resources.filter(r => (group === 'all' || r.group === group) && (!failedOnly || settingsErrorsRef.current[r.id]))
+    const versions: Record<string, number> = {}
+    await loadSettingsResources(selected, {
+      start: r => {
+        versions[r.id] = settingsLoadVersions.current[r.id] = (settingsLoadVersions.current[r.id] ?? 0) + 1
+        setSettingsLoading(prev => ({ ...prev, [r.id]: true }))
+        setSettingsLoadErrors(prev => { const next = { ...prev }; delete next[r.id]; return next })
+      },
+      isCurrent: r => versions[r.id] === settingsLoadVersions.current[r.id],
+      finish: (r, error) => {
+        setSettingsLoading(prev => ({ ...prev, [r.id]: false }))
+        setSettingsLoadErrors(prev => { const next = { ...prev }; if (error) next[r.id] = error; else delete next[r.id]; return next })
+      },
     })
   }, [])
+
+  useEffect(() => {
+    if (!showModelConfig || loadedSettingsTabs.current.has(settingsTab)) return
+    loadedSettingsTabs.current.add(settingsTab)
+    void refreshModelConfig(settingsTab)
+  }, [showModelConfig, settingsTab, refreshModelConfig])
 
   const handleOpenLogDirectory = useCallback(async () => {
     const result = await window.electronAPI.diagnostics.openLogDirectory()
@@ -868,6 +879,7 @@ const App: React.FC = () => {
         console.error('electronAPI.storage 未就绪，请重启应用')
         return
       }
+      void refreshModelConfig()
       const [metas, activeIdStored, uploaded, tasks] = await Promise.all([
         window.electronAPI.storage.list(),
         window.electronAPI.storage.getActive(),
@@ -891,13 +903,16 @@ const App: React.FC = () => {
       setRagFiles(uploaded)
       ragFilesRef.current = uploaded
       setRunningTaskCount(tasks.filter((task) => task.status === 'running').length)
-      await refreshModelConfig()
     }
-    init()
+    void init().catch(error => console.error('加载会话历史失败', error))
   }, [refreshModelConfig])
 
   useEffect(() => {
+    const controllers = new Map<string, AbortController>()
+    const removeCancelled = window.electronAPI.onToolApprovalCancelled(requestId => controllers.get(requestId)?.abort())
     const remove = window.electronAPI.onToolApprovalRequest(async ({ requestId, toolName, input, policy }) => {
+      const controller = new AbortController()
+      controllers.set(requestId, controller)
       const filePath =
         input && typeof input === 'object' && 'filePath' in input
           ? String((input as { filePath?: unknown }).filePath ?? '')
@@ -905,6 +920,7 @@ const App: React.FC = () => {
 
       const approved = toolName === 'delete_file'
         ? await confirm({
+            signal: controller.signal,
             title: '确认删除文件',
             message: '即将把文件移入系统回收站，是否继续？',
             description: filePath,
@@ -913,6 +929,7 @@ const App: React.FC = () => {
             tone: 'danger',
           })
         : await confirm({
+            signal: controller.signal,
             title: `确认执行${policy?.displayName ?? toolName}`,
             message: '该操作需要你的确认后才能继续执行。',
             description: filePath || policy?.description || JSON.stringify(input, null, 2),
@@ -921,10 +938,11 @@ const App: React.FC = () => {
             tone: 'default',
           })
 
+      controllers.delete(requestId)
       await window.electronAPI.respondToolApproval(requestId, approved)
     })
 
-    return () => remove()
+    return () => { remove(); removeCancelled(); controllers.forEach(controller => controller.abort()) }
   }, [confirm])
 
   useEffect(() => {
@@ -1450,7 +1468,7 @@ const App: React.FC = () => {
   const handleOpenModelConfig = useCallback(async (
     initialTab: 'models' | 'wechat' | 'skills' | 'tools' | 'diagnostics' = 'models',
   ) => {
-    await refreshModelConfig()
+    loadedSettingsTabs.current.clear()
     setModelSaveError('')
     setSettingsTab(initialTab)
     setShowModelConfig(true)
@@ -1539,9 +1557,13 @@ const App: React.FC = () => {
         },
       }
 
-      setModelConfig(nextConfig)
-      setDraftModelConfig(nextConfig)
-      await window.electronAPI.saveModelConfig(toSettingsPayload(nextConfig))
+      try {
+        const saved = normalizeModelConfig(await window.electronAPI.saveModelConfig(toSettingsPayload(nextConfig)))
+        setModelConfig(saved)
+        setDraftModelConfig(saved)
+      } catch (error) {
+        window.alert(`模型切换失败：${error instanceof Error ? error.message : '请重试'}`)
+      }
     },
     [modelConfig]
   )
@@ -1586,9 +1608,13 @@ const App: React.FC = () => {
         },
       }
 
-      setModelConfig(nextConfig)
-      setDraftModelConfig(nextConfig)
-      await window.electronAPI.saveModelConfig(toSettingsPayload(nextConfig))
+      try {
+        const saved = normalizeModelConfig(await window.electronAPI.saveModelConfig(toSettingsPayload(nextConfig)))
+        setModelConfig(saved)
+        setDraftModelConfig(saved)
+      } catch (error) {
+        window.alert(`模型切换失败：${error instanceof Error ? error.message : '请重试'}`)
+      }
     },
     [modelConfig]
   )
@@ -1596,14 +1622,12 @@ const App: React.FC = () => {
   const handleSaveToolPolicies = useCallback(async () => {
     setIsSavingToolPolicies(true)
     try {
-      await Promise.all(
-        Object.entries(draftToolPolicies).map(([name, requiresConfirmation]) =>
-          window.electronAPI.updateToolPolicy(name, requiresConfirmation)
-        )
-      )
-      const updated = await window.electronAPI.listToolPolicies()
+      setModelSaveError('')
+      const updated = await window.electronAPI.updateToolPolicies(draftToolPolicies)
       setToolPolicies(updated)
       setDraftToolPolicies(Object.fromEntries(updated.map((p) => [p.name, p.requiresConfirmation])))
+    } catch (error) {
+      setModelSaveError(`权限保存失败：${error instanceof Error ? error.message : '请重试'}`)
     } finally {
       setIsSavingToolPolicies(false)
     }
@@ -1641,81 +1665,17 @@ const App: React.FC = () => {
       return
     }
 
-    const currentSkillDraft = readSkillEditorDraft()
-    const skillsToSave = currentSkillDraft
-      ? skillEditorMode === 'new'
-        ? [currentSkillDraft, ...draftSkills]
-        : draftSkills.map((skill) =>
-            skill.id === currentSkillDraft.id ? currentSkillDraft : skill,
-          )
-      : draftSkills
-
-    const invalidSkill = skillsToSave.find((skill) => !skill.name.trim())
-    if (invalidSkill) {
-      setActiveSkillId(invalidSkill.id)
-      window.alert('请先为每个技能填写名称')
-      return
-    }
-
-    const invalidPrompt = skillsToSave.find((skill) => !skill.systemPrompt.trim())
-    if (invalidPrompt) {
-      setActiveSkillId(invalidPrompt.id)
-      window.alert('请先为每个技能填写自定义提示词')
-      return
-    }
-
-    const duplicateSkill = skillsToSave.find((skill, index) =>
-      skillsToSave.findIndex((item) => item.name.trim() === skill.name.trim()) !== index
-    )
-    if (duplicateSkill) {
-      setActiveSkillId(duplicateSkill.id)
-      window.alert('技能名称不能重复')
-      return
-    }
-
-    const normalizedSkills = normalizeDraftSkills(skillsToSave)
-
+    if (settingsTab === 'skills') { await handleSaveSkills(); return }
+    if (settingsTab !== 'wechat') { setShowModelConfig(false); return }
     setIsSavingModelConfig(true)
     setModelSaveError('')
     try {
-      const [savedConfig, savedSkills, savedWechatBot] = await Promise.all([
-        window.electronAPI.saveModelConfig(toSettingsPayload(configToSave)),
-        window.electronAPI.saveSkills(normalizedSkills),
-        window.electronAPI.saveWechatBotSettings(draftWechatBotConfig),
-      ])
-
-      const nextConfig = normalizeModelConfig(savedConfig)
-      const nextWechatBotConfig = normalizeWechatBotConfig(savedWechatBot)
-      setModelConfig(nextConfig)
-      setDraftModelConfig(nextConfig)
-      setWechatBotConfig(nextWechatBotConfig)
-      setDraftWechatBotConfig(nextWechatBotConfig)
-      setBotBindState((prev) => ({
-        ...prev,
-        status: nextWechatBotConfig.status ?? prev.status,
-        qrcode: nextWechatBotConfig.qrcode,
-        qrContent: nextWechatBotConfig.qrContent,
-        token: nextWechatBotConfig.token,
-        botId: nextWechatBotConfig.botId,
-        userId: nextWechatBotConfig.userId,
-        nickname: nextWechatBotConfig.nickname,
-      }))
-      setDraftSkills(savedSkills)
-      setActiveSkillId((current) =>
-        savedSkills.some((skill) => skill.id === current) ? current : (savedSkills[0]?.id ?? null)
-      )
-      const savedActive =
-        savedSkills.find((skill) => skill.id === currentSkillDraft?.id) ?? savedSkills[0] ?? null
-      setSkillEditorDraft(savedActive ? { ...savedActive, keywords: [...savedActive.keywords] } : null)
-      setSkillEditorMode(savedActive ? 'edit' : null)
-      setSkillEditorSessionId(uuidv4())
+      const next = normalizeWechatBotConfig(await window.electronAPI.saveWechatBotSettings(draftWechatBotConfig))
+      setWechatBotConfig(next); setDraftWechatBotConfig(next)
       setShowModelConfig(false)
-    } catch (error) {
-      setModelSaveError(error instanceof Error ? error.message : '保存失败，请重试。')
-    } finally {
-      setIsSavingModelConfig(false)
-    }
-  }, [draftModelConfig, draftSkills, draftWechatBotConfig, readSkillEditorDraft, skillEditorMode, settingsTab, apiTestState.models])
+    } catch (error) { setModelSaveError(error instanceof Error ? error.message : '保存失败，请重试。') }
+    finally { setIsSavingModelConfig(false) }
+  }, [draftModelConfig, draftWechatBotConfig, settingsTab, apiTestState.models, handleSaveSkills])
 
   const handleTestOnlineApi = useCallback(async () => {
     const validationError = validateOnlineConnection(draftModelConfig.online)
@@ -3171,8 +3131,13 @@ const App: React.FC = () => {
               </aside>
 
               <div className={styles.modalContent}>
+                {currentSettingsErrors.length > 0 && <div className={styles.settingsLoadNotice} role="alert">
+                  <span>{currentSettingsErrors.map(([, error]) => error).join('；')}</span>
+                  <button className={styles.miniBtn} onClick={() => void refreshModelConfig(settingsTab, true)}>重试失败项</button>
+                </div>}
                 <div className={styles.modalBody}>
             {settingsTab === 'models' && (
+              <fieldset className={styles.settingsFields} disabled={isSavingModelConfig || settingsLoading.config || Boolean(settingsLoadErrors.config)}>
               <ModelSettings
                 config={draftModelConfig}
                 saved={modelConfig}
@@ -3192,6 +3157,7 @@ const App: React.FC = () => {
                 }}
                 onTest={() => void handleTestOnlineApi()}
               />
+              </fieldset>
             )}
 
             {settingsTab === 'skills' && (
@@ -3726,14 +3692,14 @@ const App: React.FC = () => {
                   {settingsTab === 'tools' ? (
                     <button
                       className={styles.primaryBtn}
-                      disabled={!isToolPolicyDirty || isSavingToolPolicies}
+                      disabled={!isToolPolicyDirty || isSavingToolPolicies || currentSettingsLoading || currentSettingsErrors.length > 0}
                       onClick={() => void handleSaveToolPolicies()}
                     >
                       {isSavingToolPolicies ? '保存中...' : isToolPolicyDirty ? '保存设置' : '已保存'}
                     </button>
                   ) : (
-                    <button className={styles.primaryBtn} disabled={isSavingModelConfig || apiTestState.status === 'testing'} onClick={() => void handleSaveModelConfig()}>
-                      {isSavingModelConfig ? '保存中…' : settingsTab === 'models' ? '保存并应用' : '保存设置'}
+                    <button className={styles.primaryBtn} disabled={isSavingModelConfig || apiTestState.status === 'testing' || (settingsTab === 'models' && (settingsLoading.config || Boolean(settingsLoadErrors.config))) || (settingsTab === 'wechat' && (settingsLoading.wechat || Boolean(settingsLoadErrors.wechat)))} onClick={() => void handleSaveModelConfig()}>
+                      {isSavingModelConfig ? '保存中…' : settingsTab === 'models' ? '保存并应用' : settingsTab === 'diagnostics' ? '完成' : '保存设置'}
                     </button>
                   )}
                 </div>

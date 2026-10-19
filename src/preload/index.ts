@@ -196,6 +196,7 @@ export type TaskStep = {
 };
 
 export type Task = {
+  persistenceError?: string;
   id: string;
   title: string;
   prompt: string;
@@ -472,6 +473,12 @@ const api = {
     };
   },
 
+  onToolApprovalCancelled: (callback: (requestId: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, requestId: string) => callback(requestId);
+    ipcRenderer.on('chat:tool-approval-cancelled', handler);
+    return () => ipcRenderer.removeListener('chat:tool-approval-cancelled', handler);
+  },
+
   respondToolApproval: (
     requestId: string,
     approved: boolean,
@@ -585,6 +592,8 @@ const api = {
 
   listToolPolicies: (): Promise<ToolPolicy[]> =>
     ipcRenderer.invoke("tools:list-policies"),
+  updateToolPolicies: (patches: Record<string, boolean>): Promise<ToolPolicy[]> =>
+    ipcRenderer.invoke('tools:update-policies', patches),
   updateToolPolicy: (
     name: string,
     requiresConfirmation: boolean,
@@ -698,6 +707,7 @@ const api = {
   },
 
   task: {
+    retrySave: (): Promise<void> => ipcRenderer.invoke('task:retry-save'),
     create: (prompt: string): Promise<string> =>
       ipcRenderer.invoke("task:create", prompt),
     list: (): Promise<Task[]> => ipcRenderer.invoke("task:list"),

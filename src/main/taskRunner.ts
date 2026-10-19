@@ -12,7 +12,11 @@ import { BrowserWindow, app } from "electron";
 import { join } from "path";
 import * as fs from "fs";
 import { v4 as uuidv4 } from "uuid";
-import { executeTool } from "./runtime/ToolExecutor";
+import { executeTool, type ToolExecutionOptions } from "./runtime/ToolExecutor";
+import { runWithSignal } from "./runtime/async";
+import { requestApproval } from "./runtime/toolApprovals";
+import { atomicWriteJson, readJsonWithBackup } from "./runtime/persistence";
+import { writeAppLog } from "./runtime/logger";
 import { getDefaultArtifactDir } from "./tools/policy";
 import {
   invokeOpenAICompatibleChat,
@@ -21,6 +25,7 @@ import {
 } from "./openaiCompatible";
 import { chatWithAgent, getAgentProvider, getAgentModel } from "./agent";
 import type { SkillConfig } from "./storage";
+import { isRestorePending } from './storage';
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -51,6 +56,7 @@ export type Task = {
   steps: TaskStep[];
   result: string; // 最终输出（Markdown）
   outputFiles: string[]; // 生成的文件路径
+  persistenceError?: string;
   checkpoint?: {
     node: string;
     round: number;
@@ -72,13 +78,78 @@ function getTasksFile(): string {
   return join(dir, "tasks.json");
 }
 
+let taskWrites: Promise<void> = Promise.resolve();
+let taskWriteRequested = false;
+let taskWriteActive = false;
+const activeRuns = new Map<string, AbortController>();
+
 function saveTasks(): void {
+  if (isRestorePending()) return;
+  taskWriteRequested = true;
+  if (taskWriteActive) return;
+  taskWriteActive = true;
+  taskWrites = taskWrites.catch(() => undefined).then(async () => {
+    try {
+      while (taskWriteRequested) {
+        taskWriteRequested = false;
+        const data = [...tasks.values()].map(({ persistenceError, ...task }) => task);
+        await atomicWriteJson(getTasksFile(), JSON.stringify(data, null, 2));
+        for (const task of tasks.values()) {
+          if (task.persistenceError) { delete task.persistenceError; pushUpdate(task); }
+        }
+      }
+    } catch (error) {
+      const message = `任务保存失败：${error instanceof Error ? error.message : String(error)}`;
+      writeAppLog('error', 'tasks', message);
+      for (const task of tasks.values()) { task.persistenceError = message; pushUpdate(task); }
+      throw error;
+    } finally { taskWriteActive = false; }
+  });
+  // IPC callers keep their normal result; failures also appear on task snapshots.
+  void taskWrites.catch(() => undefined);
+}
+
+export async function flushTaskWrites(): Promise<void> { await taskWrites; }
+export async function retryTaskSave(): Promise<void> { saveTasks(); await flushTaskWrites(); }
+export function hasActiveTasks(): boolean { return activeRuns.size > 0; }
+export async function stopTasksForQuit(): Promise<void> {
+  for (const id of activeRuns.keys()) cancelTask(id);
+  while (activeRuns.size > 0) await new Promise(resolve => setTimeout(resolve, 0));
+  await flushTaskWrites();
+}
+
+function taskSignal(task: Task): AbortSignal {
+  const signal = activeRuns.get(task.id)?.signal;
+  if (!signal || task.status === 'cancelled') throw new Error('任务已停止');
+  signal.throwIfAborted();
+  return signal;
+}
+
+async function confirmTaskTool(task: Task, request: Parameters<typeof requestApproval>[0]): Promise<boolean> {
+  const signal = taskSignal(task);
+  const webContents = getWebContents();
+  if (!webContents) throw new Error('没有可用的工具确认窗口');
+  task.status = 'waiting_for_approval';
+  pushUpdate(task); saveTasks();
   try {
-    const data = [...tasks.values()];
-    fs.writeFileSync(getTasksFile(), JSON.stringify(data, null, 2), "utf-8");
-  } catch {
-    // 持久化失败不影响运行
+    return await requestApproval(request, { webContents, conversationId: `task:${task.id}`, signal });
+  } finally {
+    if (task.status === 'waiting_for_approval') { task.status = 'running'; pushUpdate(task); saveTasks(); }
   }
+}
+
+async function executeTaskTool(task: Task, name: string, args: unknown, options: ToolExecutionOptions = {}) {
+  await waitIfPaused(task);
+  const result = await executeTool(name, args, { ...options, signal: taskSignal(task), confirm: request => confirmTaskTool(task, request) });
+  taskSignal(task);
+  return result;
+}
+
+async function invokeTaskModel(task: Task, options: Parameters<typeof invokeOpenAICompatibleChat>[0]) {
+  await waitIfPaused(task);
+  return runWithSignal(signal => invokeOpenAICompatibleChat({ ...options, signal }), {
+    signal: taskSignal(task), timeoutMs: 120_000, label: '模型响应',
+  });
 }
 
 function isTaskCancelled(task: Task): boolean {
@@ -103,8 +174,7 @@ function updateCheckpoint(
 function loadTasks(): void {
   try {
     const file = getTasksFile();
-    if (!fs.existsSync(file)) return;
-    const data = JSON.parse(fs.readFileSync(file, "utf-8")) as Task[];
+    const data = readJsonWithBackup<Task[]>(file, []);
     for (const task of data) {
       // 重启后保留上下文，不直接判失败，方便用户查看并重新恢复。
       if (
@@ -161,7 +231,9 @@ function addStep(
     timestamp: Date.now(),
     ...step,
   };
+  if (isTaskCancelled(task)) return s;
   task.steps.push(s);
+  saveTasks();
   task.updatedAt = Date.now();
   pushUpdate(task);
   return s;
@@ -208,6 +280,7 @@ export function cancelTask(id: string): boolean {
     resolve();
   }
   task.status = "cancelled";
+  activeRuns.get(id)?.abort(new Error('任务已取消'));
   task.updatedAt = Date.now();
   pushUpdate(task);
   saveTasks();
@@ -225,6 +298,7 @@ export function pauseTask(id: string): boolean {
 }
 
 export function resumeTask(id: string): boolean {
+  if (isRestorePending()) return false;
   const task = tasks.get(id);
   if (!task || (task.status !== "paused" && task.status !== "blocked"))
     return false;
@@ -251,6 +325,7 @@ export function resumeTask(id: string): boolean {
 }
 
 export function deleteTask(id: string): boolean {
+  cancelTask(id);
   const result = tasks.delete(id);
   if (result) saveTasks();
   return result;
@@ -261,6 +336,7 @@ export function deleteTask(id: string): boolean {
  * 执行进度通过 IPC 事件 `task:update` 实时推送。
  */
 export function createAndRunTask(prompt: string): string {
+  if (isRestorePending()) throw new Error('备份已恢复，请重启应用后创建任务。');
   const id = uuidv4();
   const now = Date.now();
 
@@ -296,8 +372,9 @@ export function createAndRunTask(prompt: string): string {
  * 重新运行一个已完成/失败/取消的任务（清空步骤重跑）。
  */
 export function rerunTask(id: string): boolean {
+  if (isRestorePending()) return false;
   const task = tasks.get(id);
-  if (!task || task.status === "running" || task.status === "pending")
+  if (!task || activeRuns.has(id) || task.status === "running" || task.status === "pending")
     return false;
 
   task.status = "pending";
@@ -781,7 +858,7 @@ async function ensureTaskArtifacts(
   if (taskNeedsMarkdown(task.prompt)) {
     const docPath = join(baseDir, `${baseName}.md`);
     const docResult = (
-      await executeTool(
+      await executeTaskTool(task,
         "write_file",
         { filePath: docPath, content },
         { timeoutMs: 45_000 },
@@ -798,7 +875,7 @@ async function ensureTaskArtifacts(
   if (taskNeedsPpt(task.prompt)) {
     const pptPath = join(baseDir, `${baseName}.pptx`);
     const pptResult = (
-      await executeTool(
+      await executeTaskTool(task,
         "generate_pptx",
         {
           filePath: pptPath,
@@ -939,6 +1016,9 @@ const PHONE_TASK_BRAND_TAG_URLS = [
 ];
 
 async function runTask(task: Task): Promise<void> {
+  if (activeRuns.has(task.id)) return;
+  const controller = new AbortController();
+  activeRuns.set(task.id, controller);
   task.status = "running";
   updateCheckpoint(task, { node: "running", canResume: true });
   pushUpdate(task);
@@ -958,35 +1038,21 @@ async function runTask(task: Task): Promise<void> {
       });
     }
 
+    taskSignal(task);
+    if (!task.result.trim()) throw new Error('任务达到执行限制，尚未生成最终结果，请调整要求后重试。');
     task.status = "completed";
     updateCheckpoint(task, { node: "completed", canResume: false });
   } catch (err: any) {
-    if (isTaskCancelled(task)) return;
-    task.status = "failed";
-    updateCheckpoint(task, { node: "failed", canResume: true });
-    addStep(task, {
-      type: "error",
-      label: "任务执行失败",
-      content: err?.message || String(err),
-    });
+    if (!isTaskCancelled(task)) {
+      task.status = 'failed';
+      updateCheckpoint(task, { node: 'failed', canResume: true });
+      addStep(task, { type: 'error', label: '任务执行失败', content: err?.message || String(err) });
+    }
+  } finally {
+    if (activeRuns.get(task.id) === controller) activeRuns.delete(task.id);
+    saveTasks();
+    pushUpdate(task);
   }
-
-  saveTasks();
-  pushUpdate(task);
-}
-
-// 带超时的 Promise 包装
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} 超时（${ms / 1000}s）`)), ms),
-    ),
-  ]);
 }
 
 // ─── OpenAI-compatible 执行路径（推荐，支持 Function Calling）────────────────
@@ -1007,7 +1073,7 @@ async function runTaskWithOpenAI(
     : baseSettings;
 
   // ── 阶段一：先让模型输出执行计划（不带工具）──────────────────────────────
-  const planResponse = await invokeOpenAICompatibleChat({
+  const planResponse = await invokeTaskModel(task, {
     settings,
     model,
     messages: [
@@ -1085,7 +1151,7 @@ async function runTaskWithOpenAI(
       let fetchResult = "";
       try {
         fetchResult = (
-          await executeTool(
+          await executeTaskTool(task,
             "fetch_url",
             { url, maxLength: 6000 },
             { timeoutMs: 45_000 },
@@ -1151,7 +1217,7 @@ async function runTaskWithOpenAI(
       let searchResult = "";
       try {
         searchResult = (
-          await executeTool(
+          await executeTaskTool(task,
             "web_search",
             { query, maxResults: 5 },
             { timeoutMs: 45_000 },
@@ -1202,7 +1268,7 @@ async function runTaskWithOpenAI(
       let fetchResult = "";
       try {
         fetchResult = (
-          await executeTool(
+          await executeTaskTool(task,
             "fetch_url",
             { url: firstUrl, maxLength: 6000 },
             { timeoutMs: 45_000 },
@@ -1274,16 +1340,12 @@ async function runTaskWithOpenAI(
       });
     }
 
-    const response = await withTimeout(
-      invokeOpenAICompatibleChat({
+    const response = await invokeTaskModel(task, {
         settings,
         model,
         messages,
         tools: toolCallCount < MAX_TOOL_CALLS ? availableTools : undefined,
-      }),
-      120_000,
-      "模型响应",
-    );
+      });
 
     const assistantContent = response.content || "";
 
@@ -1391,7 +1453,7 @@ async function runTaskWithOpenAI(
 
         let resultStr: string;
         try {
-          resultStr = (await executeTool(toolName, args, { timeoutMs: 45_000 }))
+          resultStr = (await executeTaskTool(task, toolName, args, { timeoutMs: 45_000 }))
             .result;
         } catch (e: any) {
           resultStr = `工具执行失败: ${e?.message || e}`;
@@ -1422,7 +1484,7 @@ async function runTaskWithOpenAI(
             let autoFetchResult = "";
             try {
               autoFetchResult = (
-                await executeTool(
+                await executeTaskTool(task,
                   "fetch_url",
                   { url, maxLength: 6000 },
                   { timeoutMs: 45_000 },
