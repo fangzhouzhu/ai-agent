@@ -26,6 +26,8 @@ import {
 import { chatWithAgent, getAgentProvider, getAgentModel } from "./agent";
 import type { SkillConfig } from "./storage";
 import { isRestorePending } from './storage';
+import { getAgentProfile } from './storage';
+import { withToolPermissions, filterAllowedTools, describeAllowedTools } from './runtime/toolPermissions';
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +52,7 @@ export type TaskStep = {
 
 export type Task = {
   id: string;
+  agentProfileId?: string | null;
   title: string;
   prompt: string;
   status: TaskStatus;
@@ -335,13 +338,15 @@ export function deleteTask(id: string): boolean {
  * 创建并立即异步执行一个任务，立即返回任务 ID。
  * 执行进度通过 IPC 事件 `task:update` 实时推送。
  */
-export function createAndRunTask(prompt: string): string {
+export function createAndRunTask(prompt: string, agentProfileId?: string | null): string {
   if (isRestorePending()) throw new Error('备份已恢复，请重启应用后创建任务。');
+  if (agentProfileId && !getAgentProfile(agentProfileId)) throw new Error('智能体不存在，请重新选择。');
   const id = uuidv4();
   const now = Date.now();
 
   const task: Task = {
     id,
+    agentProfileId: agentProfileId ?? null,
     title: prompt.slice(0, 60) + (prompt.length > 60 ? "…" : ""),
     prompt,
     status: "pending",
@@ -457,10 +462,6 @@ function buildTaskSystemPrompt(taskPrompt: string): string {
   });
   const yearMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
   const allowFileOutput = taskNeedsFileOutput(taskPrompt);
-  const artifactTools = allowFileOutput
-    ? `- generate_pdf: generate a PDF report only when the user explicitly asks for PDF/report output
-- generate_pptx: generate a PPTX deck only when the user explicitly asks for PPT/slides/presentation output`
-    : `- Do not generate PDF or PPT files for this task unless the user explicitly asks for them.`;
   const artifactRule = allowFileOutput
     ? "3. Generate PDF/PPT/Markdown style deliverables only when the user explicitly requests them."
     : "3. This task should stay in plain text. Do not call generate_pdf or generate_pptx.";
@@ -469,11 +470,7 @@ function buildTaskSystemPrompt(taskPrompt: string): string {
 Current date: ${dateStr}. Any time-sensitive reasoning must use this as the reference date, and search queries should include a concrete year/month such as ${yearMonth}.
 
 Available tools:
-- web_search: search the web only when needed, and avoid redundant queries.
-- fetch_url: fetch the detailed content of the most relevant URLs.
-- write_file: write a local file only when necessary.
-- read_file: read a local file when needed.
-${artifactTools}
+${describeAllowedTools()}
 
 Execution rules:
 1. After searching, fetch the most relevant 1-2 URLs instead of looping on search.
@@ -669,9 +666,10 @@ function getTaskToolDefinitions(
   prompt: string,
 ): typeof OPENAI_COMPATIBLE_TOOLS {
   const allowArtifactTools = taskNeedsFileOutput(prompt);
-  if (allowArtifactTools) return OPENAI_COMPATIBLE_TOOLS;
+  const permittedTools = filterAllowedTools(OPENAI_COMPATIBLE_TOOLS, tool => tool.function.name);
+  if (allowArtifactTools) return permittedTools;
 
-  return OPENAI_COMPATIBLE_TOOLS.filter((tool) => {
+  return permittedTools.filter((tool) => {
     const name = tool.function.name;
     return name !== "generate_pdf" && name !== "generate_pptx";
   });
@@ -1025,18 +1023,22 @@ async function runTask(task: Task): Promise<void> {
   saveTasks();
 
   try {
-    const provider = getAgentProvider();
-    const model = getAgentModel();
+    const agent = task.agentProfileId ? getAgentProfile(task.agentProfileId) : null;
+    if (task.agentProfileId && !agent) throw new Error('任务智能体已被删除，请重新创建任务。');
+    await withToolPermissions(agent?.tools, async () => {
+      const provider = getAgentProvider();
+      const model = getAgentModel();
 
-    if (provider === "openai-compatible") {
-      await runTaskWithOpenAI(task, model);
-    } else {
-      // Ollama 同样走 OpenAI-compatible 路径（Ollama 支持 /v1 兼容接口）
-      await runTaskWithOpenAI(task, model, {
-        baseUrl: "http://localhost:11434/v1",
-        apiKey: "ollama",
-      });
-    }
+      if (provider === "openai-compatible") {
+        await runTaskWithOpenAI(task, model);
+      } else {
+        // Ollama 同样走 OpenAI-compatible 路径（Ollama 支持 /v1 兼容接口）
+        await runTaskWithOpenAI(task, model, {
+          baseUrl: "http://localhost:11434/v1",
+          apiKey: "ollama",
+        });
+      }
+    });
 
     taskSignal(task);
     if (!task.result.trim()) throw new Error('任务达到执行限制，尚未生成最终结果，请调整要求后重试。');

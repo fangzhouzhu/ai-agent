@@ -9,6 +9,7 @@ let chunks = [];
 const load = createTsLoader({
   '@langchain/ollama': {}, '@langchain/core/messages': {},
   './tools': { allTools: [] }, './tools/policy': { summarizeToolPolicies: () => '' },
+  '../tools/policy': { toolPolicies: {} },
   './runtime/trace': { createTraceId: () => 'eval', recordTrace: () => {} },
   './runtime/ToolExecutor': { executeTool: async (name, args) => { executedTools.push({ name, args }); return { result: '模拟工具返回的事实' }; } },
   './rag': { retrieveRelevantChunks: async () => chunks, listRagFiles: () => [{ id: 'active', name: '项目总结.md' }, { id: 'removed', name: '已移除文档.md' }] },

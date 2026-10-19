@@ -138,7 +138,7 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
     type: "function",
     function: {
       name: "copy_directory",
-      description: "递归复制本地目录。",
+      description: "将授权工作区内的目录递归复制到新目录。目标目录必须不存在，不支持覆盖。",
       parameters: {
         type: "object",
         properties: {
@@ -302,13 +302,13 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
     type: "function",
     function: {
       name: "extract_zip",
-      description: "将 zip 文件解压到本地目录。",
+      description: "将 zip 文件安全解压到授权工作区内的新目录。目标目录必须不存在，不支持覆盖。",
       parameters: {
         type: "object",
         properties: {
           zipPath: { type: "string", description: "要解压的 zip 文件路径" },
           destinationPath: { type: "string", description: "解压输出目录路径" },
-          overwrite: { type: "boolean", description: "目标目录已存在时是否覆盖" },
+          overwrite: { type: "boolean", description: "兼容旧参数，已有目录始终拒绝覆盖，请指定新目录" },
         },
         required: ["zipPath", "destinationPath"],
         additionalProperties: false,
@@ -335,7 +335,7 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
     type: "function",
     function: {
       name: "move_directory",
-      description: "移动或重命名本地目录。",
+      description: "移动或重命名授权工作区内的目录。目标目录必须不存在，不支持覆盖。",
       parameters: {
         type: "object",
         properties: {

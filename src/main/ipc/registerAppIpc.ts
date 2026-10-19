@@ -86,6 +86,12 @@ export function registerAppIpcHandlers(): void {
   });
 
   ipcMain.handle("agents:save", (_event, agent: AgentProfile) => {
+    const tools = agent?.tools;
+    if (!tools || !Array.isArray(tools.enabledToolNames) ||
+      tools.enabledToolNames.some(name => typeof name !== 'string') ||
+      [tools.allowNetwork, tools.allowWrite, tools.allowDelete, tools.requireConfirmationForRisky].some(value => typeof value !== 'boolean')) {
+      throw new Error('智能体工具权限格式无效，请重新打开编辑器。');
+    }
     return saveAgentProfile(agent);
   });
 
@@ -160,8 +166,10 @@ export function registerAppIpcHandlers(): void {
     await setActiveId(id);
   });
 
-  ipcMain.handle("task:create", (_event, prompt: string) => {
-    return createAndRunTask(prompt);
+  ipcMain.handle("task:create", (_event, prompt: string, agentProfileId?: string | null) => {
+    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100_000) throw new Error('任务描述不能为空且不能超过 100000 字符。');
+    if (agentProfileId != null && typeof agentProfileId !== 'string') throw new Error('智能体 ID 无效。');
+    return createAndRunTask(prompt, agentProfileId);
   });
 
   ipcMain.handle("task:list", () => {

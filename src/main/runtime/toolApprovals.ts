@@ -25,7 +25,7 @@ export function requestApproval(request: ToolApprovalRequest, options: {
     options.webContents.once('destroyed', cancel)
     try {
       options.webContents.send('chat:tool-approval-request', {
-        requestId, conversationId: options.conversationId, toolName: request.toolName, input: request.args, policy: request.policy,
+        requestId, conversationId: options.conversationId, toolName: request.toolName, input: request.args, policy: request.policy, preview: request.preview,
       })
       return await result
     } finally {

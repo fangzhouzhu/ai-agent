@@ -94,7 +94,11 @@ export type ChatToolApprovalRequestEvent = {
   toolName: string;
   input: unknown;
   policy?: ToolPolicy;
+  preview?: string;
 };
+
+export type WorkspaceGrant = { id: string; root: string; allowWrite: boolean; allowDelete: boolean; builtin?: boolean };
+export type FileRevision = { id: string; originalPath: string; createdAt: number; toolName: string; size: number; hash: string };
 
 export type ChatModelInfoEvent = {
   conversationId: string;
@@ -407,6 +411,13 @@ export type BackupActionResult = {
 export type InputEditAction = "copy" | "cut" | "paste";
 
 const api = {
+  workspaces: {
+    list: (): Promise<WorkspaceGrant[]> => ipcRenderer.invoke('workspaces:list'),
+    pick: (): Promise<WorkspaceGrant[]> => ipcRenderer.invoke('workspaces:pick'),
+    update: (id: string, rights: { allowWrite: boolean; allowDelete: boolean } | null): Promise<WorkspaceGrant[]> => ipcRenderer.invoke('workspaces:update', id, rights),
+    revisions: (): Promise<FileRevision[]> => ipcRenderer.invoke('workspaces:revisions'),
+    restoreFile: (id: string): Promise<boolean> => ipcRenderer.invoke('workspaces:restore-file', id),
+  },
   sendMessage: (
     history: ChatMessage[],
     message: string,
@@ -708,8 +719,8 @@ const api = {
 
   task: {
     retrySave: (): Promise<void> => ipcRenderer.invoke('task:retry-save'),
-    create: (prompt: string): Promise<string> =>
-      ipcRenderer.invoke("task:create", prompt),
+    create: (prompt: string, agentProfileId?: string | null): Promise<string> =>
+      ipcRenderer.invoke("task:create", prompt, agentProfileId),
     list: (): Promise<Task[]> => ipcRenderer.invoke("task:list"),
     get: (id: string): Promise<Task | null> =>
       ipcRenderer.invoke("task:get", id),

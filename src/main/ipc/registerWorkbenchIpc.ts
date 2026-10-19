@@ -21,6 +21,7 @@ import {
 } from "../storage";
 import { getOpenClawGatewayState, restartOpenClawGateway } from "../openclawRuntime";
 import { flushTaskWrites, hasActiveTasks } from '../taskRunner';
+import { registerWorkspaceIpcHandlers } from './registerWorkspaceIpc';
 
 type WorkbenchIpcDependencies = {
   isChatBusy: () => boolean;
@@ -33,6 +34,7 @@ type WorkbenchIpcDependencies = {
 export function registerWorkbenchIpcHandlers(
   dependencies: WorkbenchIpcDependencies,
 ): void {
+  registerWorkspaceIpcHandlers();
   ipcMain.handle("settings:get-wechat-bot", async () => {
     return getWechatBotSettings();
   });

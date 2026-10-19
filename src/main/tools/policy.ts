@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { atomicWriteJsonSync, readJsonWithBackup } from '../runtime/persistence';
 import { isRestorePending } from '../storage';
+import { assertWorkspaceAccess } from '../runtime/workspaces';
 
 export type ToolRisk = "read" | "write" | "delete" | "network" | "system";
 
@@ -15,6 +16,17 @@ export type ToolPolicy = {
 };
 
 export const toolPolicies: Record<string, ToolPolicy> = {
+  get_current_time: { name: 'get_current_time', displayName: '获取时间', risk: ['read'], requiresConfirmation: false, description: '读取当前日期与时间。' },
+  calculator: { name: 'calculator', displayName: '计算器', risk: ['read'], requiresConfirmation: false, description: '计算数学表达式。' },
+  unit_convert: { name: 'unit_convert', displayName: '单位换算', risk: ['read'], requiresConfirmation: false, description: '执行单位换算。' },
+  list_running_apps: { name: 'list_running_apps', displayName: '查看运行应用', risk: ['read'], requiresConfirmation: false, description: '读取正在运行的应用信息。' },
+  list_special_folder: { name: 'list_special_folder', displayName: '查看常用目录', risk: ['read'], requiresConfirmation: false, description: '读取系统常用文件夹位置。' },
+  list_directory: { name: 'list_directory', displayName: '列出目录', risk: ['read'], requiresConfirmation: false, description: '列出本地目录内容。' },
+  search_files: { name: 'search_files', displayName: '搜索文件', risk: ['read'], requiresConfirmation: false, description: '按名称搜索本地文件。' },
+  get_weather_current: { name: 'get_weather_current', displayName: '查询天气', risk: ['network'], requiresConfirmation: false, description: '向天气服务查询实时天气。' },
+  currency_convert: { name: 'currency_convert', displayName: '汇率换算', risk: ['network'], requiresConfirmation: false, description: '查询在线汇率并换算。' },
+  generate_pdf: { name: 'generate_pdf', displayName: '生成 PDF', risk: ['write'], requiresConfirmation: false, description: '在本地生成 PDF 文件。' },
+  generate_pptx: { name: 'generate_pptx', displayName: '生成 PPTX', risk: ['write'], requiresConfirmation: false, description: '在本地生成 PowerPoint 文件。' },
   read_file: {
     name: "read_file",
     displayName: "读取文件",
@@ -158,7 +170,7 @@ export const toolPolicies: Record<string, ToolPolicy> = {
   open_url: {
     name: "open_url",
     displayName: "打开网页链接",
-    risk: ["system"],
+    risk: ["system", "network"],
     requiresConfirmation: false,
     description: "在系统默认浏览器中打开 HTTP/HTTPS 链接。",
   },
@@ -186,7 +198,7 @@ export const toolPolicies: Record<string, ToolPolicy> = {
   get_os_info: {
     name: "get_os_info",
     displayName: "获取系统信息",
-    risk: ["system"],
+    risk: ["read"],
     requiresConfirmation: false,
     description: "读取本机操作系统的名称、版本、构建号和架构信息。",
   },
@@ -215,7 +227,7 @@ const TOOL_POLICY_STORE_PATH = path.join(
 const MAX_READ_BYTES = 1_000_000;
 
 function normalizeForCompare(filePath: string): string {
-  return path.resolve(filePath).toLowerCase();
+  return process.platform === 'win32' ? path.resolve(filePath).toLowerCase() : path.resolve(filePath);
 }
 
 function getProtectedRoots(): string[] {
@@ -237,6 +249,7 @@ export function resolveToolPath(inputPath: string): string {
 }
 
 export function assertNotProtectedPath(resolvedPath: string): void {
+  assertWorkspaceAccess(resolvedPath, 'read');
   const normalized = normalizeForCompare(resolvedPath);
   const protectedRoot = getProtectedRoots().find(
     (root) =>
@@ -265,7 +278,7 @@ export function assertReadableFile(resolvedPath: string): void {
 }
 
 export function ensureWritableTarget(resolvedPath: string): void {
-  assertNotProtectedPath(resolvedPath);
+  assertWorkspaceAccess(resolvedPath, 'write');
   const dir = path.dirname(resolvedPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

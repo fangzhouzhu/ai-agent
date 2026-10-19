@@ -29,6 +29,9 @@ function environment(overrides = {}) {
     './tools/policy': { getDefaultArtifactDir: () => path.join(dir, 'artifacts') },
     '../tools/policy': { toolPolicies: { write_file: { displayName: '写入文件', requiresConfirmation: true } } },
     '../tools': { allTools: [] },
+    // These tests use fake tools without filesystem behavior. Real workspace
+    // and revision integration is covered by test-file-safety.mjs.
+    './fileOperations': { prepareFileOperation: () => null, validateFileOperation: () => {}, backupFileOperation: () => [], withFileOperationLock: work => work() },
     './agent': { getAgentProvider: () => 'openai-compatible', getAgentModel: () => 'mock', getOnlineSettings: () => ({ baseUrl: 'https://mock.invalid', apiKey: 'mock' }) },
     ...overrides,
   }
@@ -203,9 +206,184 @@ test('required confirmation fails closed; denial and abort cannot invoke tool', 
 
 test('tool timeout aborts the underlying signal', async () => {
   let innerSignal
-  const { load } = environment({ '../tools': { allTools: [{ name: 'slow', invoke: (_, { signal }) => { innerSignal = signal; return new Promise(() => {}) } }] } })
+  const { load } = environment({
+    '../tools/policy': { toolPolicies: { slow: { risk: ['read'], requiresConfirmation: false } } },
+    '../tools': { allTools: [{ name: 'slow', invoke: (_, { signal }) => { innerSignal = signal; return new Promise(() => {}) } }] },
+  })
   await assert.rejects(load('src/main/runtime/ToolExecutor.ts').executeTool('slow', {}, { timeoutMs: 10 }), /超时/)
   assert.ok(innerSignal.aborted)
+})
+
+test('every registered builtin tool has an explicit risk policy', () => {
+  const { load } = environment({ '@langchain/core/tools': { tool: (handler, config) => ({ ...config, invoke: handler }) } })
+  const { allTools } = load('src/main/tools/index.ts')
+  const { toolPolicies } = load('src/main/tools/policy.ts')
+  assert.ok(allTools.length > 20)
+  for (const tool of allTools) {
+    assert.ok(toolPolicies[tool.name], `Missing policy for ${tool.name}`)
+    assert.ok(toolPolicies[tool.name].risk.length, `Missing risk for ${tool.name}`)
+  }
+  assert.ok(toolPolicies.open_url.risk.includes('network'))
+})
+
+function permissionEnvironment() {
+  const calls = []
+  const names = ['read_file', 'write_file', 'delete_file', 'fetch_url', 'open_url', 'unclassified']
+  const toolPolicies = {
+    read_file: { risk: ['read'], requiresConfirmation: false },
+    write_file: { risk: ['write'], requiresConfirmation: false },
+    delete_file: { risk: ['delete'], requiresConfirmation: true },
+    fetch_url: { risk: ['network'], requiresConfirmation: false },
+    open_url: { risk: ['network', 'system'], requiresConfirmation: false },
+  }
+  const env = environment({
+    '../tools/policy': { toolPolicies },
+    '../tools': { allTools: names.map(name => ({ name, invoke: async () => { calls.push(name); return 'ok' } })) },
+  })
+  return { ...env, calls, executor: env.load('src/main/runtime/ToolExecutor.ts'), permissions: env.load('src/main/runtime/toolPermissions.ts') }
+}
+
+test('chat agent binding fails closed for unsaved conversations and deleted agents', async () => {
+  const { load } = environment()
+  const store = load('src/main/storage.ts')
+  const { getEffectiveAgentProfile } = load('src/main/runtime/agentAccess.ts')
+  assert.throws(() => getEffectiveAgentProfile('new-chat'), /尚未保存/)
+  const profile = { ...store.listAgentProfiles()[0], id: 'restricted', name: '限制助手', tools: { enabledToolNames: [], allowNetwork: false, allowWrite: false, allowDelete: false, requireConfirmationForRisky: true } }
+  await store.saveAgentProfile(profile)
+  await store.saveConversation({ id: 'new-chat', title: '新对话', agentProfileId: profile.id, createdAt: 1, updatedAt: 1 }, [])
+  assert.equal(getEffectiveAgentProfile('new-chat').tools.allowNetwork, false)
+  store.deleteAgentProfile(profile.id)
+  assert.throws(() => getEffectiveAgentProfile('new-chat'), /已被删除/)
+  assert.equal(getEffectiveAgentProfile(null), null)
+})
+
+test('category permissions and unknown policies block direct invocation before approval or I/O', async () => {
+  const { executor, permissions, calls } = permissionEnvironment()
+  let approvals = 0
+  await permissions.withToolPermissions({ enabledToolNames: [], allowNetwork: false, allowWrite: false, allowDelete: false, requireConfirmationForRisky: false }, async () => {
+    assert.equal(permissions.isToolAllowed('toString'), false)
+    assert.equal(permissions.isToolAllowed('__proto__'), false)
+    for (const name of ['fetch_url', 'open_url', 'write_file', 'delete_file', 'unclassified']) {
+      await assert.rejects(executor.executeTool(name, {}, { confirm: async () => { approvals++; return true } }), /权限禁止/)
+    }
+    await executor.executeTool('read_file', {})
+  })
+  assert.deepEqual(calls, ['read_file'])
+  assert.equal(approvals, 0)
+})
+
+test('model tool filtering and executor enforce the same allowlist and category intersection', async () => {
+  const { executor, permissions, calls } = permissionEnvironment()
+  await permissions.withToolPermissions({ enabledToolNames: ['read_file', 'fetch_url'], allowNetwork: false, allowWrite: true, allowDelete: true, requireConfirmationForRisky: false }, async () => {
+    const tools = permissions.filterAllowedTools(['read_file', 'fetch_url', 'write_file', 'unclassified'], name => name)
+    assert.deepEqual(Array.from(tools), ['read_file'])
+    await executor.executeTool('read_file', {})
+    for (const name of ['fetch_url', 'write_file']) await assert.rejects(executor.executeTool(name, {}), /权限禁止/)
+  })
+  assert.deepEqual(calls, ['read_file'])
+})
+
+test('concurrent runs isolate permissions and snapshot mutable profiles', async () => {
+  const { executor, permissions, calls } = permissionEnvironment()
+  const profile = { enabledToolNames: ['fetch_url'], allowNetwork: false, allowWrite: false, allowDelete: false, requireConfirmationForRisky: false }
+  let resume
+  const restricted = permissions.withToolPermissions(profile, async () => {
+    await new Promise(resolve => { resume = resolve })
+    await assert.rejects(executor.executeTool('fetch_url', {}), /权限禁止/)
+    await assert.rejects(executor.executeTool('read_file', {}), /权限禁止/)
+  })
+  profile.allowNetwork = true
+  profile.enabledToolNames.push('read_file')
+  await permissions.withToolPermissions(undefined, async () => { await executor.executeTool('fetch_url', {}) })
+  resume()
+  await restricted
+  assert.deepEqual(calls, ['fetch_url'])
+})
+
+test('agent confirmation cannot weaken a global requirement and risky actions fail closed', async () => {
+  const { executor, permissions, calls } = permissionEnvironment()
+  await permissions.withToolPermissions({ enabledToolNames: [], allowNetwork: true, allowWrite: true, allowDelete: true, requireConfirmationForRisky: true }, async () => {
+    await assert.rejects(executor.executeTool('write_file', {}), /需要用户确认/)
+    await executor.executeTool('write_file', {}, { confirm: async request => {
+      assert.equal(request.policy.requiresConfirmation, true)
+      return false
+    } })
+    await executor.executeTool('write_file', {}, { confirm: async () => true })
+  })
+  await permissions.withToolPermissions({ enabledToolNames: [], allowNetwork: true, allowWrite: true, allowDelete: true, requireConfirmationForRisky: false }, async () => {
+    await assert.rejects(executor.executeTool('delete_file', {}), /需要用户确认/)
+  })
+  assert.deepEqual(calls, ['write_file'])
+})
+
+test('background tasks retain agent identity and block forced forbidden tool calls', async () => {
+  let calls = 0, responses = 0
+  const requests = []
+  const { load } = environment({
+    '../tools/policy': { toolPolicies: { fetch_url: { risk: ['network'], requiresConfirmation: false } } },
+    '../tools': { allTools: [{ name: 'fetch_url', invoke: async () => { calls++; return 'network result' } }] },
+    './openaiCompatible': {
+      OPENAI_COMPATIBLE_TOOLS: [{ type: 'function', function: { name: 'fetch_url' } }],
+      invokeOpenAICompatibleChat: async options => {
+        requests.push(options); responses++
+        return responses === 2
+          ? { content: '', toolCalls: [{ id: 'forced', function: { name: 'fetch_url', arguments: '{"url":"https://mock.invalid"}' } }] }
+          : { content: responses === 1 ? 'plan' : '无法联网，保留本地结果', toolCalls: [] }
+      },
+    },
+  })
+  const store = load('src/main/storage.ts')
+  await store.saveAgentProfile({ ...store.listAgentProfiles()[0], id: 'offline', name: '离线助手', tools: { enabledToolNames: [], allowNetwork: false, allowWrite: false, allowDelete: false, requireConfirmationForRisky: true } })
+  const runner = load('src/main/taskRunner.ts')
+  const id = runner.createAndRunTask('普通任务', 'offline')
+  await until(() => !runner.hasActiveTasks())
+  assert.equal(runner.getTask(id).agentProfileId, 'offline')
+  assert.equal(calls, 0)
+  assert.equal(requests[1].tools.length, 0)
+  assert.ok(runner.getTask(id).steps.some(step => step.content.includes('权限禁止')))
+  assert.throws(() => runner.createAndRunTask('任务', 'missing'), /智能体不存在/)
+  await runner.flushTaskWrites()
+  const saved = JSON.parse(fs.readFileSync(path.join(store.getDataDir(), 'tasks.json')))
+  assert.equal(saved.find(task => task.id === id).agentProfileId, 'offline')
+  store.deleteAgentProfile('offline')
+  const requestCount = requests.length
+  assert.ok(runner.rerunTask(id))
+  await until(() => !runner.hasActiveTasks())
+  assert.equal(runner.getTask(id).status, 'failed')
+  assert.equal(requests.length, requestCount, 'Deleted agents must not fall back to unrestricted execution')
+  await runner.flushTaskWrites()
+})
+
+test('chat pre-calls and model-proposed calls cannot bypass disabled network permissions', async () => {
+  let calls = 0, responses = 0
+  const requests = [], results = []
+  const tools = [{ name: 'fetch_url', invoke: async () => { calls++; return 'network result' } }]
+  const { load } = environment({
+    '@langchain/ollama': {}, '@langchain/core/messages': {},
+    './tools': { allTools: tools }, '../tools': { allTools: tools },
+    './tools/policy': { summarizeToolPolicies: () => '' },
+    '../tools/policy': { toolPolicies: { fetch_url: { risk: ['network'], requiresConfirmation: false } } },
+    './rag': {},
+    './openaiCompatible': {
+      OPENAI_COMPATIBLE_TOOLS: [{ type: 'function', function: { name: 'fetch_url' } }],
+      buildCompatibleUserContent: text => text,
+      invokeOpenAICompatibleChat: async options => {
+        requests.push(options); responses++
+        return responses === 1
+          ? { content: '', toolCalls: [{ id: 'forced', function: { name: 'fetch_url', arguments: '{"url":"https://mock.invalid"}' } }] }
+          : { content: '工具被禁止', toolCalls: [] }
+      },
+    },
+  })
+  const agent = load('src/main/agent.ts')
+  agent.applyModelSettings({ agentProvider: 'openai-compatible' })
+  await load('src/main/runtime/toolPermissions.ts').withToolPermissions({ enabledToolNames: [], allowNetwork: false, allowWrite: false, allowDelete: false, requireConfirmationForRisky: true }, async () => {
+    await agent.chatWithAgent([], '查看 https://mock.invalid 的内容', () => {}, () => {}, (_, result) => results.push(result))
+  })
+  assert.equal(calls, 0)
+  assert.ok(results.length >= 2, 'Both the pre-call and model-proposed call should pass through the executor')
+  assert.ok(results.every(result => result.includes('权限禁止')))
+  assert.ok(requests.every(request => request.tools.length === 0))
 })
 
 test('cancelling a network tool aborts its real fetch signal and prevents fallback requests', async () => {
@@ -217,7 +395,7 @@ test('cancelling a network tool aborts its real fetch signal and prevents fallba
       try { await context.fetchWithToolSignal('https://mock.invalid') } catch {}
       return context.fetchWithToolSignal('https://fallback.invalid')
     } }] },
-    '../tools/policy': { toolPolicies: {} },
+    '../tools/policy': { toolPolicies: { network: { risk: ['network'], requiresConfirmation: false } } },
     './trace': { createTraceId: () => 'test', recordTrace: () => {} },
   }, { fetch: (_, options) => {
     requests++; networkSignal = options.signal

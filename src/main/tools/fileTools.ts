@@ -1,7 +1,8 @@
 import { shell } from "electron";
 import { tool, type DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
-import { execFile } from "node:child_process";
+import { createWorkspaceZip, extractWorkspaceZip } from '../runtime/archives';
+import { assertWorkspaceAccess, assertNotWorkspaceRoot, containsPath } from '../runtime/workspaces';
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -14,27 +15,6 @@ import {
 function toToolError(action: string, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return `${action}失败：${message}`;
-}
-
-function execFileUtf8(file: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      file,
-      args,
-      {
-        windowsHide: true,
-        maxBuffer: 1024 * 1024,
-        encoding: "utf8",
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error((stderr || error.message || "").trim()));
-          return;
-        }
-        resolve(String(stdout || "").trim());
-      },
-    );
-  });
 }
 
 export const readFileTool = tool(
@@ -168,12 +148,17 @@ export const copyFileTool = tool(
 );
 
 function copyDirectoryRecursive(sourceDir: string, destinationDir: string): void {
+  assertWorkspaceAccess(sourceDir, 'read');
+  assertWorkspaceAccess(destinationDir, 'write');
   fs.mkdirSync(destinationDir, { recursive: true });
   const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
 
   for (const entry of entries) {
     const sourcePath = path.join(sourceDir, entry.name);
     const destinationPath = path.join(destinationDir, entry.name);
+    if (entry.isSymbolicLink()) throw new Error(`不允许复制链接：${sourcePath}`);
+    assertWorkspaceAccess(sourcePath, 'read');
+    assertWorkspaceAccess(destinationPath, 'write');
 
     if (entry.isDirectory()) {
       copyDirectoryRecursive(sourcePath, destinationPath);
@@ -193,6 +178,8 @@ export const listDirectoryTool = tool(
       assertNotProtectedPath(resolvedPath);
       const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
       const result = entries.slice(0, 200).map((entry) => {
+        if (entry.isSymbolicLink()) return `[link, skipped] ${entry.name}`;
+        assertNotProtectedPath(path.join(resolvedPath, entry.name));
         const type = entry.isDirectory() ? "[dir]" : "[file]";
         const size = entry.isFile()
           ? ` (${fs.statSync(path.join(resolvedPath, entry.name)).size} bytes)`
@@ -217,12 +204,13 @@ export const listDirectoryTool = tool(
 );
 
 export const copyDirectoryTool = tool(
-  async ({ sourcePath, destinationPath, overwrite }) => {
+  async ({ sourcePath, destinationPath }) => {
     try {
       const resolvedSourcePath = resolveToolPath(sourcePath);
       const resolvedDestinationPath = resolveToolPath(destinationPath);
       assertNotProtectedPath(resolvedSourcePath);
-      ensureWritableTarget(path.join(resolvedDestinationPath, ".keep"));
+      assertWorkspaceAccess(resolvedDestinationPath, 'write');
+      if (containsPath(resolvedSourcePath, resolvedDestinationPath) || containsPath(resolvedDestinationPath, resolvedSourcePath)) throw new Error('源目录和目标目录不能相同或互相包含。');
 
       if (!fs.existsSync(resolvedSourcePath)) {
         return `源路径不存在：${resolvedSourcePath}`;
@@ -234,10 +222,7 @@ export const copyDirectoryTool = tool(
       }
 
       if (fs.existsSync(resolvedDestinationPath)) {
-        if (!overwrite) {
-          return `目标路径已存在：${resolvedDestinationPath}`;
-        }
-        fs.rmSync(resolvedDestinationPath, { recursive: true, force: true });
+        return `目标目录已存在，为保护原内容，请选择新目录：${resolvedDestinationPath}`;
       }
 
       copyDirectoryRecursive(resolvedSourcePath, resolvedDestinationPath);
@@ -249,7 +234,7 @@ export const copyDirectoryTool = tool(
   {
     name: "copy_directory",
     description:
-      "Copy a local directory recursively. Parent directories are created automatically; protected system paths are refused.",
+      "Copy an authorized directory recursively to a new destination. Existing directories are never overwritten.",
     schema: z.object({
       sourcePath: z.string().describe("Current path of the directory."),
       destinationPath: z.string().describe("Destination path of the copied directory."),
@@ -263,7 +248,8 @@ export const moveFileTool = tool(
     try {
       const resolvedSourcePath = resolveToolPath(sourcePath);
       const resolvedDestinationPath = resolveToolPath(destinationPath);
-      assertNotProtectedPath(resolvedSourcePath);
+      assertWorkspaceAccess(resolvedSourcePath, 'write');
+      if (fs.existsSync(resolvedDestinationPath)) throw new Error('目标文件已存在，请选择新文件名。');
       ensureWritableTarget(resolvedDestinationPath);
 
       if (!fs.existsSync(resolvedSourcePath)) {
@@ -293,12 +279,14 @@ export const moveFileTool = tool(
 );
 
 export const moveDirectoryTool = tool(
-  async ({ sourcePath, destinationPath, overwrite }) => {
+  async ({ sourcePath, destinationPath }) => {
     try {
       const resolvedSourcePath = resolveToolPath(sourcePath);
       const resolvedDestinationPath = resolveToolPath(destinationPath);
-      assertNotProtectedPath(resolvedSourcePath);
-      ensureWritableTarget(path.join(resolvedDestinationPath, ".keep"));
+      assertWorkspaceAccess(resolvedSourcePath, 'write');
+      assertWorkspaceAccess(resolvedDestinationPath, 'write');
+      assertNotWorkspaceRoot(resolvedSourcePath);
+      if (containsPath(resolvedSourcePath, resolvedDestinationPath) || containsPath(resolvedDestinationPath, resolvedSourcePath)) throw new Error('源目录和目标目录不能相同或互相包含。');
 
       if (!fs.existsSync(resolvedSourcePath)) {
         return `源路径不存在：${resolvedSourcePath}`;
@@ -310,12 +298,10 @@ export const moveDirectoryTool = tool(
       }
 
       if (fs.existsSync(resolvedDestinationPath)) {
-        if (!overwrite) {
-          return `目标路径已存在：${resolvedDestinationPath}`;
-        }
-        fs.rmSync(resolvedDestinationPath, { recursive: true, force: true });
+        return `目标目录已存在，为保护原内容，请选择新目录：${resolvedDestinationPath}`;
       }
 
+      ensureWritableTarget(resolvedDestinationPath);
       fs.renameSync(resolvedSourcePath, resolvedDestinationPath);
       return `目录移动成功：${resolvedSourcePath} -> ${resolvedDestinationPath}`;
     } catch (error) {
@@ -325,7 +311,7 @@ export const moveDirectoryTool = tool(
   {
     name: "move_directory",
     description:
-      "Move or rename a local directory recursively. Parent directories are created automatically; protected system paths are refused.",
+      "Move or rename an authorized directory to a new destination. Workspace roots and existing destination directories are refused.",
     schema: z.object({
       sourcePath: z.string().describe("Current path of the directory."),
       destinationPath: z.string().describe("Destination path of the directory."),
@@ -338,7 +324,7 @@ export const deleteFileTool = tool(
   async ({ filePath }) => {
     try {
       const resolvedPath = resolveToolPath(filePath);
-      assertNotProtectedPath(resolvedPath);
+      assertWorkspaceAccess(resolvedPath, 'delete');
       if (!fs.existsSync(resolvedPath)) {
         return `文件不存在：${resolvedPath}`;
       }
@@ -372,11 +358,14 @@ export const searchFilesTool = tool(
       const normalizedKeyword = keyword.toLowerCase();
 
       const searchDir = (dir: string, depth: number): void => {
+        assertNotProtectedPath(dir);
         if (results.length >= 50 || depth > 8) return;
         try {
           const entries = fs.readdirSync(dir, { withFileTypes: true });
           for (const entry of entries) {
             const fullPath = path.join(dir, entry.name);
+            if (entry.isSymbolicLink()) continue;
+            assertNotProtectedPath(fullPath);
             if (entry.isDirectory()) {
               if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
                 searchDir(fullPath, depth + 1);
@@ -437,6 +426,7 @@ export const searchFileContentTool = tool(
       ]);
 
       const walk = (dir: string, depth: number): void => {
+        assertNotProtectedPath(dir);
         if (matches.length >= 30 || depth > 6) return;
 
         let entries: fs.Dirent[];
@@ -448,6 +438,7 @@ export const searchFileContentTool = tool(
 
         for (const entry of entries) {
           const fullPath = path.join(dir, entry.name);
+          if (entry.isSymbolicLink()) continue;
           if (entry.isDirectory()) {
             if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
               walk(fullPath, depth + 1);
@@ -460,6 +451,7 @@ export const searchFileContentTool = tool(
           }
 
           try {
+            assertReadableFile(fullPath);
             const stat = fs.statSync(fullPath);
             if (stat.size > 200_000) continue;
             const content = fs.readFileSync(fullPath, "utf-8");
@@ -744,20 +736,7 @@ export const makeZipTool = tool(
         return `源路径不存在：${resolvedSourcePath}`;
       }
 
-      if (fs.existsSync(resolvedZipPath)) {
-        if (!overwrite) {
-          return `ZIP 文件已存在：${resolvedZipPath}`;
-        }
-        fs.unlinkSync(resolvedZipPath);
-      }
-
-      const script = [
-        "$OutputEncoding = [System.Text.UTF8Encoding]::new($false);",
-        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false);",
-        `Compress-Archive -LiteralPath '${resolvedSourcePath.replace(/'/g, "''")}' -DestinationPath '${resolvedZipPath.replace(/'/g, "''")}' -Force`,
-      ].join(" ");
-
-      await execFileUtf8("powershell.exe", ["-NoProfile", "-Command", script]);
+      await createWorkspaceZip(resolvedSourcePath, resolvedZipPath, overwrite);
       return `ZIP 创建成功：${resolvedZipPath}`;
     } catch (error) {
       return toToolError("创建 ZIP", error);
@@ -799,12 +778,12 @@ export const openUrlTool = tool(
 );
 
 export const extractZipTool = tool(
-  async ({ zipPath, destinationPath, overwrite }) => {
+  async ({ zipPath, destinationPath }) => {
     try {
       const resolvedZipPath = resolveToolPath(zipPath);
       const resolvedDestinationPath = resolveToolPath(destinationPath);
       assertNotProtectedPath(resolvedZipPath);
-      ensureWritableTarget(path.join(resolvedDestinationPath, ".keep"));
+      assertWorkspaceAccess(resolvedDestinationPath, 'write');
 
       if (!fs.existsSync(resolvedZipPath)) {
         return `ZIP 文件不存在：${resolvedZipPath}`;
@@ -815,22 +794,7 @@ export const extractZipTool = tool(
         return `拒绝解压非文件路径：${resolvedZipPath}`;
       }
 
-      if (fs.existsSync(resolvedDestinationPath)) {
-        if (!overwrite) {
-          return `目标路径已存在：${resolvedDestinationPath}`;
-        }
-        fs.rmSync(resolvedDestinationPath, { recursive: true, force: true });
-      }
-
-      fs.mkdirSync(resolvedDestinationPath, { recursive: true });
-
-      const script = [
-        "$OutputEncoding = [System.Text.UTF8Encoding]::new($false);",
-        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false);",
-        `Expand-Archive -LiteralPath '${resolvedZipPath.replace(/'/g, "''")}' -DestinationPath '${resolvedDestinationPath.replace(/'/g, "''")}' -Force`,
-      ].join(" ");
-
-      await execFileUtf8("powershell.exe", ["-NoProfile", "-Command", script]);
+      await extractWorkspaceZip(resolvedZipPath, resolvedDestinationPath);
       return `ZIP 解压成功：${resolvedDestinationPath}`;
     } catch (error) {
       return toToolError("解压 ZIP", error);
@@ -839,7 +803,7 @@ export const extractZipTool = tool(
   {
     name: "extract_zip",
     description:
-      "Extract a zip archive to a local directory. Parent directories are created automatically; protected system paths are refused.",
+      "Safely extract a zip archive to a new authorized directory. Existing directories, unsafe entry paths and links are refused.",
     schema: z.object({
       zipPath: z.string().describe("Path of the zip archive to extract."),
       destinationPath: z.string().describe("Destination directory for extracted files."),

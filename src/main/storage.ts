@@ -242,6 +242,10 @@ function createGeneralAgentProfile(existing?: Partial<AgentProfile>): AgentProfi
     systemPrompt: "",
     ...createAgentDefaults(),
     mode: "general",
+    tools: {
+      enabledToolNames: [], allowNetwork: true, allowWrite: true, allowDelete: true,
+      requireConfirmationForRisky: true,
+    },
     models: {
       forceAgent: false,
     },

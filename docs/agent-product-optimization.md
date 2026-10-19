@@ -2,6 +2,8 @@
 
 更新时间：2026-06-11
 
+> 本文保留历史方案。当前代码已有统一工具执行器、确认队列、Trace、系统测试和行为 eval；中文编码也应以 UTF-8 读取结果核实。最新差距与验收建议见 [2026-10 产品与开发评审](agent-product-review-2026-10.md)。
+
 ## 1. 结论摘要
 
 Centibot 已经具备本地 AI Agent 的雏形：Electron 桌面端、Ollama 与 OpenAI-compatible 双模型来源、对话持久化、工具调用、任务中心、知识库 RAG、Skills 提示词中心、PDF/PPT 生成工具以及近期完成的浅色工作台 UI。

@@ -49,6 +49,8 @@ import { RAG_CITATION_PROMPT } from "./prompts/agentPrompts";
 import { recordTrace } from "./runtime/trace";
 import { writeAppLog } from "./runtime/logger";
 import { executeTool } from "./runtime/ToolExecutor";
+import { withToolPermissions } from './runtime/toolPermissions';
+import { getEffectiveAgentProfile } from './runtime/agentAccess';
 import { requestApproval, resolveApproval, resolveConversationApprovals } from "./runtime/toolApprovals";
 import { resolveRouteDecision as evaluateRouteDecision, type RouteDecision } from "./routing";
 import type { ToolApprovalRequest } from "./runtime/ToolExecutor";
@@ -65,13 +67,10 @@ import {
   saveModelSettings,
   flushStorageWrites,
   getSkills,
-  getAgentProfile,
-  getConversationMeta,
   getWechatBotSettings,
   saveWechatBotSettings,
   loadWechatBotMessages,
   saveWechatBotMessages,
-  type AgentProfile,
   type WechatBotPanelMessage,
   type SkillConfig,
 } from "./storage";
@@ -757,17 +756,6 @@ function buildKnowledgeBaseFailureMessage(err: unknown): string {
   ].join("\n");
 }
 
-function getEffectiveAgentProfile(
-  conversationId?: string | null,
-): AgentProfile | null {
-  const conversationMeta = conversationId
-    ? getConversationMeta(conversationId)
-    : null;
-  const candidateId = conversationMeta?.agentProfileId;
-  if (!candidateId) return null;
-  return getAgentProfile(candidateId);
-}
-
 function createWindow(): void {
   const titleBarBackground = "#f4f8ff";
   const mainWindow = new BrowserWindow({
@@ -857,7 +845,7 @@ ipcMain.handle(
       fallbackToChat?: boolean;
       citationRequired?: boolean;
     },
-  ) => {
+  ) => withToolPermissions(getEffectiveAgentProfile(conversationId)?.tools, async () => {
     const webContents = event.sender;
     const requestStartedAt = Date.now();
     const routeTraceId = randomUUID();
@@ -1014,7 +1002,7 @@ ipcMain.handle(
       requestApproval(request, { webContents, conversationId: requestConversationId, signal });
 
     try {
-      const activeAgent = getEffectiveAgentProfile(requestConversationId);
+      const activeAgent = getEffectiveAgentProfile(conversationId);
       const knowledgeOptions: KnowledgeRequestOptions = {
         kbIds,
         ragOnly,
@@ -1475,7 +1463,7 @@ ${context}
         chatRequests.delete(requestConversationId);
       }
     }
-  },
+  }),
 );
 
 // IPC: 中断当前请求

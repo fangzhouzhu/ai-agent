@@ -6,6 +6,8 @@ export function withToolSignal<T>(signal: AbortSignal, work: () => Promise<T>): 
   return toolSignal.run(signal, work)
 }
 
+export function throwIfToolAborted(): void { toolSignal.getStore()?.throwIfAborted() }
+
 // Search helpers and their fallback fetches inherit the invoking tool's signal,
 // while preserving shorter per-request deadlines.
 export function fetchWithToolSignal(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {

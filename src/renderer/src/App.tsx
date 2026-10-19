@@ -9,6 +9,7 @@ import TaskPanel from './components/TaskPanel'
 import WechatBotPanel from './components/WechatBotPanel'
 import CustomSelect from './components/CustomSelect'
 import ModelSettings from './components/ModelSettings'
+import WorkspacePermissions from './components/WorkspacePermissions'
 import { loadSettingsResources, type SettingsResource } from './settingsLoader'
 import { prepareModelSettings, validateOnlineConnection } from './modelSettings'
 import type { ModelProvider, RouteModelConfig, SavedOnlineProfile, OnlineProviderConfig, ModelRouteConfig } from './modelSettings'
@@ -629,7 +630,20 @@ const App: React.FC = () => {
   const [draftModelConfig, setDraftModelConfig] = useState<ModelRouteConfig>(defaultModelConfig)
   const [agents, setAgents] = useState<AgentProfile[]>([])
   const [agentEditorDraft, setAgentEditorDraft] = useState<AgentProfile | null>(null)
+  const [agentToolOptions, setAgentToolOptions] = useState<ToolPolicy[]>([])
+  const [agentToolLoadError, setAgentToolLoadError] = useState('')
   const [showAgentModal, setShowAgentModal] = useState(false)
+  useEffect(() => {
+    if (!showAgentModal) return
+    let active = true
+    setAgentToolLoadError('')
+    window.electronAPI.listToolPolicies().then(policies => {
+      if (active) setAgentToolOptions(policies)
+    }).catch(() => {
+      if (active) setAgentToolLoadError('工具列表加载失败，请关闭后重新打开。已有权限不会被清空。')
+    })
+    return () => { active = false }
+  }, [showAgentModal])
   const [agentModalMode, setAgentModalMode] = useState<'new' | 'edit'>('new')
   const [activeAgentMenuId, setActiveAgentMenuId] = useState<string | null>(null)
   const [agentKbPickerOpen, setAgentKbPickerOpen] = useState(false)
@@ -910,7 +924,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const controllers = new Map<string, AbortController>()
     const removeCancelled = window.electronAPI.onToolApprovalCancelled(requestId => controllers.get(requestId)?.abort())
-    const remove = window.electronAPI.onToolApprovalRequest(async ({ requestId, toolName, input, policy }) => {
+    const remove = window.electronAPI.onToolApprovalRequest(async ({ requestId, toolName, input, policy, preview }) => {
       const controller = new AbortController()
       controllers.set(requestId, controller)
       const filePath =
@@ -923,7 +937,7 @@ const App: React.FC = () => {
             signal: controller.signal,
             title: '确认删除文件',
             message: '即将把文件移入系统回收站，是否继续？',
-            description: filePath,
+            description: preview || filePath,
             confirmText: '删除',
             cancelText: '取消',
             tone: 'danger',
@@ -932,7 +946,7 @@ const App: React.FC = () => {
             signal: controller.signal,
             title: `确认执行${policy?.displayName ?? toolName}`,
             message: '该操作需要你的确认后才能继续执行。',
-            description: filePath || policy?.description || JSON.stringify(input, null, 2),
+            description: preview || JSON.stringify(input, null, 2) || policy?.description,
             confirmText: '确定',
             cancelText: '取消',
             tone: 'default',
@@ -1203,7 +1217,7 @@ const App: React.FC = () => {
     const messages = conv.messages
       .filter((m) => !m.isStreaming)
       .map(toStoredMessage)
-    window.electronAPI.storage.save(meta, messages)
+    return window.electronAPI.storage.save(meta, messages)
   }, [])
 
   // 新建对话
@@ -2289,6 +2303,7 @@ const App: React.FC = () => {
       }
 
       try {
+        await persistConversation({ ...targetConv, messages: baseMessages })
         await window.electronAPI.sendMessage(
           history,
           userMsg.content,
@@ -2341,7 +2356,7 @@ const App: React.FC = () => {
         const newTitle = isFirstMsg ? generateTitle(text) : targetConv.title
 
         try {
-          const taskId = await window.electronAPI.task.create(text)
+          const taskId = await window.electronAPI.task.create(text, targetConv.agentProfileId)
           const task = (await window.electronAPI.task.get(taskId)) ?? createPendingTaskSnapshot(taskId, text)
           setActiveTaskId(taskId)
           setCurrentView('task')
@@ -2577,6 +2592,9 @@ const App: React.FC = () => {
       }
 
       try {
+        // Commit the agent binding before main resolves permissions, including
+        // the first message of a newly created conversation.
+        await persistConversation({ ...targetConv, title: newTitle, messages: [...targetConv.messages, userMsg] })
         await window.electronAPI.sendMessage(
           history,
           text,
@@ -2955,6 +2973,42 @@ const App: React.FC = () => {
                   />
                   <span>默认走 Agent 路由</span>
                 </label>
+              </div>
+
+              <div className={styles.fieldItem}>
+                <span>工具权限</span>
+                <div className={styles.fieldHint}>聊天与从该对话创建的后台任务共用这些限制。已有任务在重新运行时读取最新权限。</div>
+                <div className={styles.agentToggleGrid}>
+                  {([
+                    ['allowNetwork', '允许联网工具'],
+                    ['allowWrite', '允许写入和修改文件'],
+                    ['allowDelete', '允许删除文件'],
+                    ['requireConfirmationForRisky', '写入、删除和系统操作前确认'],
+                  ] as const).map(([key, label]) => (
+                    <label className={styles.toggleRow} key={key}>
+                      <input type="checkbox" checked={agentEditorDraft.tools[key]}
+                        onChange={event => setAgentEditorDraft(prev => prev ? { ...prev, tools: { ...prev.tools, [key]: event.target.checked } } : prev)} />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+                <label className={styles.fieldItem}>
+                  <span>限定可用工具（可多选）</span>
+                  <select multiple className={styles.fieldInput} size={6}
+                    value={agentEditorDraft.tools.enabledToolNames}
+                    disabled={!agentToolOptions.length}
+                    onChange={event => {
+                      const names = Array.from(event.target.selectedOptions, option => option.value)
+                      setAgentEditorDraft(prev => prev ? { ...prev, tools: { ...prev.tools, enabledToolNames: names } } : prev)
+                    }}>
+                    {agentToolOptions.map(policy => <option key={policy.name} value={policy.name}>{policy.displayName}</option>)}
+                    {agentEditorDraft.tools.enabledToolNames.filter(name => !agentToolOptions.some(policy => policy.name === name)).map(name => <option key={name} value={name}>{name}（不可用）</option>)}
+                  </select>
+                </label>
+                <button type="button" className={styles.secondaryBtn}
+                  onClick={() => setAgentEditorDraft(prev => prev ? { ...prev, tools: { ...prev.tools, enabledToolNames: [] } } : prev)}>不限制工具名称</button>
+                <div className={styles.fieldHint}>未选择时允许所有已注册工具，仍受上方联网、写入、删除开关限制。按住 Ctrl / Command 可多选。全局要求确认的工具始终需要确认。联网开关不控制在线模型请求。</div>
+                {agentToolLoadError && <div role="alert">{agentToolLoadError}</div>}
               </div>
 
               <div className={styles.agentKbSection}>
@@ -3460,7 +3514,9 @@ const App: React.FC = () => {
             )}
             {settingsTab === 'tools' && (
               <div className={styles.modalSection}>
+                <WorkspacePermissions />
                 <div className={styles.modalLabel}>工具权限</div>
+                <div className={styles.fieldHint}>“自动执行”仍受 Agent 权限、工作区授权和现有文件变更确认约束。</div>
                 <div className={styles.policyGrid}>
                   {toolPolicies.map((policy) => (
                     <div

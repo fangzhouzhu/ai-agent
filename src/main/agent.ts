@@ -1,4 +1,5 @@
 import { extractMathExpression } from './queryRouting';
+import { filterAllowedTools, describeAllowedTools } from './runtime/toolPermissions';
 import { ChatOllama } from "@langchain/ollama";
 import {
   HumanMessage,
@@ -9,7 +10,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { listRagFiles, retrieveRelevantChunks } from "./rag";
 import { allTools } from "./tools";
-import { summarizeToolPolicies } from "./tools/policy";
 import {
   OPENAI_COMPATIBLE_TOOLS,
   buildCompatibleUserContent,
@@ -1132,7 +1132,7 @@ function buildSystemPrompt(
   return [
     BASE_CHAT_SYSTEM_PROMPT,
     enableTools ? TOOL_SYSTEM_PROMPT : "",
-    enableTools ? `工具安全策略：\n${summarizeToolPolicies()}` : "",
+    enableTools ? describeAllowedTools() : "",
     buildRuntimeContextPrompt(enableTools),
     skillPrompt,
   ]
@@ -1256,7 +1256,7 @@ export async function chatWithAgent(
         settings: modelConfig.online,
         model: route.model,
         messages,
-        tools: OPENAI_COMPATIBLE_TOOLS,
+        tools: filterAllowedTools(OPENAI_COMPATIBLE_TOOLS, tool => tool.function.name),
         signal,
       });
 
@@ -1368,7 +1368,8 @@ export async function chatWithAgent(
   }
 
   const llm = buildLLM(route.model, false);
-  const llmWithTools = llm.bindTools(allTools);
+  const permittedTools = filterAllowedTools(allTools, tool => tool.name);
+  const llmWithTools = permittedTools.length ? llm.bindTools(permittedTools) : llm;
   const messages = [
     new SystemMessage(buildSystemPrompt(skill, { enableTools: true })),
     ...history.map(toLC),

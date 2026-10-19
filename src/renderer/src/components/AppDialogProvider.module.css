@@ -79,6 +79,10 @@
 }
 
 .dialogDescription {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow-y: auto;
   margin-top: 10px;
   color: #5f6f8f;
   font-size: 14px;
