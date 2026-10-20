@@ -386,6 +386,46 @@ test('chat pre-calls and model-proposed calls cannot bypass disabled network per
   assert.ok(requests.every(request => request.tools.length === 0))
 })
 
+for (const scenario of ['same location', 'different location', 'failed pre-call']) {
+  test(`weather pre-call reaches online model and handles ${scenario}`, async () => {
+    const executions = [], calls = [], results = []
+    let round = 0
+    const preResult = scenario === 'failed pre-call' ? '天气查询失败: timeout' : '位置: 上海\n天气: 晴\n温度: 23°C'
+    const { load } = environment({
+      '@langchain/ollama': {}, '@langchain/core/messages': {},
+      './tools': { allTools: [{ name: 'get_weather_current' }] },
+      './tools/policy': { summarizeToolPolicies: () => '' },
+      './rag': {},
+      './runtime/ToolExecutor': { executeTool: async (name, args) => {
+        executions.push({ name, args })
+        return { result: executions.length === 1 ? preResult : `位置: ${args.location}\n天气: 晴` }
+      } },
+      './openaiCompatible': {
+        OPENAI_COMPATIBLE_TOOLS: [], buildCompatibleUserContent: text => text,
+        invokeOpenAICompatibleChat: async options => {
+          if (round++ === 0) {
+            const prior = options.messages.find(message => message.role === 'tool')
+            assert.equal(prior?.content, preResult, 'Model must receive the pre-call result before deciding to query')
+            assert.equal(options.messages.find(message => message.tool_calls)?.tool_calls[0].id, prior.tool_call_id)
+            return { content: '', toolCalls: [{ id: 'weather_retry', type: 'function', function: {
+              name: 'get_weather_current', arguments: JSON.stringify({ location: scenario === 'different location' ? '北京' : '上海', lang: 'zh' }),
+            } }] }
+          }
+          assert.ok(options.messages.some(message => message.tool_call_id === 'weather_retry'))
+          return { content: '天气已查询', toolCalls: [] }
+        },
+      },
+    })
+    const agent = load('src/main/agent.ts')
+    agent.applyModelSettings({ agentProvider: 'openai-compatible' })
+    await agent.chatWithAgent([], '上海天气', () => {}, name => calls.push(name), (_, result) => results.push(result))
+    const expected = scenario === 'same location' ? 1 : 2
+    assert.equal(executions.length, expected)
+    assert.equal(calls.length, expected, 'Reused weather must not create a duplicate UI card')
+    assert.equal(results.length, expected)
+  })
+}
+
 test('cancelling a network tool aborts its real fetch signal and prevents fallback requests', async () => {
   let networkSignal, requests = 0
   let load

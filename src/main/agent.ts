@@ -1237,7 +1237,7 @@ export async function chatWithAgent(
 
   if (route.provider === "openai-compatible") {
     const summaryInstruction = buildRecommendationSummaryInstructionV2(userMessage);
-      const messages: CompatibleMessage[] = [
+    const messages: CompatibleMessage[] = [
       {
         role: "system",
         content: buildSystemPrompt(skill, { enableTools: true }),
@@ -1248,6 +1248,33 @@ export async function chatWithAgent(
         content: buildCompatibleUserContent(userMessage, attachments),
       },
     ];
+
+    // 将预调用作为真实的工具历史传入，否则在线模型不知道工具已经执行过。
+    if (preResults.length > 0) {
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: preResults.map((result, index) => ({
+          id: `precall_${index}`,
+          type: "function",
+          function: {
+            name: result.toolName,
+            arguments: JSON.stringify(result.args),
+          },
+        })),
+      });
+      preResults.forEach((result, index) => {
+        messages.push({
+          role: "tool",
+          tool_call_id: `precall_${index}`,
+          content: result.result,
+        });
+      });
+    }
+
+    const weatherResults = preResults.filter(
+      (result) => result.toolName === "get_weather_current" && /^位置[:：]/.test(result.result),
+    );
 
     // 最多执行 8 轮工具调用，避免无限循环
     for (let i = 0; i < 8; i++) {
@@ -1274,6 +1301,21 @@ export async function chatWithAgent(
           );
 
           const args = parseToolArguments(toolCall.function.arguments);
+          // 天气工具只使用 location；额外的 lang 等参数不应导致重复查询。
+          const cachedWeather = toolCall.function.name === "get_weather_current"
+            ? weatherResults.find((result) =>
+                normalizeWeatherLocation(String(result.args.location ?? "")) ===
+                normalizeWeatherLocation(String(args.location ?? "")),
+              )
+            : undefined;
+          if (cachedWeather) {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: cachedWeather.result,
+            });
+            continue;
+          }
           onToolCall(toolCall.function.name, args);
 
           let resultStr: string;
@@ -1293,6 +1335,9 @@ export async function chatWithAgent(
           }
 
           onToolResult(toolCall.function.name, resultStr);
+          if (toolCall.function.name === "get_weather_current" && /^位置[:：]/.test(resultStr)) {
+            weatherResults.push({ toolName: toolCall.function.name, args, result: resultStr });
+          }
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,

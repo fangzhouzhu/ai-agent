@@ -548,7 +548,6 @@ export const OPENAI_COMPATIBLE_TOOLS: CompatibleToolDefinition[] = [
         type: "object",
         properties: {
           location: { type: "string", description: "地点名称" },
-          lang: { type: "string", description: "返回语言，例如 zh 或 en" },
         },
         required: ["location"],
         additionalProperties: false,
